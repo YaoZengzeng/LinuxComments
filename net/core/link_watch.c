@@ -87,6 +87,9 @@ static void rfc2863_policy(struct net_device *dev)
 }
 
 
+// linkwatch_run_queue()用于取出并遍历所有的连接状态改变事件
+// 在网络设备启用状态下，根据当前的网络连接打开或者关闭网络设备的
+// 排队功能，并且发送相应的通知消息
 /* Must be called with the rtnl semaphore held */
 void linkwatch_run_queue(void)
 {
@@ -112,6 +115,7 @@ void linkwatch_run_queue(void)
 		clear_bit(__LINK_STATE_LINKWATCH_PENDING, &dev->state);
 
 		rfc2863_policy(dev);
+		// 根据当前的网络连接状态打开/关闭网络设备的排队功能
 		if (dev->flags & IFF_UP) {
 			if (netif_carrier_ok(dev)) {
 				WARN_ON(dev->qdisc_sleeping == &noop_qdisc);
@@ -127,6 +131,8 @@ void linkwatch_run_queue(void)
 }       
 
 
+// linkwatch_event()为linkwatch_work工作队列的例程，一旦linkwatch_work工作队列被激活
+// 就会调用该函数
 static void linkwatch_event(struct work_struct *dummy)
 {
 	/* Limit the number of linkwatch events to one
@@ -138,6 +144,7 @@ static void linkwatch_event(struct work_struct *dummy)
 	clear_bit(LW_RUNNING, &linkwatch_flags);
 
 	rtnl_lock();
+	// 处理网络设备连接状态改变事件
 	linkwatch_run_queue();
 	rtnl_unlock();
 }
@@ -145,6 +152,7 @@ static void linkwatch_event(struct work_struct *dummy)
 
 void linkwatch_fire_event(struct net_device *dev)
 {
+		// 表示正在处理连接状态改变事件
 	if (!test_and_set_bit(__LINK_STATE_LINKWATCH_PENDING, &dev->state)) {
 		unsigned long flags;
 		struct lw_event *event;
@@ -157,6 +165,7 @@ void linkwatch_fire_event(struct net_device *dev)
 				return;
 			}
 		} else {
+			// 优先使用静态分配的lw_event实例singleevent
 			event = &singleevent;
 		}
 

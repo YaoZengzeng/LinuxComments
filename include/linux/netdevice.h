@@ -287,6 +287,7 @@ struct net_device
 	 *	I/O specific fields
 	 *	FIXME: Merge these and struct ifmap into one
 	 */
+	// 网络设备共享内存的起始和终止地址
 	unsigned long		mem_end;	/* shared mem end	*/
 	unsigned long		mem_start;	/* shared mem start	*/
 	unsigned long		base_addr;	/* device I/O address	*/
@@ -297,9 +298,14 @@ struct net_device
 	 *	part of the usual set specified in Space.c.
 	 */
 
+	// 指定在多端口设备上使用哪个端口
 	unsigned char		if_port;	/* Selectable AUI, TP,..*/
+	// 为设备分配的DMA通道，该成员只对某些外设总线有用，如ISA
 	unsigned char		dma;		/* DMA channel		*/
 
+	// 设备状态
+	// _LINK_STATE_START-->网络设备处于激活状态
+	// _LINK_STATE_PRESENT --> 此标志用于记录待机前的设备状态，以判断在系统恢复时是否需要重启设备
 	unsigned long		state;
 
 	struct net_device	*next;
@@ -339,6 +345,7 @@ struct net_device
 #define NETIF_F_GEN_CSUM	(NETIF_F_NO_CSUM | NETIF_F_HW_CSUM)
 #define NETIF_F_ALL_CSUM	(NETIF_F_IP_CSUM | NETIF_F_GEN_CSUM)
 
+	// 用于链接那些已调度有数据包输出的网络设备的指针
 	struct net_device	*next_sched;
 
 	/* Interface index. Unique device identifier	*/
@@ -362,16 +369,20 @@ struct net_device
 	 * will (read: may be cleaned up at will).
 	 */
 
-
+	// 标识接口特性，这些标示由内核管理，其中一些在初始化时设备
+	// flag主要包括 IFF_UP, IFF_NOARP, IFF_PROMISC等等
 	unsigned int		flags;	/* interface flags (a la BSD)	*/
 	unsigned short		gflags;
         unsigned short          priv_flags; /* Like 'flags' but invisible to userspace. */
+	// 网络设备的net_device实例需要32位对齐
 	unsigned short		padded;	/* How much padding added by alloc_netdev() */
 
 	unsigned char		operstate; /* RFC2863 operstate */
 	unsigned char		link_mode; /* mapping policy to operstate */
 
 	unsigned		mtu;	/* interface MTU value		*/
+
+	// 接口的硬件类型，ARP模块处理中，用type来判断接口的硬件地址类型。例如以太网接口该字段取值为ARPHRD_ETHER
 	unsigned short		type;	/* interface hardware type	*/
 	unsigned short		hard_header_len;	/* hardware hdr length	*/
 
@@ -382,18 +393,19 @@ struct net_device
 	/* Interface address info. */
 	unsigned char		perm_addr[MAX_ADDR_LEN]; /* permanent hw address */
 	unsigned char		addr_len;	/* hardware address length	*/
-	unsigned short          dev_id;		/* for shared network cards */
+	unsigned short          dev_id;		/* for shared network cards *///未使用
 
 	struct dev_mc_list	*mc_list;	/* Multicast mac addresses	*/
 	int			mc_count;	/* Number of installed mcasts	*/
+	// 每次设置或者退出操作，该字段都会相应地加或减1， 只有当该字段为0时，设备才真正退出混杂模式	
 	int			promiscuity;
 	int			allmulti;
 
 
 	/* Protocol specific pointers */
-	
+	// 指向与特定协议族相关的配置块
 	void 			*atalk_ptr;	/* AppleTalk link 	*/
-	void			*ip_ptr;	/* IPv4 specific data	*/  
+	void			*ip_ptr;	/* IPv4 specific data	*/  // ip_ptr指向in_device结构的IP配置块
 	void                    *dn_ptr;        /* DECnet specific data */
 	void                    *ip6_ptr;       /* IPv6 specific data */
 	void			*ec_ptr;	/* Econet specific data	*/
@@ -406,6 +418,9 @@ struct net_device
 					/* Link to poll list	*/
 
 	int			(*poll) (struct net_device *dev, int *quota);
+	// 读取数据包的配额，每次从网络设备中读取数据包后，会从中减去本次读取的数据包数，当该值
+	// 小于或等于0时，结束此次轮询，等待下一次。这样保证了即使某个网络设备有大量的数据包输入时，
+	// 也能保证其他网络设备能及时接收数据包
 	int			quota;
 	int			weight;
 	unsigned long		last_rx;	/* Time of last Rx	*/
@@ -423,6 +438,7 @@ struct net_device
 	struct Qdisc		*qdisc;
 	struct Qdisc		*qdisc_sleeping;
 	struct list_head	qdisc_list;
+	// 在设备发送队列中排队的最大数据包数，例如以太网默认值为1000，可由ifconfig修改
 	unsigned long		tx_queue_len;	/* Max frames per queue allowed */
 
 	/* Partially transmitted GSO packet. */
@@ -442,12 +458,15 @@ struct net_device
 	 */
 	int			xmit_lock_owner;
 	void			*priv;	/* pointer to private data	*/
+	// 驱动提供给上一层发送数据包的接口，在发送数据包时必定会调用该接口
 	int			(*hard_start_xmit) (struct sk_buff *skb,
 						    struct net_device *dev);
 	/* These may be needed for future network-power-down code. */
 	unsigned long		trans_start;	/* Time (in jiffies) of last Tx	*/
 
 	int			watchdog_timeo; /* used by dev_watchdog() */
+	// 用于检测网络设备处于正常的工作状态时，是否存在由于关闭排队功能而导致发送超时的情况
+	// 一旦发生以上情况，就调用网络设备驱动的tx_timeout接口处理
 	struct timer_list	watchdog_timer;
 
 /*
@@ -456,11 +475,16 @@ struct net_device
 	/* Number of references to this device */
 	atomic_t		refcnt ____cacheline_aligned_in_smp;
 
+	// 用来连接到net_todo_list链表上
+	// net_todo_list链表包含已注销即将结束的网络设备。在调用unregister_netdevice()
+	// 注销设备后，会调用net_set_todo()将注销的网络设备实例连接到net_todo_list上。
+	// 然后rtnl_unlock()会释放锁，并调用netdev_run_todo()完成对网络设备的注销操作
 	/* delayed register/unregister */
 	struct list_head	todo_list;
 	/* device index hash chain */
 	struct hlist_node	index_hlist;
 
+	// 网络设备注册到链表中，用于标识网络设备的注册状态
 	/* register/unregister state machine */
 	enum { NETREG_UNINITIALIZED=0,
 	       NETREG_REGISTERED,	/* completed register_netdevice */
@@ -474,18 +498,22 @@ struct net_device
 	/* Called after last user reference disappears. */
 	void			(*destructor)(struct net_device *dev);
 
+	// 启用设备函数指针，完成注册所需的系统资源，打开硬件机器所有设置
 	/* Pointers to interface service routines.	*/
 	int			(*open)(struct net_device *dev);
 	int			(*stop)(struct net_device *dev);
 #define HAVE_NETDEV_POLL
+	// 根据先前检索到的源和目的硬件地址创建硬件首部，以太网设备对应的接口为eth_header()
 	int			(*hard_header) (struct sk_buff *skb,
 						struct net_device *dev,
 						unsigned short type,
 						void *daddr,
 						void *saddr,
 						unsigned len);
+	// 用来在传输包之前，完成ARP解析之后，重建硬件首部
 	int			(*rebuild_header)(struct sk_buff *skb);
-#define HAVE_MULTICAST			 
+#define HAVE_MULTICAST
+	// 将组播地址列表更新到网络设备中，当设备的组播列表或设备标识发生变化时，调用此函数			 
 	void			(*set_multicast_list)(struct net_device *dev);
 #define HAVE_SET_MAC_ADDR  		 
 	int			(*set_mac_address)(struct net_device *dev,
@@ -497,6 +525,7 @@ struct net_device
 	int			(*set_config)(struct net_device *dev,
 					      struct ifmap *map);
 #define HAVE_HEADER_CACHE
+	// 根据ARP查询结果填充hh_cache结构。通常驱动程序都使用默认的eth_header_cache()实现
 	int			(*hard_header_cache)(struct neighbour *neigh,
 						     struct hh_cache *hh);
 	void			(*header_cache_update)(struct hh_cache *hh,
@@ -517,6 +546,7 @@ struct net_device
 
 	int			(*hard_header_parse)(struct sk_buff *skb,
 						     unsigned char *haddr);
+	// 用于设置和邻居子系统相关的参数，在创建邻居项时被回调，可以不实现
 	int			(*neigh_setup)(struct net_device *dev, struct neigh_parms *);
 #ifdef CONFIG_NETPOLL
 	struct netpoll_info	*npinfo;
@@ -528,6 +558,7 @@ struct net_device
 	/* bridge stuff */
 	struct net_bridge_port	*br_port;
 
+	// 网络设备注册在/sys/class/net/中的实例
 	/* class/net/name entry */
 	struct class_device	class_dev;
 	/* space for optional statistics and wireless sysfs groups */

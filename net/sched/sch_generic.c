@@ -248,9 +248,13 @@ static void dev_watchdog_down(struct net_device *dev)
 	netif_tx_unlock_bh(dev);
 }
 
+// 网络设备会定时地侦测网络设备是否处于可传递状态，当状态发生彼岸花时，会调用netif_carrier_on()
+// 或netif_carrier_off来通知内核。从网络设备插拔网线或网线另一端的设备（hub，网桥，路由器）关闭
+// 或禁止，都会导致连接状态的改变
 void netif_carrier_on(struct net_device *dev)
 {
 	if (test_and_clear_bit(__LINK_STATE_NOCARRIER, &dev->state))
+		// 生成一个连接状态改变事件
 		linkwatch_fire_event(dev);
 	if (netif_running(dev))
 		__netdev_watchdog_up(dev);

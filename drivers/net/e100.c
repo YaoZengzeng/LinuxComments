@@ -2718,9 +2718,12 @@ static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct nic *nic = netdev_priv(netdev);
 
+	// 如果设备处于激活状态，则等待网络设备完成轮询接收数据包
 	if (netif_running(netdev))
 		netif_poll_disable(nic->netdev);
+	// 删除监视网络设备工作状态的定时器
 	del_timer_sync(&nic->watchdog);
+	// 使设备驱动处于不可传递数据状态，并关闭网络设备的排队功能
 	netif_carrier_off(nic->netdev);
 	netif_device_detach(netdev);
 

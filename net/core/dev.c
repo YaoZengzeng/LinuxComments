@@ -847,6 +847,7 @@ int dev_open(struct net_device *dev)
 	/*
 	 *	Is it even present?
 	 */
+	// 如果网络设备已经被挂起，则不能被激活
 	if (!netif_device_present(dev))
 		return -ENODEV;
 
@@ -873,11 +874,14 @@ int dev_open(struct net_device *dev)
 		/*
 		 *	Initialize multicasting status
 		 */
+		// 更新组播地址列表到网络设备中
 		dev_mc_upload(dev);
 
 		/*
 		 *	Wakeup transmit queue engine
 		 */
+		// 初始化用于流量控制的排队规则，并启动监视定时器
+		// 如果用户没有配置流量控制，则指定为默认的FIFO队列
 		dev_activate(dev);
 
 		/*
@@ -908,6 +912,8 @@ int dev_close(struct net_device *dev)
 	 */
 	raw_notifier_call_chain(&netdev_chain, NETDEV_GOING_DOWN, dev);
 
+	// 禁止出口队列规则，确保该设备不再用于传输，并停止不再需要的监控定时器
+	// 将网络设备设置为禁止传递数据包状态，设置对应标识
 	dev_deactivate(dev);
 
 	clear_bit(__LINK_STATE_START, &dev->state);
@@ -917,7 +923,7 @@ int dev_close(struct net_device *dev)
 	 * and wait when poll really will happen. Actually, the best place
 	 * for this is inside dev->stop() after device stopped its irq
 	 * engine, but this requires more changes in devices. */
-
+	// 如果网络设备正在轮询接收数据包，则需等待，直至此次接收数据包完成才能继续后续的关闭操作
 	smp_mb__after_clear_bit(); /* Commit netif_running(). */
 	while (test_bit(__LINK_STATE_RX_SCHED, &dev->state)) {
 		/* No hurry. */
@@ -2883,6 +2889,8 @@ int register_netdevice(struct net_device *dev)
 	BUG_ON(dev_boot_phase);
 	ASSERT_RTNL();
 
+	// might_sleep宏检查是否需要重新调度，如果是，则进行调度
+	// 无论此时进程在内核空间还是用户空间
 	might_sleep();
 
 	/* When net_device's are persistent, this will be fatal. */
@@ -2927,6 +2935,8 @@ int register_netdevice(struct net_device *dev)
 		}
  	}
 
+ 	// 只有在网络设备支持校验和计算的情况下，网络设备才能支持SG类型的聚合分散IO
+ 	// 因为SG类型的聚合分散IO特性没有传输层硬件校验和支持是无用的
 	/* Fix illegal SG+CSUM combinations. */
 	if ((dev->features & NETIF_F_SG) &&
 	    !(dev->features & NETIF_F_ALL_CSUM)) {
@@ -2974,7 +2984,7 @@ int register_netdevice(struct net_device *dev)
 	 *	Default initial state at registry is that the
 	 *	device is present.
 	 */
-
+	// 设置__LINK_STATE_PRESENT标识设备对系统是可用的
 	set_bit(__LINK_STATE_PRESENT, &dev->state);
 
 	dev->next = NULL;
@@ -2984,6 +2994,8 @@ int register_netdevice(struct net_device *dev)
 	dev_tail = &dev->next;
 	hlist_add_head(&dev->name_hlist, head);
 	hlist_add_head(&dev->index_hlist, dev_index_hash(dev->ifindex));
+	// 增加net_device的refcnt引用计数
+	// dev_hold()和dev_put()分别对该字段递增和递减
 	dev_hold(dev);
 	write_unlock_bh(&dev_base_lock);
 
@@ -3110,6 +3122,8 @@ void netdev_run_todo(void)
 {
 	struct list_head list;
 
+	// 通过互斥变量net_todo_run_mutex控制串行化
+	// 因此在同一时刻仅能有一个CPU运行net_run_todo()
 	/* Need to guard against multiple cpu's getting out of order. */
 	mutex_lock(&net_todo_run_mutex);
 
@@ -3121,6 +3135,8 @@ void netdev_run_todo(void)
 	if (list_empty(&net_todo_list))
 		goto out;
 
+	// 从net_todo_list队列中取出待处理的网络设备描述符到临时队列中，并清楚net_todo_list队列
+	// 使得系统在衔接操作时，其他CPU能继续操作net_todo_list队列
 	/* Snapshot list, allow later requests */
 	spin_lock(&net_todo_list_lock);
 	list_replace_init(&net_todo_list, &list);
@@ -3141,6 +3157,7 @@ void netdev_run_todo(void)
 		netdev_unregister_sysfs(dev);
 		dev->reg_state = NETREG_UNREGISTERED;
 
+		// 等待直到待注销的网络设备没有引用为止
 		netdev_wait_allrefs(dev);
 
 		/* paranoia */
@@ -3195,6 +3212,7 @@ struct net_device *alloc_netdev(int sizeof_priv, const char *name,
 	if (sizeof_priv)
 		dev->priv = netdev_priv(dev);
 
+	// 初始化net_device结构实例的部分成员
 	setup(dev);
 	strcpy(dev->name, name);
 	return dev;
@@ -3288,8 +3306,10 @@ int unregister_netdevice(struct net_device *dev)
 
 	dev->reg_state = NETREG_UNREGISTERING;
 
+	// 同步数据包的接收处理
 	synchronize_net();
 
+	// 释放所有与设备相关的队列规则实例
 	/* Shutdown queueing discipline. */
 	dev_shutdown(dev);
 
@@ -3310,6 +3330,8 @@ int unregister_netdevice(struct net_device *dev)
 	/* Notifier chain MUST detach us from master device. */
 	BUG_TRAP(!dev->master);
 
+	// net_run_todo()从sysfs中注销设备，并使网络设备进入完成注销状态
+	// 等到所有的引用都释放之后，调用dev->destructor()结束注销过程
 	/* Finish processing unregister after unlock */
 	net_set_todo(dev);
 
