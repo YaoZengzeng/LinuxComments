@@ -582,16 +582,23 @@ static inline void *netdev_priv(struct net_device *dev)
 #define SET_NETDEV_DEV(net, pdev)	((net)->class_dev.dev = (pdev))
 
 struct packet_type {
+	// 标示以太网帧或其他链路层报文承载网络层报文的协议号
 	__be16			type;	/* This is really htons(ether_type). */
+	// 接收从指定网络设备输入的数据包，如果为NULL，则表示接收来自全部网络设备的数据包
 	struct net_device	*dev;	/* NULL is wildcarded here	     */
+	// 协议入口接收处理函数，第二个参数为当前处理该报文的网络设备，第四个参数为报文的原始输入网络设备
+	// 通常这两个是同一设备，但对于虚拟设备会有所不同
 	int			(*func) (struct sk_buff *,
 					 struct net_device *,
 					 struct packet_type *,
 					 struct net_device *);
+	// gso_segment接口的作用是回调传输层GSO分段方法对大段进行分段
 	struct sk_buff		*(*gso_segment)(struct sk_buff *skb,
 						int features);
+	// gso_send_check接口的作用是回调传输层在分段之前对伪首部进行检验和的计算
 	int			(*gso_send_check)(struct sk_buff *skb);
 	void			*af_packet_priv;
+	// 连接不同协议族报文接收例程的列表
 	struct list_head	list;
 };
 
@@ -643,12 +650,23 @@ static inline int unregister_gifconf(unsigned int family)
  * Incoming packets are placed on per-cpu queues so that
  * no locking is needed.
  */
-
+// softnet_data结构描述了与网络软中断处理相关的报文输入和输出队列
+// 每个CPU有一个单独的softnet_data实例，因此在操作该结构中的成员时不必加锁
 struct softnet_data
 {
+	// 数据包输出软中断中输出数据包的网络设备队列。处于报文输出状态的网络设备
+	// 添加到该队列上，在数据包输出软中断中，会遍历该结构，从网络设备的排队
+	// 规则中获取数据包并输出
 	struct net_device	*output_queue;
+	// 对于非NAPI的驱动，通常在硬中断中或通过轮询读取报文后，调用netif_rx()
+	// 将接收到的报文传递到上层，即先将报文缓存到input_pkt_queue队列中，
+	// 然后产生一个数据包输入软中断，由软中断例程将报文传送到上层
+	// 队列长度上限参见系统参数netdev_max_backlog
 	struct sk_buff_head	input_pkt_queue;
+	// 网络设备轮询队列，处于报文接收状态的网络设备链接到该队列上，在数据包输入
+	// 中断中，会遍历该队列，通过轮询方式接收报文
 	struct list_head	poll_list;
+	// 完成发送数据包的等待释放队列，需要在适当的时机释放已发送完成的数据包
 	struct sk_buff		*completion_queue;
 
 	struct net_device	backlog_dev;	/* Sorry. 8) */

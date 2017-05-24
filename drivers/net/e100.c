@@ -1967,14 +1967,20 @@ static irqreturn_t e100_intr(int irq, void *dev_id)
 	if(stat_ack & stat_ack_rnr)
 		nic->ru_running = RU_SUSPENDED;
 
+	// 如果网络设备工作正常且系统尚未轮询接收报文
 	if(likely(netif_rx_schedule_prep(netdev))) {
+		// 禁止该网络设备的中断
 		e100_disable_irq(nic);
+		// 将该网络设备添加到网络设备轮询队列中，然后更新该网络设备读取报文数量
+		// 的配额，最后激活接收报文软中断
 		__netif_rx_schedule(netdev);
 	}
+	// 否则说明系统正在轮询接收报文，无需再激活接收报文软中断
 
 	return IRQ_HANDLED;
 }
 
+// budget为该网络设备在本次数据包输入软中断中读取报文配额
 static int e100_poll(struct net_device *netdev, int *budget)
 {
 	struct nic *nic = netdev_priv(netdev);
@@ -1982,10 +1988,14 @@ static int e100_poll(struct net_device *netdev, int *budget)
 	unsigned int work_done = 0;
 	int tx_cleaned;
 
+	// e100_rx_clean()从网络设备中读取接收到的报文，并由netif_receive_skb()
+	// 输入到上层协议中，work_done为已读取的报文数
 	e100_rx_clean(nic, &work_done, work_to_do);
 	tx_cleaned = e100_tx_clean(nic);
 
 	/* If no Rx and Tx cleanup work was done, exit polling mode. */
+	// 如果待输出和输入的报文都已处理完成，则退出轮询模式，并从网络设备轮询队列中
+	// 删除该设备，最后开中断
 	if((!tx_cleaned && (work_done == 0)) || !netif_running(netdev)) {
 		netif_rx_complete(netdev);
 		e100_enable_irq(nic);

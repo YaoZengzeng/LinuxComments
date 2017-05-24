@@ -1063,7 +1063,8 @@ static inline void net_timestamp(struct sk_buff *skb)
  *	Support routine. Sends outgoing frames to any network
  *	taps currently in use.
  */
-
+// dev_queue_xmit_nit()就是用来接收由本地输出的数据包，在链路层的输出过程中，
+// 会调用此函数，将满足条件的数据包输入到RAW套接口
 static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct packet_type *ptype;
@@ -1078,6 +1079,7 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 		if ((ptype->dev == dev || !ptype->dev) &&
 		    (ptype->af_packet_priv == NULL ||
 		     (struct sock *)ptype->af_packet_priv != skb->sk)) {
+			// 由于该数据包是额外输入到这个原始套接口的，因此需要克隆一个数据包
 			struct sk_buff *skb2= skb_clone(skb, GFP_ATOMIC);
 			if (!skb2)
 				break;
@@ -1583,6 +1585,8 @@ int netif_rx(struct sk_buff *skb)
 	unsigned long flags;
 
 	/* if netpoll wants it, pretend we never saw it */
+	// 调用netpoll_rx()将数据包传递给netpoll模块，如果有netpoll实例接收了
+	// 则不再传递到协议栈处理
 	if (netpoll_rx(skb))
 		return NET_RX_DROP;
 
@@ -1594,10 +1598,15 @@ int netif_rx(struct sk_buff *skb)
 	 * short when CPU is congested, but is still operating.
 	 */
 	local_irq_save(flags);
+	// 获取CPU的接口层缓存队列
 	queue = &__get_cpu_var(softnet_data);
 
+	// 更新当前CPU接口层接收报文数
 	__get_cpu_var(netdev_rx_stat).total++;
+	// 如果链路层缓存队列未满，则将该报文加入队列
 	if (queue->input_pkt_queue.qlen <= netdev_max_backlog) {
+		// 输入队列不为空，说明该队列由于数据包较多需要等待下次软中断处理
+		// 因此将该数据包加入输入队列即可
 		if (queue->input_pkt_queue.qlen) {
 enqueue:
 			dev_hold(skb->dev);
@@ -1606,10 +1615,15 @@ enqueue:
 			return NET_RX_SUCCESS;
 		}
 
+		// 输入队列为空，说明该队列没有被软中断处理过，因此将数据包添加到输入队列中
+		// 并将虚拟网络设备backlog_dev添加到网络设备轮询队列，最后激活数据包输入
+		// 软中断。在数据包输入软中断处理例程中，会调用backlog_dev的轮询函数
+		// process_backlog()，最终将报文传递到上层
 		netif_rx_schedule(&queue->backlog_dev);
 		goto enqueue;
 	}
 
+	// 否则说明上层处理严重阻塞，丢弃该报文
 	__get_cpu_var(netdev_rx_stat).dropped++;
 	local_irq_restore(flags);
 
@@ -1775,6 +1789,8 @@ int netif_receive_skb(struct sk_buff *skb)
 	__be16 type;
 
 	/* if we've gotten here through NAPI, check netpoll */
+	// 如果是通过NAPI方式输入报文的，则在此需要将数据报传递给netpoll模块
+	// 如果有netpoll实例接收了，就不再传递到协议栈处理
 	if (skb->dev->poll && netpoll_rx(skb))
 		return NET_RX_DROP;
 
@@ -1782,6 +1798,7 @@ int netif_receive_skb(struct sk_buff *skb)
 		net_timestamp(skb);
 
 	if (!skb->input_dev)
+		// 设置原始接收到报文的网络设备
 		skb->input_dev = skb->dev;
 
 	orig_dev = skb_bond(skb);
@@ -1797,7 +1814,7 @@ int netif_receive_skb(struct sk_buff *skb)
 	pt_prev = NULL;
 
 	rcu_read_lock();
-
+// 与包分类器相关
 #ifdef CONFIG_NET_CLS_ACT
 	if (skb->tc_verd & TC_NCLS) {
 		skb->tc_verd = CLR_TC_NCLS(skb->tc_verd);
@@ -1805,6 +1822,7 @@ int netif_receive_skb(struct sk_buff *skb)
 	}
 #endif
 
+	// 输入一份报文到ptype_all链表中的协议族
 	list_for_each_entry_rcu(ptype, &ptype_all, list) {
 		if (!ptype->dev || ptype->dev == skb->dev) {
 			if (pt_prev) 
@@ -1832,6 +1850,7 @@ int netif_receive_skb(struct sk_buff *skb)
 ncls:
 #endif
 
+	// 通过桥转发报文，如果成功，则不需要再输入到本地
 	if (handle_bridge(&skb, &pt_prev, &ret, orig_dev))
 		goto out;
 
@@ -1860,6 +1879,8 @@ out:
 	return ret;
 }
 
+// process_backlog()为非NAPI方式下，虚拟网络设备的轮询函数。当虚拟网络设备backlog_dev
+// 添加到网络设备轮询队列后，在数据包输入软中断中会调用process_backlog()进行输入包的输入
 static int process_backlog(struct net_device *backlog_dev, int *budget)
 {
 	int work = 0;
@@ -1880,6 +1901,7 @@ static int process_backlog(struct net_device *backlog_dev, int *budget)
 
 		dev = skb->dev;
 
+		// 将当前报文传递到上层协议或转发
 		netif_receive_skb(skb);
 
 		dev_put(dev);
@@ -1893,12 +1915,14 @@ static int process_backlog(struct net_device *backlog_dev, int *budget)
 
 	backlog_dev->quota -= work;
 	*budget -= work;
+	// 返回非0表示还有数据包需要输入
 	return -1;
 
 job_done:
 	backlog_dev->quota -= work;
 	*budget -= work;
 
+	// 将当前网络设备从网络设备轮询队列中删除并退出轮询状态
 	list_del(&backlog_dev->poll_list);
 	smp_mb__before_clear_bit();
 	netif_poll_enable(backlog_dev);
@@ -1911,27 +1935,34 @@ static void net_rx_action(struct softirq_action *h)
 {
 	struct softnet_data *queue = &__get_cpu_var(softnet_data);
 	unsigned long start_time = jiffies;
+	// 获取本次软中断的接收报文配额
 	int budget = netdev_budget;
 	void *have;
 
 	local_irq_disable();
 
+	// 遍历网络设备轮询队列上的网络设备，轮询接收这些网络设备上的报文
 	while (!list_empty(&queue->poll_list)) {
 		struct net_device *dev;
 
+		// 本次读取报文数量的总配额已用完，或者软中断处理过程超过1ms
 		if (budget <= 0 || jiffies - start_time > 1)
 			goto softnet_break;
 
 		local_irq_enable();
 
+		// 从网络设备轮询队列上取出队首的网络设备
 		dev = list_entry(queue->poll_list.next,
 				 struct net_device, poll_list);
 		have = netpoll_poll_lock(dev);
 
+		// 如果该网络设备本次读取报文的配额已经用完，或者经过一次轮询报文后还有报文未读
 		if (dev->quota <= 0 || dev->poll(dev, &budget)) {
 			netpoll_poll_unlock(have);
 			local_irq_disable();
+			// 将该网络设备移动到网络设备轮询队列的队尾
 			list_move_tail(&dev->poll_list, &queue->poll_list);
+			// 重新配置读取的报文配额
 			if (dev->quota < 0)
 				dev->quota += dev->weight;
 			else
@@ -3362,6 +3393,9 @@ void unregister_netdev(struct net_device *dev)
 
 EXPORT_SYMBOL(unregister_netdev);
 
+// 当CPU状态变化时，有一个状态需要特殊处理，那就是CPU_DEAD，此时CPU已经
+// 无法工作，因此需要将该CPU的softnet_data输入输出队列中的报文转交给其他
+// CPU处理
 static int dev_cpu_callback(struct notifier_block *nfb,
 			    unsigned long action,
 			    void *ocpu)
@@ -3380,6 +3414,8 @@ static int dev_cpu_callback(struct notifier_block *nfb,
 	sd = &per_cpu(softnet_data, cpu);
 	oldsd = &per_cpu(softnet_data, oldcpu);
 
+	// 将状态发生变化的CPU的completion_queue队列中的报文转移到
+	// 当前CPU的completion_queue队列
 	/* Find end of our completion_queue. */
 	list_skb = &sd->completion_queue;
 	while (*list_skb)
@@ -3388,6 +3424,8 @@ static int dev_cpu_callback(struct notifier_block *nfb,
 	*list_skb = oldsd->completion_queue;
 	oldsd->completion_queue = NULL;
 
+	// 将状态发生变化的CPU的output_queue队列中的报文转移到
+	// 当前CPU的output_queu队列中
 	/* Find end of our output_queue. */
 	list_net = &sd->output_queue;
 	while (*list_net)
@@ -3400,6 +3438,8 @@ static int dev_cpu_callback(struct notifier_block *nfb,
 	local_irq_enable();
 
 	/* Process offline CPU's input_pkt_queue */
+	// 最后处理状态发生变化CPU的input_pkt_queue队列，将队列上的报文输入到
+	// 上层协议
 	while ((skb = __skb_dequeue(&oldsd->input_pkt_queue)))
 		netif_rx(skb);
 
@@ -3495,15 +3535,21 @@ static int __init netdev_dma_register(void) { return -ENODEV; }
  *       This is called single threaded during boot, so no need
  *       to take the rtnl semaphore.
  */
+// net_dev_init()的初始化优先级是subsys_initcall，用来初始化相关接口层
+// 如，注册记录相关统计信息的proc文件，初始化每个CPU的softnet_data，注册
+// 网络报文输入/输出软中断以及处理例程，注册响应CPU状态的回调函数
 static int __init net_dev_init(void)
 {
 	int i, rc = -ENOMEM;
 
 	BUG_ON(!dev_boot_phase);
 
+	// 注册接口层用于显示网络设备收发数据包统计信息的"/proc/net/dev"文件
+	// 以及用于显示每个CPU的softnet_stat统计信息的"/proc/net/softnet_stat"文件
 	if (dev_proc_init())
 		goto out;
 
+	// 为网络设备创建sys文件系统
 	if (netdev_sysfs_init())
 		goto out;
 
@@ -3534,15 +3580,23 @@ static int __init net_dev_init(void)
 		atomic_set(&queue->backlog_dev.refcnt, 1);
 	}
 
+	// 为网络子系统注册一个DMA客户端
 	netdev_dma_register();
 
 	dev_boot_phase = 0;
 
+	// 注册网络报文输入/输出软中断及其例程
 	open_softirq(NET_TX_SOFTIRQ, net_tx_action, NULL);
 	open_softirq(NET_RX_SOFTIRQ, net_rx_action, NULL);
 
+	// 注册响应CPU状态变化的回调函数。当CPU状态发生变化时，会调用
+	// dev_cpu_callback()，来处理状态发生变化CPU的softnet_data
+	// 中相关队列
 	hotcpu_notifier(dev_cpu_callback, 0);
+	// 注册响应网络状态变化的回调函数，当网络状态发生变化时，会调用
+	// dev_cpu_callback()，来处理各CPU的softnet_data中相关队列
 	dst_init();
+	// 注册接口层用来显示相关网络设备组播硬件地址的"/proc/net/dev_mcast"文件
 	dev_mcast_init();
 	rc = 0;
 out:
