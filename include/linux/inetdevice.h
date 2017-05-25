@@ -36,11 +36,17 @@ struct ipv4_devconf
 
 extern struct ipv4_devconf ipv4_devconf;
 
+// 为设备设置第一个IP地址时，在inetdev_init()中分配并初始化in_device结构实例
+// 应用层可以通过ip或ifconfig工具来修改这些配置，该结构实例的地址保存在net_device
+// 结构成员ip_ptr中
 struct in_device
 {
 	struct net_device	*dev;
 	atomic_t		refcnt;
+	// dead为1时表示所在的IP配置块将要被释放，不再允许访问其成员
 	int			dead;
+	// in_ifaddr结构存储了网络设备的IP地址，因为一个网络设备可以配置多个IP地址
+	// 因此需要用链表来存储
 	struct in_ifaddr	*ifa_list;	/* IP ifaddr chain		*/
 	rwlock_t		mc_list_lock;
 	struct ip_mc_list	*mc_list;	/* IP multicast filter chain    */
@@ -56,6 +62,7 @@ struct in_device
 	struct timer_list	mr_ifc_timer;	/* interface change timer */
 
 	struct neigh_parms	*arp_parms;
+	// 一些针对网络设备接口的IPv4配置
 	struct ipv4_devconf	cnf;
 	struct rcu_head		rcu_head;
 };
@@ -85,19 +92,29 @@ struct in_device
 #define IN_DEV_ARP_ANNOUNCE(in_dev)	(max(ipv4_devconf.arp_announce, (in_dev)->cnf.arp_announce))
 #define IN_DEV_ARP_IGNORE(in_dev)	(max(ipv4_devconf.arp_ignore, (in_dev)->cnf.arp_ignore))
 
+// IP地址块，用于存储主机的IP地址、子网掩码、广播地址，这些配置属于主机
+// 但是又配置到网络设备上，因此与网络设备也相关。一个网络设备配置多少个
+// IP地址，就有多少个IP地址块
 struct in_ifaddr
 {
 	struct in_ifaddr	*ifa_next;
 	struct in_device	*ifa_dev;
 	struct rcu_head		rcu_head;
+	// 在支持广播的设备上，ifa_local和ifa_address都是本地的IP地址
+	// 但是在点对点设备，ifa_address是对端的IP地址，ifa_local存储
+	// 的是本地的IP地址
 	__be32			ifa_local;
 	__be32			ifa_address;
 	__be32			ifa_mask;
 	__be32			ifa_broadcast;
 	__be32			ifa_anycast;
+	// 寻址范围，RT_SCOPE_UNIVERSE等等
 	unsigned char		ifa_scope;
+	// IP地址属性
 	unsigned char		ifa_flags;
+	// 子网掩码长度
 	unsigned char		ifa_prefixlen;
+	// 地址标签，通常是网络设备名或者网络设备别名
 	char			ifa_label[IFNAMSIZ];
 };
 

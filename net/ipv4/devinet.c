@@ -143,6 +143,7 @@ void in_dev_finish_destroy(struct in_device *idev)
 	}
 }
 
+// inetdev_init()通过为指定参数指定的网络设备分配并绑定IP配置块
 struct in_device *inetdev_init(struct net_device *dev)
 {
 	struct in_device *in_dev;
@@ -153,9 +154,11 @@ struct in_device *inetdev_init(struct net_device *dev)
 	if (!in_dev)
 		goto out;
 	INIT_RCU_HEAD(&in_dev->rcu_head);
+	// 初始化IPv4配置的默认值
 	memcpy(&in_dev->cnf, &ipv4_devconf_dflt, sizeof(in_dev->cnf));
 	in_dev->cnf.sysctl = NULL;
 	in_dev->dev = dev;
+	// 为IP配置块分配邻居协议参数配置块，并根据ARP表初始化
 	if ((in_dev->arp_parms = neigh_parms_alloc(dev, &arp_tbl)) == NULL)
 		goto out_kfree;
 	/* Reference in_dev->dev */
@@ -171,8 +174,10 @@ struct in_device *inetdev_init(struct net_device *dev)
 #ifdef CONFIG_SYSCTL
 	devinet_sysctl_register(in_dev, &in_dev->cnf);
 #endif
+	// 初始化IGMP模块
 	ip_mc_init_dev(in_dev);
 	if (dev->flags & IFF_UP)
+		// 如果网络设备已经启用，则初始化该网络设备上的组播信息
 		ip_mc_up(in_dev);
 
 	/* we can receive as soon as ip_ptr is set -- do this last */
@@ -191,6 +196,7 @@ static void in_dev_rcu_put(struct rcu_head *head)
 	in_dev_put(idev);
 }
 
+// inetdev_destroy()通常在设备注销时被调用，释放指定的IP配置块
 static void inetdev_destroy(struct in_device *in_dev)
 {
 	struct in_ifaddr *ifa;
@@ -199,6 +205,7 @@ static void inetdev_destroy(struct in_device *in_dev)
 	ASSERT_RTNL();
 
 	dev = in_dev->dev;
+	// 不释放回环设备的IP配置块
 	if (dev == &loopback_dev)
 		return;
 
@@ -226,6 +233,7 @@ static void inetdev_destroy(struct in_device *in_dev)
 	call_rcu(&in_dev->rcu_head, in_dev_rcu_put);
 }
 
+// 根据指定网络设备的IP配置块，检查两个给定的IP地址是否属于同一个子网
 int inet_addr_onlink(struct in_device *in_dev, __be32 a, __be32 b)
 {
 	rcu_read_lock();
@@ -255,7 +263,8 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 	/* 1. Deleting primary ifaddr forces deletion all secondaries 
 	 * unless alias promotion is set
 	 **/
-
+	// 如果删除的是主IP地址，则需要对从属IP地址作相应的处理，如果没有启用promote_secondaries
+	// 则删除所有该主IP地址的从属IP地址，否则选择一个从属IP地址，升级为主IP地址
 	if (!(ifa1->ifa_flags & IFA_F_SECONDARY)) {
 		struct in_ifaddr **ifap1 = &ifa1->ifa_next;
 
@@ -287,7 +296,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 	}
 
 	/* 2. Unlink it */
-
+	// 先将待删除的IP地址块从链表中摘除，后续操作中再destroy作处理
 	*ifap = ifa1->ifa_next;
 
 	/* 3. Announce address deletion */
@@ -303,6 +312,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 	rtmsg_ifa(RTM_DELADDR, ifa1, nlh, pid);
 	blocking_notifier_call_chain(&inetaddr_chain, NETDEV_DOWN, ifa1);
 
+	// 将选择到的从属IP地址升级到主IP地址，发送从属IP地址升级为主IP地址的消息
 	if (promote) {
 
 		if (prev_prom) {
@@ -319,6 +329,7 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 			if (ifa1->ifa_mask != ifa->ifa_mask ||
 			    !inet_ifa_match(ifa1->ifa_address, ifa))
 					continue;
+			// 将从属IP地址相关的路由表项添加到ip_fib_local_table路由表中
 			fib_add_ifaddr(ifa);
 		}
 
@@ -350,6 +361,8 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 		return 0;
 	}
 
+	// 先清楚地址的从属标志，因为配置的地址是主地址还是从地址，并非根据标志而是根据当前
+	// 当前已配置的IP地址
 	ifa->ifa_flags &= ~IFA_F_SECONDARY;
 	last_primary = &in_dev->ifa_list;
 
@@ -373,10 +386,12 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 	}
 
 	if (!(ifa->ifa_flags & IFA_F_SECONDARY)) {
+		// 如果配置的是第一个地址，则先添加熵到伪随机数引擎中
 		net_srandom(ifa->ifa_local);
 		ifap = last_primary;
 	}
 
+	// 将地址添加到IP配置块中
 	ifa->ifa_next = *ifap;
 	*ifap = ifa;
 
@@ -430,7 +445,7 @@ struct in_device *inetdev_by_index(int ifindex)
 }
 
 /* Called only from RTNL semaphored context. No locks. */
-
+// 在正在配置的输入设备的主IP地址中查找与前缀和掩码匹配的IP地址
 struct in_ifaddr *inet_ifa_byprefix(struct in_device *in_dev, __be32 prefix,
 				    __be32 mask)
 {
@@ -443,6 +458,7 @@ struct in_ifaddr *inet_ifa_byprefix(struct in_device *in_dev, __be32 prefix,
 	return NULL;
 }
 
+// 当通过netlink,操作类型为RTM_DELADDR删除IP地址时，会调用此函数
 static int inet_rtm_deladdr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
 {
 	struct nlattr *tb[IFA_MAX+1];
@@ -453,6 +469,7 @@ static int inet_rtm_deladdr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg
 
 	ASSERT_RTNL();
 
+	// 解析netlink报文，获取配置参数
 	err = nlmsg_parse(nlh, sizeof(*ifm), tb, IFA_MAX, ifa_ipv4_policy);
 	if (err < 0)
 		goto errout;
@@ -466,6 +483,7 @@ static int inet_rtm_deladdr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg
 
 	__in_dev_put(in_dev);
 
+	// 根据本地地址、标签以及掩码查找待删除的IP地址块，如果查找命中，则将其删除并释放
 	for (ifap = &in_dev->ifa_list; (ifa = *ifap) != NULL;
 	     ifap = &ifa->ifa_next) {
 		if (tb[IFA_LOCAL] &&
@@ -562,6 +580,7 @@ errout:
 	return ERR_PTR(err);
 }
 
+// 当通过netlink，操作类型为RTM_NEWADDR添加IP地址时，会调用此函数
 static int inet_rtm_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
 {
 	struct in_ifaddr *ifa;
@@ -578,7 +597,7 @@ static int inet_rtm_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg
 /*
  *	Determine a default network mask, based on the IP address.
  */
-
+// 根据指定的IP地址获取默认掩码长度
 static __inline__ int inet_abc_len(__be32 addr)
 {
 	int rc = -1;	/* Something else, probably a multicast. */
@@ -600,6 +619,7 @@ static __inline__ int inet_abc_len(__be32 addr)
 }
 
 
+// 应用程序对套接口有关接口层地址的ioctl操作，最终由devinet_ioctl()来处理
 int devinet_ioctl(unsigned int cmd, void __user *arg)
 {
 	struct ifreq ifr;
@@ -632,6 +652,9 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 	dev_load(ifr.ifr_name);
 #endif
 
+	// 进行相关的校验
+	// 对于获取操作，检测地址族是否为AF_INET
+	// 对于设置操作要有相应的特权
 	switch(cmd) {
 	case SIOCGIFADDR:	/* Get interface address */
 	case SIOCGIFBRDADDR:	/* Get the broadcast address */
@@ -673,6 +696,7 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 	if ((dev = __dev_get_by_name(ifr.ifr_name)) == NULL)
 		goto done;
 
+	// 恢复配置参数中的标签别名
 	if (colon)
 		*colon = ':';
 
@@ -708,32 +732,40 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 		goto done;
 
 	switch(cmd) {
+	// 获取指定网络设备的本地IP地址
 	case SIOCGIFADDR:	/* Get interface address */
 		sin->sin_addr.s_addr = ifa->ifa_local;
 		goto rarok;
 
+	// 获取指定网络设备的广播IP地址
 	case SIOCGIFBRDADDR:	/* Get the broadcast address */
 		sin->sin_addr.s_addr = ifa->ifa_broadcast;
 		goto rarok;
 
+	// 在点对点连接的情况下，获取指定网络设备点对点对端的IP地址
 	case SIOCGIFDSTADDR:	/* Get the destination address */
 		sin->sin_addr.s_addr = ifa->ifa_address;
 		goto rarok;
 
+	// 获取指定网络设备的地址掩码
 	case SIOCGIFNETMASK:	/* Get the netmask for the interface */
 		sin->sin_addr.s_addr = ifa->ifa_mask;
 		goto rarok;
 
+	// 设置网络设备的标示
 	case SIOCSIFFLAGS:
 		if (colon) {
 			ret = -EADDRNOTAVAIL;
 			if (!ifa)
 				break;
 			ret = 0;
+			// 对于关闭网络设备，如果指定了网络设备别名，并且存在与之对应的IP地址块，
+			// 则需要删除释放该IP地址块
 			if (!(ifr.ifr_flags & IFF_UP))
 				inet_del_ifa(in_dev, ifap, 1);
 			break;
 		}
+		// 将标志设置到网络设备中
 		ret = dev_change_flags(dev, ifr.ifr_flags);
 		break;
 
@@ -764,6 +796,7 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 		if (!(dev->flags & IFF_POINTOPOINT)) {
 			ifa->ifa_prefixlen = inet_abc_len(ifa->ifa_address);
 			ifa->ifa_mask = inet_make_mask(ifa->ifa_prefixlen);
+			// 非点对点设备，则根据地址的掩码长度和网络掩码设置标准广播地址
 			if ((dev->flags & IFF_BROADCAST) &&
 			    ifa->ifa_prefixlen < 31)
 				ifa->ifa_broadcast = ifa->ifa_address |
@@ -772,9 +805,11 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 			ifa->ifa_prefixlen = 32;
 			ifa->ifa_mask = inet_make_mask(32);
 		}
+		// 最后将配置信息添加到IP地址块列表中
 		ret = inet_set_ifa(dev, ifa);
 		break;
 
+	// 设置指定网络设备的广播地址
 	case SIOCSIFBRDADDR:	/* Set the broadcast address */
 		ret = 0;
 		if (ifa->ifa_broadcast != sin->sin_addr.s_addr) {
@@ -784,6 +819,7 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 		}
 		break;
 
+	// 在点对点连接的情况下，设置指定网络设备点对点对端的IP地址
 	case SIOCSIFDSTADDR:	/* Set the destination address */
 		ret = 0;
 		if (ifa->ifa_address == sin->sin_addr.s_addr)
@@ -797,6 +833,7 @@ int devinet_ioctl(unsigned int cmd, void __user *arg)
 		inet_insert_ifa(ifa);
 		break;
 
+	// 设定指定网络设备的地址掩码
 	case SIOCSIFNETMASK: 	/* Set the netmask for the interface */
 
 		/*
@@ -878,6 +915,8 @@ out:
 	return done;
 }
 
+// 在通过输出网络设备向目的地址发送报文时，如果没有指定源地址，会调用inet_select_addr()来
+// 根据给定设备，目的地址和作用范围，获取给定作用范围内的主IP地址作为源地址
 __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 {
 	__be32 addr = 0;
@@ -891,6 +930,7 @@ __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 	for_primary_ifa(in_dev) {
 		if (ifa->ifa_scope > scope)
 			continue;
+		// dst为0，返回本地地址，不为0，返回与目的地址在同一个子网的IP地址
 		if (!dst || inet_ifa_match(dst, ifa)) {
 			addr = ifa->ifa_local;
 			break;
@@ -910,6 +950,8 @@ no_in_dev:
 	 */
 	read_lock(&dev_base_lock);
 	rcu_read_lock();
+	// 如果给定配置的地址都不满足由scope和dst限定的条件，则尝试其他设备是否
+	// 存在满足所要求的scope的一个IP地址
 	for (dev = dev_base; dev; dev = dev->next) {
 		if ((in_dev = __in_dev_get_rcu(dev)) == NULL)
 			continue;
@@ -981,6 +1023,9 @@ __be32 inet_confirm_addr(const struct net_device *dev, __be32 dst, __be32 local,
 	if (dev) {
 		rcu_read_lock();
 		if ((in_dev = __in_dev_get_rcu(dev)))
+			// 调用confirm_addr_indev()在指定的IP配置块中查找与参数
+			// local给出的IP地址相同，与参数dst给出的IP地址在相同子网内
+			// 且范围小于scope的本地地址
 			addr = confirm_addr_indev(in_dev, dst, local, scope);
 		rcu_read_unlock();
 
@@ -989,6 +1034,7 @@ __be32 inet_confirm_addr(const struct net_device *dev, __be32 dst, __be32 local,
 
 	read_lock(&dev_base_lock);
 	rcu_read_lock();
+	// 未指定网络设备时，则在所有的网络设备上确认本地IP地址
 	for (dev = dev_base; dev; dev = dev->next) {
 		if ((in_dev = __in_dev_get_rcu(dev))) {
 			addr = confirm_addr_indev(in_dev, dst, local, scope);
