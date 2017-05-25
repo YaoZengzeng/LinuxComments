@@ -683,6 +683,7 @@ extern void __netif_schedule(struct net_device *dev);
 
 static inline void netif_schedule(struct net_device *dev)
 {
+	// 如果网络设备没有关闭排队功能，则激活网络输出软中断
 	if (!test_bit(__LINK_STATE_XOFF, &dev->state))
 		__netif_schedule(dev);
 }

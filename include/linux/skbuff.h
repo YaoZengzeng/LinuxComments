@@ -110,7 +110,9 @@ struct sk_buff_head {
 	struct sk_buff	*next;
 	struct sk_buff	*prev;
 
+	// SKB链表中节点数，即队列长度
 	__u32		qlen;
+	// 用来控制对SKB链表并发操作的自旋锁
 	spinlock_t	lock;
 };
 
@@ -122,6 +124,7 @@ struct sk_buff;
 typedef struct skb_frag_struct skb_frag_t;
 
 struct skb_frag_struct {
+	// 指向文件系统缓存页的指针
 	struct page *page;
 	__u16 page_offset;
 	__u16 size;
@@ -131,14 +134,25 @@ struct skb_frag_struct {
  * the end of the header data, ie. at skb->end.
  */
 struct skb_shared_info {
+	// 引用计数器。当一个数据缓存区被多个SKB的数据描述符引用时，就会设置相应的计数。
+	// 比如克隆一个SKB
 	atomic_t	dataref;
 	unsigned short	nr_frags;
+	// 生成GSO段时的MSS，因为GSO段的长度是与发送该段的套接口中MSS的整数倍
 	unsigned short	gso_size;
 	/* Warning: this field is not always filled in (UFO)! */
+	// GSO段的长度是gso_size的倍数，即用gso_size来分割大段时产生的段数
 	unsigned short	gso_segs;
 	unsigned short  gso_type;
 	__be32          ip6_frag_id;
+	// frag_list有以下几种使用方法：
+	// 用于在接收分片组后链接多个分片，组成一个完整的IP数据报
+	// 在UDP数据报的输出中，将待分片的SKB链接到第一个SKB中，然后在输出过程中能够
+	// 快速地分片
+	// 用于存放FRAGLIST类型的聚合分散IO的数据包，如果输出网络设备支持FRAGLIST
+	// 类型的聚合分散IO，则可以直接输出
 	struct sk_buff	*frag_list;
+	// MAX_SKB_FRAGS为frags数组的大小，最多支持64K个分片
 	skb_frag_t	frags[MAX_SKB_FRAGS];
 };
 
@@ -232,9 +246,17 @@ struct sk_buff {
 	struct sk_buff		*next;
 	struct sk_buff		*prev;
 
+	// SKB的宿主传输控制块，SKB的宿主传输控制块在网络数据报文由本地发出
+	// 或由本地接收时才有效，使传输控制块与套接口及用户应用程序相关
 	struct sock		*sk;
 	struct skb_timeval	tstamp;
+	// 在某些情况下，指向传输设备的指针在包处理过程中改变
+	// 在输出时，虚拟设备驱动会在一组设备中选择其中某个
+	// 合适的设备，并将dev指针修改为指向这个设备的net_device
+	// 结构，输入时同理
 	struct net_device	*dev;
+	// 接收报文的原始网络设备，如果包是本地生成的，则该值为NULL
+	// 主要用于流量控制
 	struct net_device	*input_dev;
 
 	union {
@@ -254,10 +276,16 @@ struct sk_buff {
 		unsigned char	*raw;
 	} nh;
 
+	// 在把包传递到n+1层处理函数前，会将skb->data指向n层协议首部的末尾
+	// 这正好是n+1层协议的首部
 	union {
+		// raw变量主要用于初始化
 	  	unsigned char 	*raw;
 	} mac;
 
+	// 目的路由缓存项，不管是输入的数据包还是输出的数据包，都需要经过路由子系统
+	// 的查询得到目的路由缓存项之后，才能确定数据包的流向，否则查询不到路由的
+	// 数据包最终只能丢弃
 	struct  dst_entry	*dst;
 	struct	sec_path	*sp;
 
@@ -269,24 +297,51 @@ struct sk_buff {
 	 */
 	char			cb[48];
 
+	// SKB中数据部分长度，包括线性缓冲区中数据长度（由data指向），SG类型的聚合分散IO
+	// 的数据以及FRAGLIST类型的聚合分散IO的数据长度，len随SKB从一个协议层向另一个
+	// 协议层传递而改变，因此len也包含了协议首部的长度
 	unsigned int		len,
+				// SG类型和FRAGLIST类型聚合分散IO存储区中的长度
 				data_len,
+				// 二层首部的长度
 				mac_len;
 	union {
+		// csum在校验状态为CHECKSUM_NONE时，用于存放负载数据报的数据部分的校验和
+		// 为计算完成的传输层校验和做准备
 		__wsum		csum;
+		// csum_offset在校验状态为CHECKSUM_PARTIAL时，记录传输层首部中的校验和
+		// 字段的偏移。这两种状态是互斥的
 		__u32		csum_offset;
 	};
+					// 发送或转发数据包QoS类别
 	__u32			priority;
+					// 表示此SKB在本地运行分片
 	__u8			local_df:1,
+				// SKB是否已克隆
 				cloned:1,
+				// CHECKSUM_NONE:表示硬件不支持，完全由软件来执行校验
+				// CHECKSUM_PARTIAL：表示由硬件来执行校验和
+				// CHECKSUM_UNNECESSARY:表示没有必要执行校验和
+				// CHECKSUM_COMPELTE:表示已经完成执行校验和
 				ip_summed:2,
+				// 标示payload是否被单独引用，不存在协议首部。如果被引用，
+				// 则决不能再修改协议首部，也不能通过skb->data来访问协议首部
 				nohdr:1,
 				nfctinfo:3;
+					// 帧类型，分类由二层目的地址决定
+					// PACKET_HOST，PACKET_LOOPBACK等等
 	__u8			pkt_type:3,
+				// 当前克隆状态
+				// SKB_FCLONE_UNAVAILABLE：SKB未被克隆
+				// SKB_FCLONE_ORIG:在skbuff_fclone_cache分配的父SKB，可以被克隆
+				// SKB_FCLONE_CLONE:在skbuff_fclone_cache分配的子SKB，从父SKB克隆得到
 				fclone:2,
 				ipvs_property:1;
+					// 从二层设备角度看到的上层协议，参见include/linux/if_ether.h
+					// ETH_P_IP，ETH_P_ARP等等
 	__be16			protocol;
 
+	// 如果SKB没有宿主传输控制块，则该函数指针通常为空
 	void			(*destructor)(struct sk_buff *skb);
 #ifdef CONFIG_NETFILTER
 	struct nf_conntrack	*nfct;
@@ -313,7 +368,9 @@ struct sk_buff {
 	__u32			mark;
 
 	/* These elements must be at the end, see alloc_skb() for details.  */
+	// truesize = len+sizeof(sk_buff)，随len的变化而变化
 	unsigned int		truesize;
+	// 引用计数，且该计数器只保护SKB描述符
 	atomic_t		users;
 	unsigned char		*head,
 				*data,
@@ -614,6 +671,7 @@ static inline __u32 skb_queue_len(const struct sk_buff_head *list_)
  * network layer or drivers should need annotation to consolidate the
  * main types of usage into 3 classes.
  */
+// 初始化SKB链表的头节点，并且创建一个空的SKB链表
 static inline void skb_queue_head_init(struct sk_buff_head *list)
 {
 	spin_lock_init(&list->lock);
@@ -865,6 +923,7 @@ static inline unsigned char *__skb_push(struct sk_buff *skb, unsigned int len)
  *	start. If this would exceed the total buffer headroom the kernel will
  *	panic. A pointer to the first byte of the extra data is returned.
  */
+// skb_push()在数据缓存区域的前头加上一块数据
 static inline unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
@@ -951,6 +1010,8 @@ static inline int skb_tailroom(const struct sk_buff *skb)
  *	Increase the headroom of an empty &sk_buff by reducing the tail
  *	room. This is only allowed for an empty buffer.
  */
+// skb_reserve()在数据缓存区头部预留一定的空间，通常被用来在数据缓存区中插入协议首部
+// 或者在某个边界上对齐，且skb_reserve()只能用于空的SKB
 static inline void skb_reserve(struct sk_buff *skb, int len)
 {
 	skb->data += len;
@@ -1002,6 +1063,7 @@ static inline void skb_reserve(struct sk_buff *skb, int len)
 
 extern int ___pskb_trim(struct sk_buff *skb, unsigned int len);
 
+// 调用此函数的前提是，待操作的SKB的数据必须是线性存储的，且len为删除尾部数据后剩余的长度
 static inline void __skb_trim(struct sk_buff *skb, unsigned int len)
 {
 	if (unlikely(skb->data_len)) {
@@ -1121,8 +1183,10 @@ static inline struct sk_buff *__dev_alloc_skb(unsigned int length,
  *	%NULL is returned if there is no free memory. Although this function
  *	allocates memory it can be called from an interrupt.
  */
+// dev_alloc_skb()通常被设备驱动用在中断上下文中
 static inline struct sk_buff *dev_alloc_skb(unsigned int length)
 {
+	// GFP_ATOMIC为内存分配优先级，表示分配过程是原子操作，不能被中断
 	return __dev_alloc_skb(length, GFP_ATOMIC);
 }
 

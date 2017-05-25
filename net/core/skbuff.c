@@ -152,6 +152,10 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	cache = fclone ? skbuff_fclone_cache : skbuff_head_cache;
 
 	/* Get the HEAD */
+	// 从高速缓存中分配一个SKB，并且在分配标识中去除GFP_DMA，是为了不从DMA内存区中
+	// 分配SKB描述符，因为DMA较小且有特殊用途。在后面分配数据缓冲区时，就不会去掉
+	// GFP_DMA标识，因为很有可能数据缓冲区就需要在DMA内存区域中分配，这样硬件可以
+	// 直接进行DMA操作
 	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
 	if (!skb)
 		goto out;
@@ -369,6 +373,7 @@ void kfree_skbmem(struct sk_buff *skb)
 
 void __kfree_skb(struct sk_buff *skb)
 {
+	// 递减对目的路由项的引用计数
 	dst_release(skb->dst);
 #ifdef CONFIG_XFRM
 	secpath_put(skb->sp);
@@ -446,6 +451,7 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 		n->fclone = SKB_FCLONE_UNAVAILABLE;
 	}
 
+	// 将父SKB描述符各字段值赋给子SKB描述符的对应字段
 #define C(x) n->x = skb->x
 
 	n->next = n->prev = NULL;
@@ -507,7 +513,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 	C(tail);
 	C(end);
 
+	// 递增skb_shared_info结构的dataref
 	atomic_inc(&(skb_shinfo(skb)->dataref));
+	// 设置父SKB描述符的成员cloned为1，表示该SKB已经被克隆
 	skb->cloned = 1;
 
 	return n;
@@ -583,7 +591,9 @@ static void copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
  *	function is not recommended for use in circumstances when only
  *	header is going to be modified. Use pskb_copy() instead.
  */
-
+// 在决定克隆或复制SKB时，各子系统程序员不能预测其他组件是否需要使用SKB中的原始数据
+// 内核是模块化的，其状态变化是不可预测的，每个子系统都不知道其他子系统是如何操作
+// 缓冲区的
 struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp_mask)
 {
 	int headerlen = skb->data - skb->head;
@@ -2047,11 +2057,15 @@ EXPORT_SYMBOL_GPL(skb_segment);
 
 void __init skb_init(void)
 {
+	// 创建skbuff_head_cache高速缓存，一般情况下，SKB都是从该高速缓存分配的
 	skbuff_head_cache = kmem_cache_create("skbuff_head_cache",
 					      sizeof(struct sk_buff),
 					      0,
 					      SLAB_HWCACHE_ALIGN|SLAB_PANIC,
 					      NULL, NULL);
+	// 创建每次以两倍SKB描述符长度来分配空间的skbuff_fclone_cache高速缓存
+	// 如果在分配SKB时就知道可能被克隆，那么就应该从这个高速缓存中分配空间，因为
+	// 在这个高速缓存中分配SKB时，会同时分配一个后备的SKB，以便将来用于克隆
 	skbuff_fclone_cache = kmem_cache_create("skbuff_fclone_cache",
 						(2*sizeof(struct sk_buff)) +
 						sizeof(atomic_t),

@@ -1110,14 +1110,17 @@ static void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 
 void __netif_schedule(struct net_device *dev)
 {
+	// 如果网络设备没有处于流量控制的调度中
 	if (!test_and_set_bit(__LINK_STATE_SCHED, &dev->state)) {
 		unsigned long flags;
 		struct softnet_data *sd;
 
 		local_irq_save(flags);
 		sd = &__get_cpu_var(softnet_data);
+		// 将网络设备链接到softnet_data中的output_queue队列上
 		dev->next_sched = sd->output_queue;
 		sd->output_queue = dev;
+		// 激活网络输出软中断对该队列进行处理
 		raise_softirq_irqoff(NET_TX_SOFTIRQ);
 		local_irq_restore(flags);
 	}
@@ -1348,22 +1351,29 @@ static int dev_gso_segment(struct sk_buff *skb)
 	return 0;
 }
 
+// dev_hard_start_xmit()将待输出的数据包提交到网络设备的输出接口
 int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	// 如果输出是单个数据包（通常情况下都是输出单个数据包）
 	if (likely(!skb->next)) {
+		// 如果应用层通过socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))创建
+		// 的原始套接口，则需要发送一份数据包给这样的套接口
 		if (netdev_nit)
 			dev_queue_xmit_nit(skb, dev);
 
 		if (netif_needs_gso(dev, skb)) {
+			// dev_gso_segment()对GSO数据包进行分割
 			if (unlikely(dev_gso_segment(skb)))
 				goto out_kfree_skb;
 			if (skb->next)
 				goto gso;
 		}
 
+		// 经分割后仍然是一个数据包
 		return dev->hard_start_xmit(skb, dev);
 	}
 
+// 经分割后是多个链接起来的数据包，需要逐个处理
 gso:
 	do {
 		struct sk_buff *nskb = skb->next;
@@ -1511,6 +1521,7 @@ gso:
 	   Check this and shot the lock. It is not prone from deadlocks.
 	   Either shot noqueue qdisc, it is even simpler 8)
 	 */
+	// 若设备已打开但未启用QoS，则直接输出数据包
 	if (dev->flags & IFF_UP) {
 		int cpu = smp_processor_id(); /* ok because BHs are off */
 
@@ -1520,6 +1531,7 @@ gso:
 
 			if (!netif_queue_stopped(dev)) {
 				rc = 0;
+				// 调用dev_hard_start_xmit()输出数据包到网络设备
 				if (!dev_hard_start_xmit(skb, dev)) {
 					HARD_TX_UNLOCK(dev);
 					goto out;
@@ -1665,6 +1677,7 @@ static void net_tx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = &__get_cpu_var(softnet_data);
 
+	// 释放所有已输出待释放的数据包
 	if (sd->completion_queue) {
 		struct sk_buff *clist;
 
@@ -1701,6 +1714,7 @@ static void net_tx_action(struct softirq_action *h)
 				qdisc_run(dev);
 				spin_unlock(&dev->queue_lock);
 			} else {
+				// 再次调度数据包输出软中断，在合适的时机发送数据包
 				netif_schedule(dev);
 			}
 		}
