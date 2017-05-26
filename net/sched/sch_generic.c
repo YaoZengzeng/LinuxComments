@@ -82,19 +82,21 @@ void qdisc_unlock_tree(struct net_device *dev)
    we do not check dev->tbusy flag here.
 
    Returns:  0  - queue is empty.
-            >0  - queue is not empty, but throttled.
+            >0  - queue is not empty, but throttled.// 由于网络设备拥塞导致发送失败而需等待下次发送
 	    <0  - queue is not empty. Device is throttled, if dev->tbusy != 0.
 
    NOTE: Called under dev->queue_lock with locally disabled BH.
 */
-
+// qdisc_restart()的主要作用是从排队规则中获取一个可以输出的报文，然后将其输出到网络设备
 static inline int qdisc_restart(struct net_device *dev)
 {
 	struct Qdisc *q = dev->qdisc;
 	struct sk_buff *skb;
 
 	/* Dequeue packet */
+	// 如果还有上次没发送完的GSO数据包，则将其取出，否则从排队规则的队列中取出待输出的数据包
 	if (((skb = dev->gso_skb)) || ((skb = q->dequeue(q)))) {
+		// 获取网络设备输出数据包时是否需要上锁的标志
 		unsigned nolock = (dev->features & NETIF_F_LLTX);
 
 		dev->gso_skb = NULL;
@@ -109,6 +111,7 @@ static inline int qdisc_restart(struct net_device *dev)
 		 * will be requeued.
 		 */
 		if (!nolock) {
+			// 如果输出网络设备设置了输出数据包时需要上锁的标志，则调用netif_tx_trylock()上锁
 			if (!netif_tx_trylock(dev)) {
 			collision:
 				/* So, someone grabbed the driver. */
@@ -118,12 +121,15 @@ static inline int qdisc_restart(struct net_device *dev)
 				   it by checking xmit owner and drop the
 				   packet when deadloop is detected.
 				*/
+				// 如果正在通过该网络设备发送数据包的CPU是当前CPU，则说明代码有bug，
+				// 需要提示并释放待输出的数据包
 				if (dev->xmit_lock_owner == smp_processor_id()) {
 					kfree_skb(skb);
 					if (net_ratelimit())
 						printk(KERN_DEBUG "Dead loop on netdevice %s, fix it urgently!\n", dev->name);
 					return -1;
 				}
+				// 其他情况（如由于其他CPU的锁定等）则统计相应数据后，将报文缓存起来或重新排入队列
 				__get_cpu_var(netdev_rx_stat).cpu_collision++;
 				goto requeue;
 			}
@@ -136,14 +142,19 @@ static inline int qdisc_restart(struct net_device *dev)
 			if (!netif_queue_stopped(dev)) {
 				int ret;
 
+				// 将数据包从输出网络设备中输出
 				ret = dev_hard_start_xmit(skb, dev);
 				if (ret == NETDEV_TX_OK) { 
 					if (!nolock) {
 						netif_tx_unlock(dev);
 					}
 					spin_lock(&dev->queue_lock);
+					// 输出成功则返回-1，表示队列中还有数据包等待发送
 					return -1;
 				}
+				// 如果由于输出锁已上锁而发送失败，且输出数据包时无需上锁
+				// 则跳转到collision标签处处理，或者是代码有bug，或者是
+				// 由于其他CPU锁定而需等待
 				if (ret == NETDEV_TX_LOCKED && nolock) {
 					spin_lock(&dev->queue_lock);
 					goto collision; 
@@ -152,6 +163,8 @@ static inline int qdisc_restart(struct net_device *dev)
 
 			/* NETDEV_TX_BUSY - we need to requeue */
 			/* Release the driver */
+			// 如果由于缓存不够，网络设备硬件错误等原因而关闭排队功能
+			// 则获取网络设备当前使用的排队规则
 			if (!nolock) { 
 				netif_tx_unlock(dev);
 			} 
@@ -170,10 +183,13 @@ static inline int qdisc_restart(struct net_device *dev)
 		 */
 
 requeue:
+		// 将由于其他CPU锁定而不能输出的GSO数据包缓存到输出网络设备上
 		if (skb->next)
 			dev->gso_skb = skb;
 		else
+		// 而其他数据包则重新排入队列
 			q->ops->requeue(skb, q);
+		// 再次调度数据包输出软中断，进行下一次数据包的输出
 		netif_schedule(dev);
 		return 1;
 	}
@@ -181,15 +197,20 @@ requeue:
 	return q->q.qlen;
 }
 
+// 真正实现调度数据包输出软中断的是__qdisc_run()
 void __qdisc_run(struct net_device *dev)
 {
+	// 如果输出网络设备的排队规则还处于初始状态，则没必要调度数据包输出软中断
+	// 退出流量控制调度队列过程状态
 	if (unlikely(dev->qdisc == &noop_qdisc))
 		goto out;
 
+	// 调用qdisc_restart()进行发送，直到发送完毕或网络设备为停止状态为止
 	while (qdisc_restart(dev) < 0 && !netif_queue_stopped(dev))
 		/* NOTHING */;
 
 out:
+	// 如果输出网络设备没有设置排队规则，则退出流量控制调度队列过程状态
 	clear_bit(__LINK_STATE_QDISC_RUNNING, &dev->state);
 }
 
@@ -422,6 +443,9 @@ static struct Qdisc_ops pfifo_fast_ops = {
 	.owner		=	THIS_MODULE,
 };
 
+// 分配内存建立排队规则，并初始化排队规则的相关成员，然后将排队规则与排队规则的操作接口
+// 绑定起来，设置排队规则的enqueue和dequeue接口以及排队规则安装的网络设备，最后返回
+// 已建立的排队规则。本函数在qdisc_create()和qdisc_create_dflt()中被调用
 struct Qdisc *qdisc_alloc(struct net_device *dev, struct Qdisc_ops *ops)
 {
 	void *p;
@@ -454,16 +478,20 @@ errout:
 	return ERR_PTR(-err);
 }
 
+// 用于创建默认的排队规则
 struct Qdisc * qdisc_create_dflt(struct net_device *dev, struct Qdisc_ops *ops,
 				 unsigned int parentid)
 {
 	struct Qdisc *sch;
 	
+	// 通过qdisc_alloc()建立起排队规则并与操作接口绑定
 	sch = qdisc_alloc(dev, ops);
 	if (IS_ERR(sch))
 		goto errout;
+	// 设置新排队规则的父规则
 	sch->parent = parentid;
 
+	// 最后调用init()接口初始化
 	if (!ops->init || ops->init(sch, NULL) == 0)
 		return sch;
 
@@ -515,6 +543,7 @@ void qdisc_destroy(struct Qdisc *qdisc)
 	call_rcu(&qdisc->q_rcu, __qdisc_destroy);
 }
 
+// 初始化用于流量控制的排队规则，并启动监视定时器
 void dev_activate(struct net_device *dev)
 {
 	/* No queueing discipline is attached to device;
@@ -523,9 +552,11 @@ void dev_activate(struct net_device *dev)
 	   virtual interfaces
 	 */
 
+	// 安装默认的排队规则
 	if (dev->qdisc_sleeping == &noop_qdisc) {
 		struct Qdisc *qdisc;
 		if (dev->tx_queue_len) {
+			// 网络设备支持排队时，安装默认排队规则pfifo
 			qdisc = qdisc_create_dflt(dev, &pfifo_fast_ops,
 						  TC_H_ROOT);
 			if (qdisc == NULL) {
@@ -536,6 +567,9 @@ void dev_activate(struct net_device *dev)
 			list_add_tail(&qdisc->list, &dev->qdisc_list);
 			write_unlock(&qdisc_tree_lock);
 		} else {
+			// 不支持排队时，安装默认排队规则noqueue，noqueue是不支持队列的排队规则
+			// 因为它不支持enqueue接口。当通过dev_queue_xmit()输出报文时，发现不支持
+			// enqueue接口，就直接发送报文，不再进行排队操作
 			qdisc =  &noqueue_qdisc;
 		}
 		write_lock(&qdisc_tree_lock);
@@ -543,6 +577,8 @@ void dev_activate(struct net_device *dev)
 		write_unlock(&qdisc_tree_lock);
 	}
 
+	// 检测网络设备是否处于可传递数据包状态。如果不是，则延迟应用已安装的排队规则
+	// 直到转变为可传递数据包状态
 	if (!netif_carrier_ok(dev))
 		/* Delay activation until next carrier-on event */
 		return;
@@ -556,6 +592,7 @@ void dev_activate(struct net_device *dev)
 	spin_unlock_bh(&dev->queue_lock);
 }
 
+// 将网络设备的排队规则设置为空规则，停止发送报文及监视报文发送是否超时
 void dev_deactivate(struct net_device *dev)
 {
 	struct Qdisc *qdisc;
@@ -574,6 +611,8 @@ void dev_deactivate(struct net_device *dev)
 	synchronize_rcu();
 
 	/* Wait for outstanding qdisc_run calls. */
+	// 如果网络设备还在进行流量控制的调度队列过程中，尽量让出处理器，尽可能块地
+	// 完成qdisc_run()的调用
 	while (test_bit(__LINK_STATE_QDISC_RUNNING, &dev->state))
 		yield();
 
@@ -583,9 +622,13 @@ void dev_deactivate(struct net_device *dev)
 	}
 }
 
+// 初始化排队规则的相关数据结构，在注册网络设备的register_netdevice()中被调用
 void dev_init_scheduler(struct net_device *dev)
 {
 	qdisc_lock_tree(dev);
+	// 排队规则为noop_qdisc,对应的noop_enqueue(),noop_dequeue(),noop_requeue()
+	// 并没有对数据包进行任何分类或排队，而是直接丢弃待发送的数据包
+	// 所以此时网络设备还不能发送任何数据包，必须等网络设备启用之后才能发送数据包
 	dev->qdisc = &noop_qdisc;
 	dev->qdisc_sleeping = &noop_qdisc;
 	INIT_LIST_HEAD(&dev->qdisc_list);

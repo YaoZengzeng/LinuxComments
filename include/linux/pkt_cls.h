@@ -121,9 +121,14 @@ struct tc_police
 {
 	__u32			index;
 	int			action;
+// 过滤器应用的规则与报文不匹配，它应该被送到下一个过滤器或过滤元素
 #define TC_POLICE_UNSPEC	TC_ACT_UNSPEC
+// 报文被过滤器接收
 #define TC_POLICE_OK		TC_ACT_OK
+// 报文违背了合法参数，应该被分配到不同的类，不过该报文仍然没有被抛弃
+// 排队规则可以通过不同的类传输此报文
 #define TC_POLICE_RECLASSIFY	TC_ACT_RECLASSIFY
+// 报文被过滤器接收，但又被过滤器丢弃了，因为它违背了合法参数
 #define TC_POLICE_SHOT		TC_ACT_SHOT
 #define TC_POLICE_PIPE		TC_ACT_PIPE
 

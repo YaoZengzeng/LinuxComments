@@ -1494,12 +1494,17 @@ gso:
 #ifdef CONFIG_NET_CLS_ACT
 	skb->tc_verd = SET_TC_AT(skb->tc_verd,AT_EGRESS);
 #endif
+	// 首先获取网络设备的排队规程，如果获取的排队规程定义了入队操作，说明已经启用了QoS
+	// 因此将待发送的数据包按队列规则加入到队列中。然后进行流量控制，调度队列输出数据包
 	if (q->enqueue) {
 		/* Grab device queue */
 		spin_lock(&dev->queue_lock);
 		q = dev->qdisc;
 		if (q->enqueue) {
 			rc = q->enqueue(skb, q);
+			// 在数据包加入队列之后，调用qdisc_run()来调度数据包输出软中断，在合适的
+			// 时机发送数据包。真正调度前，需要检测网络设备是否处于启用状态，并且是否
+			// 处于流量控制调度队列过程中
 			qdisc_run(dev);
 			spin_unlock(&dev->queue_lock);
 

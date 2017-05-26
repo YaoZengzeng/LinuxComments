@@ -143,13 +143,14 @@ static DEFINE_RWLOCK(qdisc_mod_lock);
 static struct Qdisc_ops *qdisc_base;
 
 /* Register/uregister queueing discipline */
-
+// 将新的排队规则注册到系统中，即链接到qdisc_base链表上
 int register_qdisc(struct Qdisc_ops *qops)
 {
 	struct Qdisc_ops *q, **qp;
 	int rc = -EEXIST;
 
 	write_lock(&qdisc_mod_lock);
+	// 同一种排队规则只能注册一次
 	for (qp = &qdisc_base; (q = *qp) != NULL; qp = &q->next)
 		if (!strcmp(qops->id, q->id))
 			goto out;
@@ -202,6 +203,7 @@ static struct Qdisc *__qdisc_lookup(struct net_device *dev, u32 handle)
 	return NULL;
 }
 
+// 根据排队规则句柄在配置在网络设备上的排队规则中查找对应的排队规则
 struct Qdisc *qdisc_lookup(struct net_device *dev, u32 handle)
 {
 	struct Qdisc *q;
@@ -212,6 +214,7 @@ struct Qdisc *qdisc_lookup(struct net_device *dev, u32 handle)
 	return q;
 }
 
+// 根据父节点和类标识符，获取当前绑定到所在类的排队规则
 static struct Qdisc *qdisc_leaf(struct Qdisc *p, u32 classid)
 {
 	unsigned long cl;
@@ -230,7 +233,7 @@ static struct Qdisc *qdisc_leaf(struct Qdisc *p, u32 classid)
 }
 
 /* Find queueing discipline by name */
-
+// 根据排队规则名得到在系统已注册的排队规则，主要在创建排队规则的qdisc_create()中被调用
 static struct Qdisc_ops *qdisc_lookup_ops(struct rtattr *kind)
 {
 	struct Qdisc_ops *q = NULL;
@@ -316,11 +319,14 @@ dev_graft_qdisc(struct net_device *dev, struct Qdisc *qdisc)
 {
 	struct Qdisc *oqdisc;
 
+	// 如果网络设备处于启用状态，则先将排队规则设置为空规则，停止发送报文
 	if (dev->flags & IFF_UP)
 		dev_deactivate(dev);
 
 	qdisc_lock_tree(dev);
 	if (qdisc && qdisc->flags&TCQ_F_INGRESS) {
+		// 如果安装的输入排队规则，则初始化当前的输入排队规则
+		// 并且安装新的输入排队规则
 		oqdisc = dev->qdisc_ingress;
 		/* Prune old scheduler */
 		if (oqdisc && atomic_read(&oqdisc->refcnt) <= 1) {
@@ -332,7 +338,9 @@ dev_graft_qdisc(struct net_device *dev, struct Qdisc *qdisc)
 		}
 
 	} else {
-
+		// 如果安装的是输出排队规则，则初始化当前的输出排队规则
+		// 然后安装新的输出排队规则，并将当前应用的排队规则设置
+		// 为空规则
 		oqdisc = dev->qdisc_sleeping;
 
 		/* Prune old scheduler */
@@ -348,6 +356,7 @@ dev_graft_qdisc(struct net_device *dev, struct Qdisc *qdisc)
 
 	qdisc_unlock_tree(dev);
 
+	// 在网络设备启用状态下，应用刚安装的排队规则
 	if (dev->flags & IFF_UP)
 		dev_activate(dev);
 
@@ -389,13 +398,16 @@ static int qdisc_graft(struct net_device *dev, struct Qdisc *parent,
 	struct Qdisc *q = *old;
 
 
-	if (parent == NULL) { 
+	if (parent == NULL) {
+		// 流量控制树的根，调用dev_graft_qdisc绑定根排队规则和类
 		if (q && q->flags&TCQ_F_INGRESS) {
 			*old = dev_graft_qdisc(dev, q);
 		} else {
 			*old = dev_graft_qdisc(dev, new);
 		}
 	} else {
+		// 存在父节点，先将类标识符映射到内部标识符
+		// 接着调用graft()将排队规则绑定到类中
 		struct Qdisc_class_ops *cops = parent->ops->cl_ops;
 
 		err = -EINVAL;
@@ -418,7 +430,7 @@ static int qdisc_graft(struct net_device *dev, struct Qdisc *parent,
 
    Parameters are passed via opt.
  */
-
+// 用于创建指定的排队规则
 static struct Qdisc *
 qdisc_create(struct net_device *dev, u32 handle, struct rtattr **tca, int *errp)
 {
@@ -427,8 +439,10 @@ qdisc_create(struct net_device *dev, u32 handle, struct rtattr **tca, int *errp)
 	struct Qdisc *sch;
 	struct Qdisc_ops *ops;
 
+	// 根据指定的排队规则标识符在已注册的排队规则中查找是否已经存在对应的排队规则
 	ops = qdisc_lookup_ops(kind);
 #ifdef CONFIG_KMOD
+	// 如果不存在，则根据标识符动态加载对应排队规则的模块
 	if (ops == NULL && kind != NULL) {
 		char name[IFNAMSIZ];
 		if (rtattr_strlcpy(name, kind, IFNAMSIZ) < IFNAMSIZ) {
@@ -444,6 +458,7 @@ qdisc_create(struct net_device *dev, u32 handle, struct rtattr **tca, int *errp)
 			request_module("sch_%s", name);
 			rtnl_lock();
 			ops = qdisc_lookup_ops(kind);
+			// 再次失败，说明创建排队规则失败
 			if (ops != NULL) {
 				/* We will try again qdisc_lookup_ops,
 				 * so don't keep a reference.
@@ -460,12 +475,14 @@ qdisc_create(struct net_device *dev, u32 handle, struct rtattr **tca, int *errp)
 	if (ops == NULL)
 		goto err_out;
 
+	// 调用qdisc_alloc()新建排队规则并与操作接口绑定
 	sch = qdisc_alloc(dev, ops);
 	if (IS_ERR(sch)) {
 		err = PTR_ERR(sch);
 		goto err_out2;
 	}
 
+	// 设置排队规则的句柄
 	if (handle == TC_H_INGRESS) {
 		sch->flags |= TCQ_F_INGRESS;
 		handle = TC_H_MAKE(TC_H_INGRESS, 0);
@@ -497,6 +514,7 @@ qdisc_create(struct net_device *dev, u32 handle, struct rtattr **tca, int *errp)
 		}
 #endif
 		qdisc_lock_tree(dev);
+		// 将其记录到绑定网络设备的qdisc_list链表上
 		list_add_tail(&sch->list, &dev->qdisc_list);
 		qdisc_unlock_tree(dev);
 
