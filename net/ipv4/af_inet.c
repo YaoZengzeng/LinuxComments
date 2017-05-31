@@ -1251,6 +1251,7 @@ static struct packet_type ip_packet_type = {
 	.gso_segment = inet_gso_segment,
 };
 
+// Internet协议族的初始化函数为inet_init()，该函数会在系统启动时被调用
 static int __init inet_init(void)
 {
 	struct sk_buff *dummy_skb;
@@ -1260,6 +1261,8 @@ static int __init inet_init(void)
 
 	BUILD_BUG_ON(sizeof(struct inet_skb_parm) > sizeof(dummy_skb->cb));
 
+	// 初始化tcp_prot,udp_prot和raw_prot的slab，并把它们加入到proto_list链表中
+	// 以便支持/proc/net/文件系统
 	rc = proto_register(&tcp_prot, 1);
 	if (rc)
 		goto out;
@@ -1275,13 +1278,14 @@ static int __init inet_init(void)
 	/*
 	 *	Tell SOCKET that we are alive... 
 	 */
-
+	// 让套接口层支持Internet协议族
   	(void)sock_register(&inet_family_ops);
 
 	/*
 	 *	Add all the base protocols.
 	 */
 
+	// 将系统中的常用传输层协议以及传输层的报文接收例程注册到inet_protos[]数组中
 	if (inet_add_protocol(&icmp_protocol, IPPROTO_ICMP) < 0)
 		printk(KERN_CRIT "inet_init: Cannot add ICMP protocol\n");
 	if (inet_add_protocol(&udp_protocol, IPPROTO_UDP) < 0)
@@ -1298,6 +1302,7 @@ static int __init inet_init(void)
 		INIT_LIST_HEAD(r);
 
 	for (q = inetsw_array; q < &inetsw_array[INETSW_ARRAY_LEN]; ++q)
+		// 将数组inetsw_array[]中Internet协议族所有的inet_protosw实例注册到inetsw散列表中
 		inet_register_protosw(q);
 
 	/*
@@ -1312,6 +1317,7 @@ static int __init inet_init(void)
 
 	ip_init();
 
+	// 创建一个内部的TCP套接口，主要用来发送RST段和ACK段
 	tcp_v4_init(&inet_family_ops);
 
 	/* Setup TCP slab cache for open requests. */
@@ -1339,10 +1345,12 @@ static int __init inet_init(void)
 	if(init_ipv4_mibs())
 		printk(KERN_CRIT "inet_init: Cannot init ipv4 mibs\n"); ;
 	
+	// 初始化/proc/net文件系统
 	ipv4_proc_init();
 
 	ipfrag_init();
 
+	// 注册Internet协议族报文类型及报文接收处理函数
 	dev_add_pack(&ip_packet_type);
 
 	rc = 0;

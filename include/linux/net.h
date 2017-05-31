@@ -167,8 +167,15 @@ struct proto_ops {
 				      int offset, size_t size, int flags);
 };
 
+// net_proto_family结构提供了一个协议族到套接口之间的接口
+// 屏蔽了不同的协议族在传输层的结构和实现的巨大差异，使得各协议族
+// 在初始化时，可以统一使用sock_register()注册到net_family数组中
 struct net_proto_family {
+	// 协议族对应的协议族常量，Internet协议族是PF_INET
 	int		family;
+	// 协议族的套接口创建函数指针，每个协议族都有不同的实现方式
+	// Internet协议族的net_proto_family结构实例为inet_family_ops
+	// 套接口创建函数为inet_create()
 	int		(*create)(struct socket *sock, int protocol);
 	struct module	*owner;
 };
