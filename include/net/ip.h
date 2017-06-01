@@ -31,22 +31,32 @@
 
 struct sock;
 
+// IP层在SKB中的信息控制块，存储在skb_buff结构的cb成员中
+// 输入时，ip_rcv_options()会解析IP首部中的选项保存到inet_skb_parm结构的opt成员中
+// 输出时，ip_options_build()会根据inet_skb_parm结构的opt将其组织后在IP首部中生成
+// 选项，而在转发时，ip_forward_options()会根据选项作适当处理
 struct inet_skb_parm
 {
+	// IP选项
 	struct ip_options	opt;		/* Compiled IP options		*/
+	// 处理IP数据报时的一些标志
 	unsigned char		flags;
 
 #define IPSKB_FORWARDED		1
 #define IPSKB_XFRM_TUNNEL_SIZE	2
 #define IPSKB_XFRM_TRANSFORMED	4
 #define IPSKB_FRAG_COMPLETE	8
-#define IPSKB_REROUTED		16
+#define IPSKB_REROUTED		16	// 标志IPSKB_REROUTED的数据报不能再进行转发
 };
 
+// IP控制信息块由ipcm_cookie结构描述，存储有关输出的控制信息，在整个输出过程中起传递信息的作用
 struct ipcm_cookie
 {
+	// UDP数据报或RAW数据报的目的地址，只有当存在IP选项时才设置，用作源路由选项的最后一跳地址
 	__be32			addr;
+	// UDP数据报或RAW数据报的输出网络设备
 	int			oif;
+	// 如果不为NULL，则指向发送数据报的IP选项信息
 	struct ip_options	*opt;
 };
 
@@ -134,8 +144,12 @@ static inline void ip_tr_mc_map(__be32 addr, char *buf)
 }
 
 struct ip_reply_arg {
-	struct kvec iov[1];   
+	// 标示待输出数据存储的位置及长度
+	struct kvec iov[1];
+	// TCP伪首部的校验和
 	__wsum 	    csum;
+	// TCP首部中校验和字段在首部中的偏移，通过偏移，在IP层就可以将计算得到的
+	// TCP校验和直接设置到TCP首部中
 	int	    csumoffset; /* u16 offset of csum in iov[0].iov_base */
 				/* -1 if not needed */ 
 }; 

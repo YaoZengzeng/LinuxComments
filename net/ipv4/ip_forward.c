@@ -48,8 +48,10 @@ static inline int ip_forward_finish(struct sk_buff *skb)
 	IP_INC_STATS_BH(IPSTATS_MIB_OUTFORWDATAGRAMS);
 
 	if (unlikely(opt->optlen))
+		// 处理转发IP数据报中的IP选项，包括记录路由选项和时间戳选项
 		ip_forward_options(skb);
 
+	// 通过路由缓存将数据报输出，最终会调用单播的输出函数ip_output()或组播的输出函数ip_mc_output()
 	return dst_output(skb);
 }
 
@@ -59,15 +61,21 @@ int ip_forward(struct sk_buff *skb)
 	struct rtable *rt;	/* Route we use */
 	struct ip_options * opt	= &(IPCB(skb)->opt);
 
+	// 调用xfrm4_policy_check()检查IPsec策略数据库，查找失败，则丢弃该数据报
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_FWD, skb))
 		goto drop;
 
+	// 如果数据报中存在路由警告选项，则调用ip_call_ra_chain()将数据报输入给对
+	// 路由警告选项感兴趣的用户进程，如果成功，则不再转发数据报
 	if (IPCB(skb)->opt.router_alert && ip_call_ra_chain(skb))
 		return NET_RX_SUCCESS;
 
+	// 承载该IP数据报的以太网帧目的地址与收到它的网络设备的MAC地址相等才能转发
 	if (skb->pkt_type != PACKET_HOST)
 		goto drop;
 
+	// 由于在转发过程中可能会修改IP首部，因此将ip_summed设置为CHECKSUM_NONE，
+	// 在后续的输出时还得由软件来执行校验和
 	skb->ip_summed = CHECKSUM_NONE;
 	
 	/*
@@ -78,15 +86,19 @@ int ip_forward(struct sk_buff *skb)
 	if (skb->nh.iph->ttl <= 1)
                 goto too_many_hops;
 
+    // 进行IPSec路由选路和转发处理
 	if (!xfrm4_route_forward(skb))
 		goto drop;
 
 	rt = (struct rtable*)skb->dst;
 
+	// 如果数据报启用严格路由选项，且数据报的下一条不是网关，则发送超时ICMP报文到对方，并丢弃该数据报
 	if (opt->is_strictroute && rt->rt_dst != rt->rt_gateway)
 		goto sr_failed;
 
 	/* We are about to mangle packet. Copy it! */
+	// 确保SKB有指定长度的headroom空间，当SKB的headroom空间小于指定长度或者克隆SKB时
+	// 会新建SKB缓冲并释放对原包的引用
 	if (skb_cow(skb, LL_RESERVED_SPACE(rt->u.dst.dev)+rt->u.dst.header_len))
 		goto drop;
 	iph = skb->nh.iph;
@@ -98,6 +110,8 @@ int ip_forward(struct sk_buff *skb)
 	 *	We now generate an ICMP HOST REDIRECT giving the route
 	 *	we calculated.
 	 */
+	// 该数据报的输出路由存在重定向标志，且该数据报中不存在源路由选项
+	// 则向发送方发送重定向ICMP报文
 	if (rt->rt_flags&RTCF_DOREDIRECT && !opt->srr)
 		ip_rt_send_redirect(skb);
 

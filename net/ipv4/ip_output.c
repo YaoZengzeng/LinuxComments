@@ -118,6 +118,7 @@ static inline int ip_select_ttl(struct inet_sock *inet, struct dst_entry *dst)
  *		Add an ip header to a skbuff and send it out.
  *
  */
+// 该函数用于在TCP建立连接过程中，打包输出SYN+ACK类型的TCP段
 int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 			  __be32 saddr, __be32 daddr, struct ip_options *opt)
 {
@@ -131,9 +132,11 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 	else
 		iph=(struct iphdr *)skb_push(skb,sizeof(struct iphdr));
 
+	// 设置IP首部中的各域
 	iph->version  = 4;
 	iph->ihl      = 5;
 	iph->tos      = inet->tos;
+	// frag_off根据输出套接口的pmtudisc值来设置
 	if (ip_dont_fragment(sk, &rt->u.dst))
 		iph->frag_off = htons(IP_DF);
 	else
@@ -143,6 +146,8 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 	iph->saddr    = rt->rt_src;
 	iph->protocol = sk->sk_protocol;
 	iph->tot_len  = htons(skb->len);
+	// id取值根据IP数据报是否分片而不同，不分片的IP数据报的id取自套接口中的id成员
+	// 而对于IP分片，则从对端信息块的ip_id_count中获取
 	ip_select_ident(iph, &rt->u.dst, sk);
 	skb->nh.iph   = iph;
 
@@ -152,6 +157,7 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 	}
 	ip_send_check(iph);
 
+	// 设置输出数据报的QoS类别
 	skb->priority = sk->sk_priority;
 
 	/* Send it out. */
@@ -161,6 +167,7 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 
 EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
+// 此函数通过邻居子系统将数据报输出到网络设备
 static inline int ip_finish_output2(struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb->dst;
@@ -168,6 +175,8 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	int hh_len = LL_RESERVED_SPACE(dev);
 
 	/* Be paranoid, rather than too clever. */
+	// 检测skb的前部空间是否还能够存储链路层首部，如果不够，则重新分配更大
+	// 存储区的SKB，并释放原skb
 	if (unlikely(skb_headroom(skb) < hh_len && dev->hard_header)) {
 		struct sk_buff *skb2;
 
@@ -183,8 +192,10 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	}
 
 	if (dst->hh)
+		// 如果缓存了链路层的首部，则调用neigh_hh_output()输出数据报
 		return neigh_hh_output(dst->hh, skb);
 	else if (dst->neighbour)
+		// 否则，若存在对应的邻居项，则通过邻居项的输出方法输出数据报
 		return dst->neighbour->output(skb);
 
 	if (net_ratelimit())
@@ -193,8 +204,11 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	return -EINVAL;
 }
 
+// 该函数的主要功能是如果数据报大于MTU，则调用ip_fragment()分片
+// 否则调用ip_finish_output2()输出
 static inline int ip_finish_output(struct sk_buff *skb)
 {
+	// netfilter和IPSec相关处理
 #if defined(CONFIG_NETFILTER) && defined(CONFIG_XFRM)
 	/* Policy lookup after SNAT yielded a new policy */
 	if (skb->dst->xfrm != NULL) {
@@ -203,6 +217,7 @@ static inline int ip_finish_output(struct sk_buff *skb)
 	}
 #endif
 	if (skb->len > dst_mtu(skb->dst) && !skb_is_gso(skb))
+		// 数据报长度大于MTU，则调用ip_fragment()对IP数据报进行分片
 		return ip_fragment(skb, ip_finish_output2);
 	else
 		return ip_finish_output2(skb);
@@ -267,12 +282,14 @@ int ip_mc_output(struct sk_buff *skb)
 			    !(IPCB(skb)->flags & IPSKB_REROUTED));
 }
 
+// 对于单播数据报，目的路由缓存项中的输出接口output是ip_output()
 int ip_output(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dst->dev;
 
 	IP_INC_STATS(IPSTATS_MIB_OUTREQUESTS);
 
+	// 设置数据报的输出网络设备和数据报网络层协议类型
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IP);
 
@@ -281,6 +298,9 @@ int ip_output(struct sk_buff *skb)
 			    !(IPCB(skb)->flags & IPSKB_REROUTED));
 }
 
+// ip_queue_xmit()是TCP传输中被调用得最多的函数，普通的数据输出最后都是由
+// 它进行打包处理的
+// ipfragok标识待输出的数据是否已经完成分片，但是在调用该函数时ipfragok参数总为0
 int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 {
 	struct sock *sk = skb->sk;
@@ -297,6 +317,7 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 		goto packet_routed;
 
 	/* Make sure we can route this packet. */
+	// 如果输出该数据报的传输控制块中缓存了输出路由缓存项，则需检测该路由缓存项是否过期
 	rt = (struct rtable *)__sk_dst_check(sk, 0);
 	if (rt == NULL) {
 		__be32 daddr;
@@ -330,10 +351,13 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 	skb->dst = dst_clone(&rt->u.dst);
 
 packet_routed:
+	// 查找到输出路由后，先进行严格源路由选项的处理，如果存在严格源路由选项
+	// 并且数据报的下一跳地址和网关地址不一致，则丢弃该数据报
 	if (opt && opt->is_strictroute && rt->rt_dst != rt->rt_gateway)
 		goto no_route;
 
 	/* OK, we know where to send it, allocate and build IP header. */
+	// 设置IP首部中各字段的值。如果存在IP选项，则在IP数据报首部中构建IP选项
 	iph = (struct iphdr *) skb_push(skb, sizeof(struct iphdr) + (opt ? opt->optlen : 0));
 	*((__be16 *)iph) = htons((4 << 12) | (5 << 8) | (inet->tos & 0xff));
 	iph->tot_len = htons(skb->len);
@@ -359,6 +383,7 @@ packet_routed:
 	/* Add an IP checksum. */
 	ip_send_check(iph);
 
+	// 设置输出数据报的QoS级别
 	skb->priority = sk->sk_priority;
 
 	return NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, skb, NULL, rt->u.dst.dev,
@@ -695,6 +720,7 @@ csum_page(struct page *page, int offset, int copy)
 	return csum;
 }
 
+// ip_ufo_append_data()实现复制数据到输出队列末尾哪个SKB的聚合分散IO页面
 static inline int ip_ufo_append_data(struct sock *sk,
 			int getfrag(void *from, char *to, int offset, int len,
 			       int odd, struct sk_buff *skb),
@@ -761,6 +787,9 @@ static inline int ip_ufo_append_data(struct sock *sk,
  *
  *	LATER: length must be adjusted by pad at tail, when it is required.
  */
+// ip_append_data()主要是将接收到的大数据包分成多个小于或等于MTU的SKB
+// 为网络层要实现的IP分片做准备
+// getfrag，用于复制数据到SKB中，不同的传输层，由于特性不同，因此对应复制的方法也不一样
 int ip_append_data(struct sock *sk,
 		   int getfrag(void *from, char *to, int offset, int len,
 			       int odd, struct sk_buff *skb),
@@ -773,6 +802,7 @@ int ip_append_data(struct sock *sk,
 
 	struct ip_options *opt = NULL;
 	int hh_len;
+	// exthdrlen用于记录IPsec中扩展首部的长度，为启用IPsec时为0
 	int exthdrlen;
 	int mtu;
 	int copy;
@@ -781,27 +811,35 @@ int ip_append_data(struct sock *sk,
 	unsigned int maxfraglen, fragheaderlen;
 	int csummode = CHECKSUM_NONE;
 
+	// 如果使用MSG_PROBE标识，实际上并不会进行真正的数据传递，而是进行路径
+	// MTU的探测
 	if (flags&MSG_PROBE)
 		return 0;
 
 	if (skb_queue_empty(&sk->sk_write_queue)) {
+		// 如果传输控制块的输出队列为空，则需要为传输控制块设置一些临时信息
 		/*
 		 * setup for corking.
 		 */
 		opt = ipc->opt;
 		if (opt) {
+			// 如果输出数据报中存在IP选项，则将IP选项信息复制到临时信息块中
 			if (inet->cork.opt == NULL) {
 				inet->cork.opt = kmalloc(sizeof(struct ip_options) + 40, sk->sk_allocation);
 				if (unlikely(inet->cork.opt == NULL))
 					return -ENOBUFS;
 			}
 			memcpy(inet->cork.opt, opt, sizeof(struct ip_options)+opt->optlen);
+			// 设置IPCORK_OPT，表示临时信息块中存在IP选项
 			inet->cork.flags |= IPCORK_OPT;
 			inet->cork.addr = ipc->addr;
 		}
 		dst_hold(&rt->u.dst);
+		// 设置IP数据报分片大小
 		inet->cork.fragsize = mtu = dst_mtu(rt->u.dst.path);
+		// 输出路由缓存
 		inet->cork.rt = rt;
+		// 初始化当前发送数据报中数据的长度
 		inet->cork.length = 0;
 		sk->sk_sndmsg_page = NULL;
 		sk->sk_sndmsg_off = 0;
@@ -810,6 +848,7 @@ int ip_append_data(struct sock *sk,
 			transhdrlen += exthdrlen;
 		}
 	} else {
+		// 如果传输控制块的输出队列不为空，则使用上次的输出路由、IP选项以及分片长度
 		rt = inet->cork.rt;
 		if (inet->cork.flags & IPCORK_OPT)
 			opt = inet->cork.opt;
@@ -818,11 +857,16 @@ int ip_append_data(struct sock *sk,
 		exthdrlen = 0;
 		mtu = inet->cork.fragsize;
 	}
+	// 获取链路层首部的长度
 	hh_len = LL_RESERVED_SPACE(rt->u.dst.dev);
 
+	// 获取IP首部的长度
 	fragheaderlen = sizeof(struct iphdr) + (opt ? opt->optlen : 0);
+	// IP数据报需要4字节对齐，为加速计算直接将IP数据报的数据根据当前MTU 8字节对齐
+	// 然后重新得到用于分片的长度
 	maxfraglen = ((mtu - fragheaderlen) & ~7) + fragheaderlen;
 
+	// 输出的数据长度超出一个IP数据报能容纳的长度
 	if (inet->cork.length + length > 0xFFFF - fragheaderlen) {
 		ip_local_error(sk, EMSGSIZE, rt->rt_dst, inet->dport, mtu-exthdrlen);
 		return -EMSGSIZE;
@@ -832,6 +876,8 @@ int ip_append_data(struct sock *sk,
 	 * transhdrlen > 0 means that this is the first fragment and we wish
 	 * it won't be fragmented in the future.
 	 */
+	// 如果IP数据报没有分片，且输出网络设备支持硬件执行校验和，则设置CHECKSUM_PARTIAL，
+	// 表示由硬件来执行校验和
 	if (transhdrlen &&
 	    length + fragheaderlen <= mtu &&
 	    rt->u.dst.dev->features & NETIF_F_ALL_CSUM &&
@@ -839,6 +885,7 @@ int ip_append_data(struct sock *sk,
 		csummode = CHECKSUM_PARTIAL;
 
 	inet->cork.length += length;
+	// 如果输出的UDP数据报且需要分片，同时输出网络设备支持UDP分片卸载
 	if (((length > mtu) && (sk->sk_protocol == IPPROTO_UDP)) &&
 			(rt->u.dst.dev->features & NETIF_F_UFO)) {
 
@@ -857,9 +904,11 @@ int ip_append_data(struct sock *sk,
 	 * adding appropriate IP header.
 	 */
 
+	// 获取输出队列末尾的SKB
 	if ((skb = skb_peek_tail(&sk->sk_write_queue)) == NULL)
 		goto alloc_new_skb;
 
+	// 循环处理待输出数据
 	while (length > 0) {
 		/* Check if the remaining data fits into current packet. */
 		copy = mtu - skb->len;
@@ -873,7 +922,10 @@ int ip_append_data(struct sock *sk,
 			unsigned int alloclen;
 			struct sk_buff *skb_prev;
 alloc_new_skb:
+			// 分配一个新的SKB用于复制数据
 			skb_prev = skb;
+			// 如果上一个SKB中存在多个8字节对齐的MTU的数据，则这些数据需移动到
+			// 当前SKB中，确保最后一个IP分片之外的数据能够4字节对齐
 			if (skb_prev)
 				fraggap = skb_prev->len - maxfraglen;
 			else
@@ -1182,6 +1234,7 @@ error:
  *	Combined all pending IP fragments on the socket as one IP datagram
  *	and push them out.
  */
+// 将输出队列上的多个分片合成一个完整的IP数据报，并通过ip_output输出
 int ip_push_pending_frames(struct sock *sk)
 {
 	struct sk_buff *skb, *tmp_skb;
@@ -1201,6 +1254,8 @@ int ip_push_pending_frames(struct sock *sk)
 	/* move skb->data to ip header from ext header */
 	if (skb->data < skb->nh.raw)
 		__skb_pull(skb, skb->nh.raw - skb->data);
+	// 去除后续SKB中的IP首部后，链接到第一个SKB的fraglist上，组成一个分片
+	// 为后续的分片做准备
 	while ((tmp_skb = __skb_dequeue(&sk->sk_write_queue)) != NULL) {
 		__skb_pull(tmp_skb, skb->h.raw - skb->nh.raw);
 		*tail_skb = tmp_skb;
@@ -1217,12 +1272,15 @@ int ip_push_pending_frames(struct sock *sk)
 	 * to fragment the frame generated here. No matter, what transforms
 	 * how transforms change size of the packet, it will come out.
 	 */
+	// 在不启用路径MTU发现时，允许对输出数据报进行分片
 	if (inet->pmtudisc != IP_PMTUDISC_DO)
 		skb->local_df = 1;
 
 	/* DF bit is set when we want to see DF on outgoing frames.
 	 * If local_df is set too, we still allow to fragment this frame
 	 * locally. */
+	// 如果启用了路径MTU发现功能，或者输出数据报的长度小于MTU且本传输控制块输出的IP数据报
+	// 不能分片，则给IP首部添加禁止分片标志
 	if (inet->pmtudisc == IP_PMTUDISC_DO ||
 	    (skb->len <= dst_mtu(&rt->u.dst) &&
 	     ip_dont_fragment(sk, &rt->u.dst)))
@@ -1236,6 +1294,7 @@ int ip_push_pending_frames(struct sock *sk)
 	else
 		ttl = ip_select_ttl(inet, &rt->u.dst);
 
+	// 构建IP首部，设置IP首部中各字段，包括IP选项等
 	iph = (struct iphdr *)skb->data;
 	iph->version = 4;
 	iph->ihl = 5;
@@ -1253,6 +1312,7 @@ int ip_push_pending_frames(struct sock *sk)
 	iph->daddr = rt->rt_dst;
 	ip_send_check(iph);
 
+	// 设置输出数据报的优先级及目的路由
 	skb->priority = sk->sk_priority;
 	skb->dst = dst_clone(&rt->u.dst);
 
@@ -1267,6 +1327,7 @@ int ip_push_pending_frames(struct sock *sk)
 	}
 
 out:
+	// 无论是否成功传输IP数据报，完成后都要删除保存在传输控制块中的IP选项信息
 	inet->cork.flags &= ~IPCORK_OPT;
 	kfree(inet->cork.opt);
 	inet->cork.opt = NULL;
@@ -1324,6 +1385,7 @@ static int ip_reply_glue_bits(void *dptr, char *to, int offset,
  *
  *	LATER: switch from ip_build_xmit to ip_append_*
  */
+// 主要用于构成并输出RST和ACK段，在tcp_v4_send_reset()和tcp_v4_send_ack()中被调用
 void ip_send_reply(struct sock *sk, struct sk_buff *skb, struct ip_reply_arg *arg,
 		   unsigned int len)
 {
@@ -1336,6 +1398,7 @@ void ip_send_reply(struct sock *sk, struct sk_buff *skb, struct ip_reply_arg *ar
 	__be32 daddr;
 	struct rtable *rt = (struct rtable*)skb->dst;
 
+	// 从待输出的IP数据报中得到选项，用于处理源路由选项
 	if (ip_options_echo(&replyopts.opt, skb))
 		return;
 
@@ -1346,10 +1409,13 @@ void ip_send_reply(struct sock *sk, struct sk_buff *skb, struct ip_reply_arg *ar
 		ipc.opt = &replyopts.opt;
 
 		if (ipc.opt->srr)
+			// 如果输入的IP数据报启用了源路由选项，则将下一跳的IP地址作为目的地址
 			daddr = replyopts.opt.faddr;
 	}
 
 	{
+		// 根据目的地址、源地址等查找输出到对方的路由
+		// 如果查找命中，则可以输出数据报，否则中止输出
 		struct flowi fl = { .nl_u = { .ip4_u =
 					      { .daddr = daddr,
 						.saddr = rt->rt_spec_dst,
@@ -1371,11 +1437,14 @@ void ip_send_reply(struct sock *sk, struct sk_buff *skb, struct ip_reply_arg *ar
 	   with locally disabled BH and that sk cannot be already spinlocked.
 	 */
 	bh_lock_sock(sk);
+	// 根据输入的SKB更新一些属性到传输控制块中，如TOS、优先级等
 	inet->tos = skb->nh.iph->tos;
 	sk->sk_priority = skb->priority;
 	sk->sk_protocol = skb->nh.iph->protocol;
+	// 先将数据添加到输出队列末尾的SKB中，或将数据复制到新生成的SKB中并添加到输出队列中
 	ip_append_data(sk, ip_reply_glue_bits, arg->iov->iov_base, len, 0,
 		       &ipc, rt, MSG_DONTWAIT);
+	// 如果输出队列不为空，则计算第一个SKB的传输层校验和，并将其发送出去
 	if ((skb = skb_peek(&sk->sk_write_queue)) != NULL) {
 		if (arg->csumoffset >= 0)
 			*((__sum16 *)skb->h.raw + arg->csumoffset) = csum_fold(csum_add(skb->csum, arg->csum));
@@ -1388,12 +1457,16 @@ void ip_send_reply(struct sock *sk, struct sk_buff *skb, struct ip_reply_arg *ar
 	ip_rt_put(rt);
 }
 
+// 初始化IP层
 void __init ip_init(void)
 {
+	// 初始化路由模块
 	ip_rt_init();
+	// 初始化对端信息管理模块
 	inet_initpeers();
 
 #if defined(CONFIG_IP_MULTICAST) && defined(CONFIG_PROC_FS)
+	// 初始化组播proc文件的注册
 	igmp_mc_proc_init();
 #endif
 }

@@ -8,28 +8,54 @@
 #include <linux/rcupdate.h>
 #include <linux/timer.h>
 
+// ipv4_devconf结构是网络设备接口的IPv4系统配置，在内核中有一个名为ipv4)devconf的
+// 系统全局遍历，该配置对所有接口有效，另外，每个网络设备的IP控制块中也都存在一份配置，
+// 但该配置只对所在网络设备有效
 struct ipv4_devconf
 {
+	// 是否接收ICMP重定向报文
 	int	accept_redirects;
+	// 是否启用ICMP重定向报文输出
 	int	send_redirects;
+	// 是否接收ICMP重定向报文，但只针对具有路由功能的网关
 	int	secure_redirects;
+	// 是否启用发送（路由器）或接收（主机）RFC1620共享媒体重定向
 	int	shared_media;
+	// 是否接收带有SRR选项的数据
 	int	accept_source_route;
+	// 是否启用通过反向路径回溯进行源地址验证
 	int	rp_filter;
+	// 是否启用arp代理功能
 	int	proxy_arp;
+	// 是否接收源地址为0.b.c.d，目的地址不是本机的数据报。用来支持BOOTP转发服务进程
+	// 该进程将捕获并转发该包，目前尚未实现
 	int	bootp_relay;
+	// 是否记录那些非法地址的数据报到内核日志中
 	int	log_martians;
+	// 在ipv4_devconf中，标识是否启用IP数据报转发功能；而在IP配置块中，标识是否启用
+	// 所在网络设备的IP数据报转发功能
 	int	forwarding;
+	// 在ipv4_devconf中，标识是否进行组播路由；而在IP配置块中，表示当前虚拟接口数目
 	int	mc_forwarding;
+	// 留给用户根据需要设置
 	int	tag;
+	// 允许从其他网络设备输出ARP应答
 	int     arp_filter;
+	// 输出ARP请求时，由IP数据报确定源IP地址的规则
 	int	arp_announce;
+	// 接收ARP请求报文的过滤规则
 	int	arp_ignore;
+	// 处理非ARP请求而接收到的ARP应答
 	int	arp_accept;
+	// 用于区分不同的媒介
 	int	medium_id;
+	// 标识是否启用XFRM，只用于IPsec
 	int	no_xfrm;
+	// 标识是否启用策略路由
 	int	no_policy;
+	// 强制当前启用的IGMP版本
 	int	force_igmp_version;
+	// 标识在删除主地址时，第二IP地址是否能升级为主IP地址
 	int	promote_secondaries;
 	void	*sysctl;
 };

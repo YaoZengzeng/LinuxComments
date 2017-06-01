@@ -330,6 +330,7 @@ static void unlink_from_pool(struct inet_peer *p)
 }
 
 /* May be called with local BH enabled. */
+// ttl为0表示必须释放一个闲置的对端信息块
 static int cleanup_once(unsigned long ttl)
 {
 	struct inet_peer *p;
@@ -362,6 +363,7 @@ static int cleanup_once(unsigned long ttl)
 		 * happen because of entry limits in route cache. */
 		return -1;
 
+	// 调用unlink_from_pool()将对端信息块从AVL树中删除并释放
 	unlink_from_pool(p);
 	return 0;
 }
@@ -401,6 +403,10 @@ struct inet_peer *inet_getpeer(__be32 daddr, int create)
 
 	write_lock_bh(&peer_pool_lock);
 	/* Check if an entry has suddenly appeared. */
+	// 先检查是否有同样地址的对端信息块已添加到AVL数，因为在分配对端信息块时
+	// 其他模块有可能已经创建了相同地址的对端信息块。如果有，则不使用刚创建的
+	// 对端信息块并将其释放，否则将新创建的对端信息块添加到AVL树并更新当前的
+	// 对端信息块个数
 	p = lookup(daddr);
 	if (p != peer_avl_empty)
 		goto out_free;
@@ -413,6 +419,7 @@ struct inet_peer *inet_getpeer(__be32 daddr, int create)
 
 	if (peer_total >= inet_peer_threshold)
 		/* Remove one less-recently-used entry. */
+		// 释放inet_peer_unused_head队首的对端信息块
 		cleanup_once(0);
 
 	return n;
@@ -429,6 +436,7 @@ out_free:
 }
 
 /* Called with local BH disabled. */
+// 使用peer_periodic_timer定时器进行周期性地垃圾回收
 static void peer_check_expire(unsigned long dummy)
 {
 	unsigned long now = jiffies;
@@ -448,6 +456,7 @@ static void peer_check_expire(unsigned long dummy)
 	/* Trigger the timer after inet_peer_gc_mintime .. inet_peer_gc_maxtime
 	 * interval depending on the total number of entries (more entries,
 	 * less interval). */
+	// 根据当前对端信息块数计算peer_check_expire定时器下次激活时间
 	if (peer_total >= inet_peer_threshold)
 		peer_periodic_timer.expires = jiffies + inet_peer_gc_mintime;
 	else
@@ -458,6 +467,8 @@ static void peer_check_expire(unsigned long dummy)
 	add_timer(&peer_periodic_timer);
 }
 
+// 实际上，inet_putpeer()只是将该对端信息块添加到inet_peer_unused_head队列上，
+// 表示该对端信息块当前没有被使用，而真正的删除和释放，由垃圾回收机制来处理
 void inet_putpeer(struct inet_peer *p)
 {
 	spin_lock_bh(&inet_peer_unused_lock);

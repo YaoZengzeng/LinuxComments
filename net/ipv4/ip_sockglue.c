@@ -127,7 +127,10 @@ static void ip_cmsg_recv_security(struct msghdr *msg, struct sk_buff *skb)
 	security_release_secctx(secdata, seclen);
 }
 
-
+// ip_cmsg_recv()用于获取报文控制信息，在UDP套接口和RAW套接口的recvmsg例程中，
+// 当设置了IP_PKTINFO等报文控制信息相关的套接口选项后，无论是接收错误信息还是正常的
+// 数据，都会被调用。在获取每一种报文控制信息前，会将报文控制信息标志向右移动，然后
+// 根据标志检测是否需要获取对应的报文控制信息
 void ip_cmsg_recv(struct msghdr *msg, struct sk_buff *skb)
 {
 	struct inet_sock *inet = inet_sk(skb->sk);
@@ -135,26 +138,33 @@ void ip_cmsg_recv(struct msghdr *msg, struct sk_buff *skb)
 
 	/* Ordered by supposed usage frequency */
 	if (flags & 1)
+		// IP_PKTINFO控制信息由in_pktinfo结构描述，内容包括数据报的目的地址
+		// 输入网络设备以及源地址
 		ip_cmsg_recv_pktinfo(msg, skb);
 	if ((flags>>=1) == 0)
 		return;
 
 	if (flags & 1)
+		// 若设置了IP_TTL套接口选项，则获取IP_TTL控制信息，内容为输入IP数据报
+		// 首部中的TTL
 		ip_cmsg_recv_ttl(msg, skb);
 	if ((flags>>=1) == 0)
 		return;
 
 	if (flags & 1)
+		// 输入IP数据报首部中的TOS
 		ip_cmsg_recv_tos(msg, skb);
 	if ((flags>>=1) == 0)
 		return;
 
 	if (flags & 1)
+		// 内容为输出IP数据报首部中的IP选项
 		ip_cmsg_recv_opts(msg, skb);
 	if ((flags>>=1) == 0)
 		return;
 
 	if (flags & 1)
+		// 内容为输入IP数据报首部中未处理的IP选项
 		ip_cmsg_recv_retopts(msg, skb);
 	if ((flags>>=1) == 0)
 		return;
@@ -163,23 +173,29 @@ void ip_cmsg_recv(struct msghdr *msg, struct sk_buff *skb)
 		ip_cmsg_recv_security(msg, skb);
 }
 
+// UDP套接口和RAW套接口在通过sendmsg系统调用输出数据时，会检测消息头中是否存在控制信息
+// 如果存在，则调用ip_cmsg_send()将控制信息获取到一个IP控制信息块中
 int ip_cmsg_send(struct msghdr *msg, struct ipcm_cookie *ipc)
 {
 	int err;
 	struct cmsghdr *cmsg;
 
+	// 遍历消息头中各种类型的控制信息
 	for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
+		// 检测消息头中标识控制信息长度，即检验消息头中标识控制信息的组成是否正确
 		if (!CMSG_OK(msg, cmsg))
 			return -EINVAL;
 		if (cmsg->cmsg_level != SOL_IP)
 			continue;
 		switch (cmsg->cmsg_type) {
+		// 处理IP_RETOPTS类型的控制信息，解析并生成IP选项信息
 		case IP_RETOPTS:
 			err = cmsg->cmsg_len - CMSG_ALIGN(sizeof(struct cmsghdr));
 			err = ip_options_get(&ipc->opt, CMSG_DATA(cmsg), err < 40 ? err : 40);
 			if (err)
 				return err;
 			break;
+		// 处理IP_PKTINFO类型的控制信息，获取报文指定的输出网络设备和目的地址
 		case IP_PKTINFO:
 		{
 			struct in_pktinfo *info;
@@ -253,19 +269,25 @@ int ip_ra_control(struct sock *sk, unsigned char on, void (*destructor)(struct s
 	return 0;
 }
 
+// 当接收到ICMP差错信息时，ICMP模块会根据出错的原始数据报的传输层协议，调用传输层
+// 的差错处理例程，而传输层的差错处理例程进而会调用ip_icmp_error()将出错信息添加
+// 到该输出该出错数据报的传输控制块错误队列上
 void ip_icmp_error(struct sock *sk, struct sk_buff *skb, int err, 
 		   __be16 port, u32 info, u8 *payload)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct sock_exterr_skb *serr;
 
+	// 如果不接收扩展的错误信息，则返回
 	if (!inet->recverr)
 		return;
 
+	// 由ICMP差错报文克隆出用于报告出错信息的报文，并填充各种错误信息
 	skb = skb_clone(skb, GFP_ATOMIC);
 	if (!skb)
 		return;
 
+	// 通常通过SKB_EXT_ERR来访问SKB控制块中的错误信息块
 	serr = SKB_EXT_ERR(skb);  
 	serr->ee.ee_errno = err;
 	serr->ee.ee_origin = SO_EE_ORIGIN_ICMP;
@@ -278,11 +300,15 @@ void ip_icmp_error(struct sock *sk, struct sk_buff *skb, int err,
 	serr->port = port;
 
 	skb->h.raw = payload;
+	// 将报文出错信息的数据报添加到传输控制块的错误队列，并唤醒等待该传输控制块的的进程
 	if (!skb_pull(skb, payload - skb->data) ||
 	    sock_queue_err_skb(sk, skb))
 		kfree_skb(skb);
 }
 
+// 当UDP套接口或RAW套接口发送数据时，如果待发送数据的长度超过IP数据报能负载的长度
+// 会调用ip_local_error()将数据报数据超长的出错信息添加到输出该出错报文的传输控制块
+// 错误队列上，实现上和ip_icmp_error()类似
 void ip_local_error(struct sock *sk, int err, __be32 daddr, __be16 port, u32 info)
 {
 	struct inet_sock *inet = inet_sk(sk);
@@ -322,6 +348,10 @@ void ip_local_error(struct sock *sk, int err, __be32 daddr, __be16 port, u32 inf
 /* 
  *	Handle MSG_ERRQUEUE
  */
+// 通常，recvmsg()是用来接收远端发送到所在套接口的数据的，但也可以通过设置flags为
+// MSG_ERRQUEUE来读取传输控制块错误队列上的错误信息。在UDP套接口和RAW套接口的recvmsg()
+// 的实现中，先检测是否存在MSG_ERRQUEUE标识，如果有，则直接调用ip_recv_error()从传输
+// 控制块的错误队列中读取错误信息后返回
 int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 {
 	struct sock_exterr_skb *serr;
@@ -335,15 +365,18 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 	int copied;
 
 	err = -EAGAIN;
+	// 从传输控制块的错误队列上获取队首的那个错误信息数据报
 	skb = skb_dequeue(&sk->sk_error_queue);
 	if (skb == NULL)
 		goto out;
 
+	// 如果错误数据报的长度超过缓存区长度
 	copied = skb->len;
 	if (copied > len) {
 		msg->msg_flags |= MSG_TRUNC;
 		copied = len;
 	}
+	// 将数据报中的数据复制到缓存中
 	err = skb_copy_datagram_iovec(skb, 0, msg->msg_iov, copied);
 	if (err)
 		goto out_free_skb;
@@ -352,6 +385,7 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 
 	serr = SKB_EXT_ERR(skb);
 
+	// 将产生错误报文的原始数据报的目的地址和目的端口赋值到消息头中
 	sin = (struct sockaddr_in *)msg->msg_name;
 	if (sin) {
 		sin->sin_family = AF_INET;
@@ -360,9 +394,11 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 		memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
 	}
 
+	// 获取差错报文错误信息块中的出错信息
 	memcpy(&errhdr.ee, &serr->ee, sizeof(struct sock_extended_err));
 	sin = &errhdr.offender;
 	sin->sin_family = AF_UNSPEC;
+	// 如果出错信息来自ICMP的差错消息，则还需获取相关的源地址等信息
 	if (serr->ee.ee_origin == SO_EE_ORIGIN_ICMP) {
 		struct inet_sock *inet = inet_sk(sk);
 
@@ -371,20 +407,25 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 		sin->sin_port = 0;
 		memset(&sin->sin_zero, 0, sizeof(sin->sin_zero));
 		if (inet->cmsg_flags)
+			// 将报文控制信息赋值到消息头中
 			ip_cmsg_recv(msg, skb);
 	}
 
+	// 将出错扩展信息复制到消息头控制信息区域中
 	put_cmsg(msg, SOL_IP, IP_RECVERR, sizeof(errhdr), &errhdr);
 
 	/* Now we could try to dump offended packet options */
 
+	// 表示接收到的是出错信息
 	msg->msg_flags |= MSG_ERRQUEUE;
 	err = copied;
 
 	/* Reset and regenerate socket error */
 	spin_lock_bh(&sk->sk_error_queue.lock);
 	sk->sk_err = 0;
+	// 检测错误队列是否为空
 	if ((skb2 = skb_peek(&sk->sk_error_queue)) != NULL) {
+		// 不为空，则唤醒等待和异步等待该传输控制块的进程
 		sk->sk_err = SKB_EXT_ERR(skb2)->ee.ee_errno;
 		spin_unlock_bh(&sk->sk_error_queue.lock);
 		sk->sk_error_report(sk);

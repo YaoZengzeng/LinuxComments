@@ -196,10 +196,12 @@ int ip_call_ra_chain(struct sk_buff *skb)
 	return 0;
 }
 
+// 该函数将输入数据报从网络层传递到传输层
 static inline int ip_local_deliver_finish(struct sk_buff *skb)
 {
 	int ihl = skb->nh.iph->ihl*4;
 
+	// 去掉IP首部
 	__skb_pull(skb, ihl);
 
         /* Point into the IP datagram, just past the header. */
@@ -215,6 +217,9 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 
 	resubmit:
 		hash = protocol & (MAX_INET_PROTOS - 1);
+		// 处理RAW套接口，查看raw_v4_htable散列表中以该值为关键字的哈希桶是否为空
+		// 如果不为空，则说明创建了RAW套接口，复制该数据报的副本到输入到注册到该桶中
+		// 的所有套接口
 		raw_sk = sk_head(&raw_v4_htable[hash]);
 
 		/* If there maybe a raw socket we must check - if not we
@@ -223,6 +228,7 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 		if (raw_sk && !raw_v4_input(skb, skb->nh.iph, hash))
 			raw_sk = NULL;
 
+		// 查找inet_protos数组，确定是否注册了与IP首部中传输协议号一致的传输层协议
 		if ((ipprot = rcu_dereference(inet_protos[hash])) != NULL) {
 			int ret;
 
@@ -233,6 +239,7 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 				}
 				nf_reset(skb);
 			}
+			// 执行对应的传输层接收例程
 			ret = ipprot->handler(skb);
 			if (ret < 0) {
 				protocol = -ret;
@@ -240,6 +247,7 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 			}
 			IP_INC_STATS_BH(IPSTATS_MIB_INDELIVERS);
 		} else {
+			// 如果是RAW套接口没有接收或接收异常，还需要产生一个目的不可达ICMP报文给对方
 			if (!raw_sk) {
 				if (xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 					IP_INC_STATS_BH(IPSTATS_MIB_INUNKNOWNPROTOS);
@@ -265,9 +273,10 @@ int ip_local_deliver(struct sk_buff *skb)
 	/*
 	 *	Reassemble IP fragments.
 	 */
-
+	// 若是分片，则需要将分片重组
 	if (skb->nh.iph->frag_off & htons(IP_MF|IP_OFFSET)) {
 		skb = ip_defrag(skb, IP_DEFRAG_LOCAL_DELIVER);
+		// 返回0，则表示IP数据报分片尚未到齐，重组没有完成，直接返回
 		if (!skb)
 			return 0;
 	}
@@ -328,6 +337,8 @@ drop:
 	return -1;
 }
 
+// 在ip_rcv_finish()中，根据数据报的路由信息，决定这个数据报是转发还是输入到本地
+// 由此产生两条路径，输入到本机由ip_local_deliver()处理，而转发由ip_forward()处理
 static inline int ip_rcv_finish(struct sk_buff *skb)
 {
 	struct iphdr *iph = skb->nh.iph;
@@ -337,6 +348,7 @@ static inline int ip_rcv_finish(struct sk_buff *skb)
 	 *	how the packet travels inside Linux networking.
 	 */ 
 	if (skb->dst == NULL) {
+		// 调用ip_route_input()为其查找输入路由缓存
 		int err = ip_route_input(skb, iph->daddr, iph->saddr, iph->tos,
 					 skb->dev);
 		if (unlikely(err)) {
@@ -357,9 +369,12 @@ static inline int ip_rcv_finish(struct sk_buff *skb)
 	}
 #endif
 
+	// 处理IP选项
 	if (iph->ihl > 5 && ip_rcv_options(skb))
 		goto drop;
 
+	// 最后根据输入路由缓存决定输入到本地或转发，最终前者调用ip_local_deliver()
+	// 后者调用ip_forward()
 	return dst_input(skb);
 
 drop:
@@ -378,16 +393,20 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	/* When the interface is in promisc. mode, drop all the crap
 	 * that it receives, do not try to analyse it.
 	 */
+	// 只接收发往本机的数据报
 	if (skb->pkt_type == PACKET_OTHERHOST)
 		goto drop;
 
 	IP_INC_STATS_BH(IPSTATS_MIB_INRECEIVES);
 
+	// 检测接收到的数据报是否为一个共享数据包，如果是，必须复制一个副本，再做进一步处理
+	// 因为在处理过程中可能会修改数据报中的信息
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto out;
 	}
 
+	// 通过判断数据报长度来检测数据报是否有效，不能小于IP首部长度
 	if (!pskb_may_pull(skb, sizeof(struct iphdr)))
 		goto inhdr_error;
 
@@ -423,12 +442,14 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 * is IP we can trim to the true length of the frame.
 	 * Note this now means skb->len holds ntohs(iph->tot_len).
 	 */
+	// 根据IP数据报首部中的数据报总长度重新设置skb的长度
 	if (pskb_trim_rcsum(skb, len)) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
 
 	/* Remove any debris in the socket control block */
+	// 将skb中的IP控制块清零，以便后续对IP选项的处理
 	memset(IPCB(skb), 0, sizeof(struct inet_skb_parm));
 
 	return NF_HOOK(PF_INET, NF_IP_PRE_ROUTING, skb, dev, NULL,

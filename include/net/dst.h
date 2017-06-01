@@ -223,6 +223,7 @@ static inline void dst_set_expires(struct dst_entry *dst, int timeout)
 }
 
 /* Output packet to network from transport.  */
+// 封装了输出数据报目的路由缓存项中的输出接口
 static inline int dst_output(struct sk_buff *skb)
 {
 	return skb->dst->output(skb);
