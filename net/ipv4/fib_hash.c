@@ -48,22 +48,36 @@
 static struct kmem_cache *fn_hash_kmem __read_mostly;
 static struct kmem_cache *fn_alias_kmem __read_mostly;
 
+// fib_node实例代表每一个唯一的目的网络的路由表项，即同一个子网中所有路由表项所共享的信息
+// 目的网络相同但其他配置参数不同的路由表项共享同一个fib_node实例，因此一个fib_node实例
+//　实际上存在着一个或多个路由表项
 struct fib_node {
+	// 用于将散列表中同一个桶内所有的fib_node实例链接成一个双向链表
 	struct hlist_node	fn_hash;
+	// fn_alias指向一个或多个fib_alias实例构成的链表
 	struct list_head	fn_alias;
+	// 由IP地址和路由项的netmask于操作后得到，被用作查找路由表时的搜索条件
 	__be32			fn_key;
 };
 
+// 一个zone是一组有着相同目的地址掩码长度的路由表项的散列表
 struct fn_zone {
+	// 将活动（路由表项不为空）的zone链接在一起的指针，该链表的头部存储在fn_hash数据结构的fn_zone_list中
 	struct fn_zone		*fz_next;	/* Next not empty zone	*/
+	// 指向存储该zone中路由表项的散列表
 	struct hlist_head	*fz_hash;	/* Hash table pointer	*/
+	// 在该zone的散列表中fib_node实例的数目，用于检查是否需要改变该散列表的容量
 	int			fz_nent;	/* Number of entries	*/
 
+	//　表示散列表fz_hash的容量，及散列表痛的数目
 	int			fz_divisor;	/* Hash divisor		*/
+	// 其值为(fz_divisor - 1),用来计算散列表的关健值
 	u32			fz_hashmask;	/* (fz_divisor - 1)	*/
 #define FZ_HASHMASK(fz)		((fz)->fz_hashmask)
-
+	// 在网络掩码fz_mask的长度，在代码中有些地方也用prefixlen来表示，例如，网络掩码255.255.255.0对应
+	// 的fz_order为24
 	int			fz_order;	/* Zone order		*/
+	// 用fz_order构造得到的网络掩码，例如设fz_order值取3，则生成的fz_mask其十进制表示为224.0.0.0
 	__be32			fz_mask;
 #define FZ_MASK(fz)		((fz)->fz_mask)
 };
@@ -758,7 +772,13 @@ static int fn_hash_dump(struct fib_table *tb, struct sk_buff *skb, struct netlin
 	return skb->len;
 }
 
+// 路由表的初始化是由fib_hash_init()实现的，ip_fib_main_table和ip_fib_local_table表的创建
+// 是由初始化IP路由子系统的ip_fib_init()调用fib_hash_init()实现的，在支持策略路由时，在创建
+// 新的路由表项后，也会调用此函数进行初始化
+// 参数id为进行初始化路由表的id，ip_fib_main_table和ip_fib_local_table表的id分别为RT_TABLE_LOCAL
+// 和RT_TABLE_MAIN
 #ifdef CONFIG_IP_MULTIPLE_TABLES
+// 在支持策略路由的情况下，可以在任意时刻创建一个新的路由表
 struct fib_table * fib_hash_init(u32 id)
 #else
 struct fib_table * __init fib_hash_init(u32 id)
@@ -766,24 +786,28 @@ struct fib_table * __init fib_hash_init(u32 id)
 {
 	struct fib_table *tb;
 
+	// 创建用于分配fib_node数据结构的内存池fn_hash_kmem
 	if (fn_hash_kmem == NULL)
 		fn_hash_kmem = kmem_cache_create("ip_fib_hash",
 						 sizeof(struct fib_node),
 						 0, SLAB_HWCACHE_ALIGN,
 						 NULL, NULL);
 
+	// 创建用于分配fib_alias数据结构的内存池fn_alias_kmem
 	if (fn_alias_kmem == NULL)
 		fn_alias_kmem = kmem_cache_create("ip_fib_alias",
 						  sizeof(struct fib_alias),
 						  0, SLAB_HWCACHE_ALIGN,
 						  NULL, NULL);
 
+	// 分配一个fib_talbe数据结构，同时分配一个fn_hash结构
 	tb = kmalloc(sizeof(struct fib_table) + sizeof(struct fn_hash),
 		     GFP_KERNEL);
 	if (tb == NULL)
 		return NULL;
 
 	tb->tb_id = id;
+	// 初始化路由表结构的钩子函数，最后将fn_hash的内容清空
 	tb->tb_lookup = fn_hash_lookup;
 	tb->tb_insert = fn_hash_insert;
 	tb->tb_delete = fn_hash_delete;
