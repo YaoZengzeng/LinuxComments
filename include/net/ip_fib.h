@@ -21,26 +21,48 @@
 #include <net/fib_rules.h>
 
 struct fib_config {
+	// 目的地址掩码长度
 	u8			fc_dst_len;
+	// 路由的服务类型(TOS)位字段
 	u8			fc_tos;
+	// 标明该路由的特性
 	u8			fc_protocol;
+	// 路由范围
 	u8			fc_scope;
+	// 路由表项的类型
 	u8			fc_type;
 	/* 3 bytes unused */
+	// 路由表ID
 	u32			fc_table;
+	// 路由表的目的地址
 	__be32			fc_dst;
+	// 路由表的网关地址
 	__be32			fc_gw;
+	// 路由项的输出网络设备索引
 	int			fc_oif;
+	// 一些标志
 	u32			fc_flags;
+	// 路由项的优先级
 	u32			fc_priority;
+	// 首选源地址
 	__be32			fc_prefsrc;
+	// 路由和协议相关的度量值(比如RTT,PMTU等)
 	struct nlattr		*fc_mx;
 	struct rtnexthop	*fc_mp;
 	int			fc_mx_len;
+	// 多路径路由下一跳的属性值
 	int			fc_mp_len;
+	// 基于策略路由的分类标签
 	u32			fc_flow;
+	// 多路径缓存算法
 	u32			fc_mp_alg;
+	// 操作模式
+	// NLM_F_REPLACE:如果存在则替换
+	// NLM_F_EXCL:如果存在则不添加
+	// NLM_F_CREATE:如果不存在则创建
+	// NLM_F_APPEND:添加到最后
 	u32			fc_nlflags;
+	// 配置路由的netlink数据包信息
 	struct nl_info		fc_nlinfo;
  };
 
@@ -134,16 +156,22 @@ struct fib_rule;
 #endif
 
 struct fib_result {
+	// 返回路由表项的网络掩码长度
 	unsigned char	prefixlen;
+	// 返回选择路径的序号，通常为0，当支持多路径路由时，才可能大于0
 	unsigned char	nh_sel;
+	// 返回路由表的类型
 	unsigned char	type;
+	// 返回路由表项的作用范围
 	unsigned char	scope;
 #ifdef CONFIG_IP_ROUTE_MULTIPATH_CACHED
 	__be32          network;
 	__be32          netmask;
 #endif
+	// 返回差找到的路由信息
 	struct fib_info *fi;
 #ifdef CONFIG_IP_MULTIPLE_TABLES
+	// 支持策略路由时，查找到的路由策略
 	struct fib_rule	*r;
 #endif
 };
@@ -240,6 +268,7 @@ static inline struct fib_table *fib_new_table(u32 id)
 
 static inline int fib_lookup(const struct flowi *flp, struct fib_result *res)
 {
+	// 搜索ip_fib_local_table路由表，如果失败则再搜索ip_fib_main_table路由表
 	if (ip_fib_local_table->tb_lookup(ip_fib_local_table, flp, res) &&
 	    ip_fib_main_table->tb_lookup(ip_fib_main_table, flp, res))
 		return -ENETUNREACH;

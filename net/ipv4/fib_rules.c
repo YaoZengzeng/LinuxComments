@@ -85,6 +85,8 @@ u32 fib_rules_tclass(struct fib_result *res)
 }
 #endif
 
+// fib_lookup()用于搜索路由表，这两个函数有两个版本，一个是当内核支持策略路由时使用
+// 另一个则在不支持时使用
 int fib_lookup(struct flowi *flp, struct fib_result *res)
 {
 	struct fib_lookup_arg arg = {
@@ -92,6 +94,7 @@ int fib_lookup(struct flowi *flp, struct fib_result *res)
 	};
 	int err;
 
+	// 在支持策略路由时使用，具体由fib_rules_lookup实现
 	err = fib_rules_lookup(&fib4_rules_ops, flp, 0, &arg);
 	res->r = arg.rule;
 

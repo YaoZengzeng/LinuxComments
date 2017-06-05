@@ -256,14 +256,17 @@ fn_new_zone(struct fn_hash *table, int z)
 	return fz;
 }
 
+// 根据查找条件在指定的路由表中查找符合条件的路由表项，然后返回查找结果
 static int
 fn_hash_lookup(struct fib_table *tb, const struct flowi *flp, struct fib_result *res)
 {
 	int err;
 	struct fn_zone *fz;
+	// 根据路由表得到路由表项散列表(tb->tb_data)
 	struct fn_hash *t = (struct fn_hash*)tb->tb_data;
 
 	read_lock(&fib_hash_lock);
+	// 遍历所有路由表项的散列表查找相同网段的路由表项
 	for (fz = t->fn_zone_list; fz; fz = fz->fz_next) {
 		struct hlist_head *head;
 		struct hlist_node *node;
@@ -274,7 +277,7 @@ fn_hash_lookup(struct fib_table *tb, const struct flowi *flp, struct fib_result 
 		hlist_for_each_entry(f, node, head, fn_hash) {
 			if (f->fn_key != k)
 				continue;
-
+			// 将这些路由表项和查找条件进行匹配，最后生成查询结果
 			err = fib_semantic_match(&f->fn_alias,
 						 flp, res,
 						 f->fn_key, fz->fz_mask,
@@ -404,13 +407,18 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	__be32 key;
 	int err;
 
+	// 检测掩码长度是否有效
 	if (cfg->fc_dst_len > 32)
 		return -EINVAL;
 
+	// 获取指定掩码长度的zone，如果该zone不存在，则调用fn_new_zone()创建一个新的zone结构
+	//　并将其链接到活动zone结构的循环单链表中，且由fn_hash的fn_zones数据相应元素指向它
 	fz = table->fn_zones[cfg->fc_dst_len];
 	if (!fz && !(fz = fn_new_zone(table, cfg->fc_dst_len)))
 		return -ENOBUFS;
 
+	// 获取目的网络对应fib_node实例的key，通过目标地址和目标地址掩码得到目标地址网络键值
+	// 用于之后查找相应的fib_node实例
 	key = 0;
 	if (cfg->fc_dst) {
 		if (cfg->fc_dst & ~FZ_MASK(fz))
@@ -418,16 +426,20 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 		key = fz_key(cfg->fc_dst, fz);
 	}
 
+	// 根据路由项信息创建fib_info结构实例
 	fi = fib_create_info(cfg);
 	if (IS_ERR(fi))
 		return PTR_ERR(fi);
 
+	// fz_hash散列表容量可能发生变化，需要重建散列表
 	if (fz->fz_nent > (fz->fz_divisor<<1) &&
 	    fz->fz_divisor < FZ_MAX_DIVISOR &&
 	    (cfg->fc_dst_len == 32 ||
 	     (1 << cfg->fc_dst_len) > fz->fz_divisor))
 		fn_rehash_zone(fz);
 
+	// 根据key获取目的网络对应fib_node实例，然后进一步根据tos和优先级匹配对应的
+	// fib_alias实例
 	f = fib_find_node(fz, key);
 
 	if (!f)
@@ -445,15 +457,18 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	 * If f is NULL, no fib node matched the destination key
 	 * and we need to allocate a new one of those as well.
 	 */
-
+	// 处理存在tos和优先级完全相同的fib_alias实例的情况
 	if (fa && fa->fa_tos == tos &&
 	    fa->fa_info->fib_priority == fi->fib_priority) {
 		struct fib_alias *fa_orig;
 
 		err = -EEXIST;
+		// 添加路由项的标志中存在NLM_F_EXCL，表示如果存在就不要创建，直接返回
 		if (cfg->fc_nlflags & NLM_F_EXCL)
 			goto out;
 
+		// 添加路由项的标志中存在NLM_F_REPLACE，表示如果存在就进行替换
+		// 因此将相关的值替换到该路由项中，并刷新路由缓存表，完成后返回
 		if (cfg->fc_nlflags & NLM_F_REPLACE) {
 			struct fib_info *fi_drop;
 			u8 state;
@@ -478,6 +493,10 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 		 * uses the same scope, type, and nexthop
 		 * information.
 		 */
+		// 如果通过NLM_F_EXCL和NLM_F_REPLACE匹配不到添加标志，那就需要
+		// 通过scope，type和nexthop进行全匹配，匹配成功则表明存在相同的
+		// 路由项，不需要进行任何操作，否则，如果存在NLM_F_APPEND标志，则
+		// 进行替换
 		fa_orig = fa;
 		fa = list_entry(fa->fa_list.prev, struct fib_alias, fa_list);
 		list_for_each_entry_continue(fa, &f->fn_alias, fa_list) {
@@ -494,11 +513,15 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 			fa = fa_orig;
 	}
 
+	// 不存在tos和优先级完全匹配的fib_alias实例，且添加路由项的标志中不存在NLM_F_CREATE,
+	// 不能添加新的路由表项，则退出
 	err = -ENOENT;
 	if (!(cfg->fc_nlflags & NLM_F_CREATE))
 		goto out;
 
 	err = -ENOBUFS;
+	// 为新的路由项分配fib_alias实例和与它目的网络对应fib_node实例，如果分配
+	// 任何一个实例失败，都会直接返回，分配成功后，将相关值设置到新路由项中
 	new_fa = kmem_cache_alloc(fn_alias_kmem, GFP_KERNEL);
 	if (new_fa == NULL)
 		goto out;
@@ -525,6 +548,7 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	 * Insert new entry to the list.
 	 */
 
+	// 将路由项对应的fib_alias实例和fib_node实例插入到对应的链表中
 	write_lock_bh(&fib_hash_lock);
 	if (new_f)
 		fib_insert_node(fz, new_f);
@@ -533,10 +557,12 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	fib_hash_genid++;
 	write_unlock_bh(&fib_hash_lock);
 
+	// 刷新该路由表项对应zone中的路由项数目，同时刷新路由缓存表
 	if (new_f)
 		fz->fz_nent++;
 	rt_cache_flush(-1);
 
+	// 将新添加路由项的消息通过netlink通知感兴趣的进程
 	rtmsg_fib(RTM_NEWROUTE, key, new_fa, cfg->fc_dst_len, tb->tb_id,
 		  &cfg->fc_nlinfo);
 	return 0;
@@ -548,7 +574,9 @@ out:
 	return err;
 }
 
-
+// 实现删除一条路由表项，先构造搜索条件，然后用它来查找待删除的表项是否存在
+// 当查找到符合条件的fib_alias实例时，就删除它并通过netlink广播通知感兴趣
+// 的子系统，如果该路由表项已经被使用则刷新路由缓存
 static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 {
 	struct fn_hash *table = (struct fn_hash*)tb->tb_data;
@@ -557,12 +585,15 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 	struct fn_zone *fz;
 	__be32 key;
 
+	// 检测掩码长度是否有效
 	if (cfg->fc_dst_len > 32)
 		return -EINVAL;
 
+	// 获取指定掩码长度的zone，如果获取不到，则肯定没有需要删除的路由项，则可以直接返回了
 	if ((fz  = table->fn_zones[cfg->fc_dst_len]) == NULL)
 		return -ESRCH;
 
+	// 获取目的网络对应的网络键值key，并根据key获取目的网络对应fib_node实例
 	key = 0;
 	if (cfg->fc_dst) {
 		if (cfg->fc_dst & ~FZ_MASK(fz))
@@ -572,6 +603,8 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 
 	f = fib_find_node(fz, key);
 
+	// 如果没有对应的fib_node实例，则删除失败，否则，根据tos和优先级匹配对应的
+	// 路由项和fib_alias实例
 	if (!f)
 		fa = NULL;
 	else
@@ -579,6 +612,7 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 	if (!fa)
 		return -ESRCH;
 
+	// 查找匹配待删除的路由项
 	fa_to_delete = NULL;
 	fa = list_entry(fa->fa_list.prev, struct fib_alias, fa_list);
 	list_for_each_entry_continue(fa, &f->fn_alias, fa_list) {
@@ -599,6 +633,7 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 		}
 	}
 
+	// 如果查找命中待删除的路由项，则将其删除，否则返回失败
 	if (fa_to_delete) {
 		int kill_fn;
 

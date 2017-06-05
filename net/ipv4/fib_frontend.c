@@ -63,6 +63,9 @@ static struct hlist_head fib_table_hash[FIB_TABLE_HASHSZ];
 #define FIB_TABLE_HASHSZ 256
 static struct hlist_head fib_table_hash[FIB_TABLE_HASHSZ];
 
+// fib_new_table()用于获取指定的路由表
+// fib_new_table()有两个版本，在不支持策略路由的情况下，由于在初始化时已经创建了
+// ip_fib_main_table和ip_fib_local_table路由表，因此直接获取指定id的路由表即可
 struct fib_table *fib_new_table(u32 id)
 {
 	struct fib_table *tb;
@@ -70,13 +73,17 @@ struct fib_table *fib_new_table(u32 id)
 
 	if (id == 0)
 		id = RT_TABLE_MAIN;
+	// 在支持策略路由时，路由表最多可达255个，随时都有可能创建新的路由表，因此通过fib_get_table()
+	// 在fib_get_table()在fib_table_hash散列表中查找指定的路由表
 	tb = fib_get_table(id);
 	if (tb)
 		return tb;
+	// 如果不存在，则通过fib_hash_init()创建并初始化新的路由表
 	tb = fib_hash_init(id);
 	if (!tb)
 		return NULL;
 	h = id & (FIB_TABLE_HASHSZ - 1);
+	// 然后添加到fib_table_hash散列表中并返回
 	hlist_add_head_rcu(&tb->tb_hlist, &fib_table_hash[h]);
 	return tb;
 }
@@ -557,22 +564,27 @@ errout:
 	return err;
 }
 
+// 当通过netlink，操作类型为RTM_NEWROUTE对路由进行配置时，inet_rtm_newroute()被调用
 int inet_rtm_newroute(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 {
 	struct fib_config cfg;
 	struct fib_table *tb;
 	int err;
 
+	// 从netlink消息格式的参数中获取用于配置的路由表项信息到fib_config结构实例
 	err = rtm_to_fib_config(skb, nlh, &cfg);
 	if (err < 0)
 		goto errout;
 
+	// 根据给定的路由表ID获取路由表，不支持策略路由时返回的是local和main两个
+	// 路由表中的一个，而支持策略路由时查找散列表fib_table_hash获取
 	tb = fib_new_table(cfg.fc_table);
 	if (tb == NULL) {
 		err = -ENOBUFS;
 		goto errout;
 	}
 
+	// 获取路由表后，通过路由表中的tb_insert接口创建路由表并添加到路由表中
 	err = tb->tb_insert(tb, &cfg);
 errout:
 	return err;
@@ -621,10 +633,17 @@ out:
    to fib engine. It is legal, because all events occur
    only when netlink is already locked.
  */
-
+// fib_magic()在本地地址发生了变化之后，用于修改RT_TABLE_MAIN或RT_TABLE_LOCAL路由表
+// 在fib_add_ifaddr()和fib_del_ifaddr()被调用
+// cmd,添加或删除路由表项的命令，RTM_NEWROUTE 添加路由表项，　RTM_DELROUTE 删除路由表项
+// type,　用来确定操作的路由表，当type为RTN_UNICAST操作RT_TABLE_MAIN路由表，其他值则操作RT_TABLE_LOCAL路由表
+// dst,　路由表项的目的地址
+// dst_len,　路由表项的目的地址的长度
+// ifa, 添加路由表项的相关信息，包括首选源地址和输出网络设备索引
 static void fib_magic(int cmd, int type, __be32 dst, int dst_len, struct in_ifaddr *ifa)
 {
 	struct fib_table *tb;
+	// 构成用于添加路由表项的信息
 	struct fib_config cfg = {
 		.fc_protocol = RTPROT_KERNEL,
 		.fc_type = type,
@@ -635,6 +654,8 @@ static void fib_magic(int cmd, int type, __be32 dst, int dst_len, struct in_ifad
 		.fc_nlflags = NLM_F_CREATE | NLM_F_APPEND,
 	};
 
+	// 根据路由类型确定操作的路由表，当路由类型为一条到单播地址的直连或非直连
+	// 则操作RT_TABLE_MAIN路由表，其他类型操作RT_TABLE_LOCAL路由表
 	if (type == RTN_UNICAST)
 		tb = fib_new_table(RT_TABLE_MAIN);
 	else
@@ -643,6 +664,7 @@ static void fib_magic(int cmd, int type, __be32 dst, int dst_len, struct in_ifad
 	if (tb == NULL)
 		return;
 
+	// 设置操作的路由表ID和路由范围
 	cfg.fc_table = tb->tb_id;
 
 	if (type != RTN_LOCAL)
@@ -650,12 +672,16 @@ static void fib_magic(int cmd, int type, __be32 dst, int dst_len, struct in_ifad
 	else
 		cfg.fc_scope = RT_SCOPE_HOST;
 
+	// 根据命令添加或删除路由表项
 	if (cmd == RTM_NEWROUTE)
 		tb->tb_insert(tb, &cfg);
 	else
 		tb->tb_delete(tb, &cfg);
 }
 
+// 当网络设备上添加了一个新地址之后，便会调用fib_add_ifaddr()函数进行路由表项的操作
+// 该设备可能处于禁用状态，因此需要检测，只有启用了设备后，才能配置RT_TABLE_MAIN或
+// RT_TABLE_LOCAL路由表
 void fib_add_ifaddr(struct in_ifaddr *ifa)
 {
 	struct in_device *in_dev = ifa->ifa_dev;
@@ -665,6 +691,7 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 	__be32 addr = ifa->ifa_local;
 	__be32 prefix = ifa->ifa_address&mask;
 
+	// 如果添加的是从属地址，则先校验添加的从属IP地址是否存在主IP地址
 	if (ifa->ifa_flags&IFA_F_SECONDARY) {
 		prim = inet_ifa_byprefix(in_dev, prefix, mask);
 		if (prim == NULL) {
@@ -673,21 +700,28 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 		}
 	}
 
+	// 在RT_TABLE_LOCAL路由表添加一条输入到本地表项
 	fib_magic(RTM_NEWROUTE, RTN_LOCAL, addr, 32, prim);
 
+	// 检测添加IP地址的网络设备是否处于启用状态，如果启用，则还需要添加其他类型的路由
 	if (!(dev->flags&IFF_UP))
 		return;
 
 	/* Add broadcast address, if it is explicitly assigned. */
+	// 如果配置了广播地址并且不为255.255.255.255，则添加广播地址为目的地址路由表项
 	if (ifa->ifa_broadcast && ifa->ifa_broadcast != htonl(0xFFFFFFFF))
 		fib_magic(RTM_NEWROUTE, RTN_BROADCAST, ifa->ifa_broadcast, 32, prim);
 
+	// 如果添加的是主IP地址并且网络掩码长度小于32，则根据添加地址的网络设备添加路由表项
+	// 添加地址的是回环网络设备，则在RT_TABLE_LOCAL路由表添加表项，否则在RT_TABLE_MAIN
+	// 路由表中添加表项
 	if (!ZERONET(prefix) && !(ifa->ifa_flags&IFA_F_SECONDARY) &&
 	    (prefix != addr || ifa->ifa_prefixlen < 32)) {
 		fib_magic(RTM_NEWROUTE, dev->flags&IFF_LOOPBACK ? RTN_LOCAL :
 			  RTN_UNICAST, prefix, ifa->ifa_prefixlen, prim);
 
 		/* Add network specific broadcasts, when it takes a sense */
+		// 如果网络掩码长度小于31，则在RT_TABLE_LOCAL路由表中添加两条广播类型的表项
 		if (ifa->ifa_prefixlen < 31) {
 			fib_magic(RTM_NEWROUTE, RTN_BROADCAST, prefix, 32, prim);
 			fib_magic(RTM_NEWROUTE, RTN_BROADCAST, prefix|~mask, 32, prim);
@@ -695,6 +729,9 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 	}
 }
 
+// 如果删除的从属IP地址，则需要进行校验，该从属地址必须有处于同一个子网的主地址，否则出错
+// 由于广播地址和掩码并不是总随着主IP地址添加而添加，因此需要检测那些广播地址确实已经删除了
+// 如果有主IP地址或其他从属IP地址还在使用广播地址和掩码，则不能删除对应的路由表项
 static void fib_del_ifaddr(struct in_ifaddr *ifa)
 {
 	struct in_device *in_dev = ifa->ifa_dev;
@@ -710,9 +747,13 @@ static void fib_del_ifaddr(struct in_ifaddr *ifa)
 	unsigned ok = 0;
 
 	if (!(ifa->ifa_flags&IFA_F_SECONDARY))
+		// 如果删除的是主IP地址，则根据删除地址的网络设备删除路由表项
+		// 删除的是回环网络设备，则在RT_TABLE_LOCAL路由表删除表项
+		// 否则在RT_TABLE_MAIN路由表中删除路由表项
 		fib_magic(RTM_DELROUTE, dev->flags&IFF_LOOPBACK ? RTN_LOCAL :
 			  RTN_UNICAST, any, ifa->ifa_prefixlen, prim);
 	else {
+		// 如果删除的是从属IP地址，则先校验删除的从属IP地址是否存在主IP地址
 		prim = inet_ifa_byprefix(in_dev, any, ifa->ifa_mask);
 		if (prim == NULL) {
 			printk(KERN_DEBUG "fib_del_ifaddr: bug: prim == NULL\n");
@@ -726,6 +767,7 @@ static void fib_del_ifaddr(struct in_ifaddr *ifa)
 	   Scan address list to be sure that addresses are really gone.
 	 */
 
+	// 扫描地址列表，确信该地址已经真正删除了，包括广播地址、本地地址等
 	for (ifa1 = in_dev->ifa_list; ifa1; ifa1 = ifa1->ifa_next) {
 		if (ifa->ifa_local == ifa1->ifa_local)
 			ok |= LOCAL_OK;
@@ -737,6 +779,7 @@ static void fib_del_ifaddr(struct in_ifaddr *ifa)
 			ok |= BRD0_OK;
 	}
 
+	// 如果地址列表中已经不存在相同的广播地址，则删除目的地址是一个广播类型的路由表项
 	if (!(ok&BRD_OK))
 		fib_magic(RTM_DELROUTE, RTN_BROADCAST, ifa->ifa_broadcast, 32, prim);
 	if (!(ok&BRD1_OK))
@@ -744,6 +787,9 @@ static void fib_del_ifaddr(struct in_ifaddr *ifa)
 	if (!(ok&BRD0_OK))
 		fib_magic(RTM_DELROUTE, RTN_BROADCAST, any, 32, prim);
 	if (!(ok&LOCAL_OK)) {
+		// 如果本地地址确实删除了，则删除RT_TABLE_LOCAL路由表中的表项
+		// 并且，删除的地址不是本地接口的地址，则标识该地址的路由表项全部
+		// 无效，然后刷新路由表
 		fib_magic(RTM_DELROUTE, RTN_LOCAL, ifa->ifa_local, 32, prim);
 
 		/* Check, that this local address finally disappeared. */
@@ -820,6 +866,8 @@ static void nl_fib_lookup_init(void)
       netlink_kernel_create(NETLINK_FIB_LOOKUP, 0, nl_fib_input, THIS_MODULE);
 }
 
+// 清楚网络设备的网络功能信息和相关功能，比如强制删除通过此网络设备所有路由表项
+// 所有路由表项并刷新路由缓存，删除该网络设备的ARP表，并停止ARP功能
 static void fib_disable_ip(struct net_device *dev, int force)
 {
 	if (fib_sync_down(0, dev, force))
@@ -828,11 +876,15 @@ static void fib_disable_ip(struct net_device *dev, int force)
 	arp_ifdown(dev);
 }
 
+// 当一个网络设备的IP地址发送变化，路由子系统通过fib_inetaddr_notifier收到通知注册到
+// inetaddr_chain通知链，然后调用fib_inetaddr_event()处理添加或删除IP地址的事件
 static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	struct in_ifaddr *ifa = (struct in_ifaddr*)ptr;
 
 	switch (event) {
+	// 添加了一个新的本地地址之后，根据该本地地址添加路由表项到RT_TABLE_LOCAL路由表中
+	// 然后延时刷新路由缓存
 	case NETDEV_UP:
 		fib_add_ifaddr(ifa);
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
@@ -840,6 +892,8 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 #endif
 		rt_cache_flush(-1);
 		break;
+	// 删除了一个本地地址之后，将该地址从RT_TABLE_LOCAL路由表中删除，如果该设备的IP
+	// 地址被全部删除，则立刻刷新路由缓存和该网络设备的ARP表，并停止ARP功能
 	case NETDEV_DOWN:
 		fib_del_ifaddr(ifa);
 		if (ifa->ifa_dev->ifa_list == NULL) {
@@ -855,20 +909,26 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 	return NOTIFY_DONE;
 }
 
+// 当网络设备的状态发生变化，路由子系统通过fib_netdev_notifier收到通知注册到
+// netdev_chain通知链，然后调用fib_netdev_event()来处理相关事件
 static int fib_netdev_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	struct net_device *dev = ptr;
 	struct in_device *in_dev = __in_dev_get_rtnl(dev);
 
+	// 如果网络设备注销，则清除该网络设备的网络功能信息和相关功能
 	if (event == NETDEV_UNREGISTER) {
 		fib_disable_ip(dev, 2);
 		return NOTIFY_DONE;
 	}
 
+	// 如果网络设备的IP配置块无效，则不做处理
 	if (!in_dev)
 		return NOTIFY_DONE;
 
 	switch (event) {
+	// 当激活网络设备时，则根据配置在该网络设备上的本地地址添加
+	// 路由表项到RT_TABLE_LOCAL路由表中，然后延时刷新路由缓存
 	case NETDEV_UP:
 		for_ifa(in_dev) {
 			fib_add_ifaddr(ifa);
@@ -878,9 +938,11 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 #endif
 		rt_cache_flush(-1);
 		break;
+	// 当关闭网络设备时，则清楚该网络设备的网络功能信息和相关功能
 	case NETDEV_DOWN:
 		fib_disable_ip(dev, 0);
 		break;
+	// 当网络设备修改了MTU或状态配置发生变化，则立刻刷新路由缓存
 	case NETDEV_CHANGEMTU:
 	case NETDEV_CHANGE:
 		rt_cache_flush(0);
