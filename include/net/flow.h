@@ -10,11 +10,16 @@
 #include <linux/in6.h>
 #include <asm/atomic.h>
 
+// 利用flowi数据结构，就可以根据诸如输入网络设备和输出网络设备、三层和四层协议报头中的
+// 参数等字段的组合对流量进行分类，它通常被用作路由查找的搜索条件组合，IPSec策略的流量
+// 选择器以及其他高级用途
 struct flowi {
+	// 输出网络设备索引和输入网络设备索引
 	int	oif;
 	int	iif;
 	__u32	mark;
 
+	// 该联合对应第三层，目前支持的协议为IPv4、IPv6和DECnet
 	union {
 		struct {
 			__be32			daddr;
@@ -46,9 +51,13 @@ struct flowi {
 #define fl4_tos		nl_u.ip4_u.tos
 #define fl4_scope	nl_u.ip4_u.scope
 
+	// 标识四层协议
 	__u8	proto;
+	// 该变量只定义了一个标识，FLOWI_FLAG_MULTIPATHOLDROUTE，它最初用于多路径代码
+	// 但现在已废弃不再使用
 	__u8	flags;
 #define FLOWI_FLAG_MULTIPATHOLDROUTE 0x01
+	// 该联合对应四层，目前支持的协议为TCP、UDP、ICMP、DECnet和IPsec
 	union {
 		struct {
 			__be16	sport;

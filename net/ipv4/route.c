@@ -521,6 +521,12 @@ static __inline__ int rt_valuable(struct rtable *rth)
 		rth->u.dst.expires;
 }
 
+// 同步和异步垃圾回收使用同一个函数rt_may_expire()来对给定的dst_entry实例进行判断
+// 是否复合删除条件
+// 参数tmo1和tmo2是检查路由表项是否符合过期的超时时间，适用于不同的情况：tmo1用于输入
+// 广播或组播路由，且其所在散列表桶内还存在其他正常路由的情况；而tmo2用于正常情况下，
+// 如果路由表超过超时时间没有使用，并且该路由表项可以删除，则表示过期，显然，这两个值越低
+// 表项就越有可能被删除
 static int rt_may_expire(struct rtable *rth, unsigned long tmo1, unsigned long tmo2)
 {
 	unsigned long age;
@@ -622,19 +628,31 @@ static struct rtable **rt_remove_balanced_route(struct rtable **chain_head,
 
 
 /* This runs via a timer and thus is always in BH context. */
+// 同步垃圾回收被用于处理内存不够时的特殊情况，事实上这种情况比较少见，同时也非常影响性能
+// 通常路由模块中使用rt_periodic_timer定时器来周期性进行垃圾回收工作，该定时器的处理函数
+// 为rt_check_expire()
+// rt_periodic_timer定时器默认每隔ip_rt_gc_inerval秒到期，但是在ip_rt_init中，设定该
+// 定时器第一次激活的时间为ip_rt_gc_inerval和2*ip_rt_gc_inerval之间的一个随机时间，使用
+// 随机值的原因是为了避免不能内核模块中的定时器可能在同一时间到期而花费大量的CPU资源
 static void rt_check_expire(unsigned long dummy)
 {
+	// 获取上一次垃圾回收时扫描到的最后一个桶，每当rt_periodic_timer定时器
+	// 被激活时，它只从上次激活时扫描到的最后一个桶开始，因此用到了一个static
+	// 变量rover来记录每次扫描的最后一个桶
 	static unsigned int rover;
 	unsigned int i = rover, goal;
 	struct rtable *rth, **rthp;
 	unsigned long now = jiffies;
 	u64 mult;
 
+	// 计算待删除的缓存项数目存储到goal
 	mult = ((u64)ip_rt_gc_interval) << rt_hash_log;
 	if (ip_rt_gc_timeout > 1)
 		do_div(mult, ip_rt_gc_timeout);
 	goal = (unsigned int)mult;
 	if (goal > rt_hash_mask) goal = rt_hash_mask + 1;
+	// 利用rt_may_expire检查它们是否复符合过期条件，如满足则直接删除
+	// 符合条件的表项
 	for (; goal > 0; goal--) {
 		unsigned long tmo = ip_rt_gc_timeout;
 
@@ -682,7 +700,9 @@ static void rt_check_expire(unsigned long dummy)
 		if (time_after(jiffies, now))
 			break;
 	}
+	// 记录本次垃圾回收时扫描到的最后一个桶
 	rover = i;
+	// 定时器下次超时时间
 	mod_timer(&rt_periodic_timer, jiffies + ip_rt_gc_interval);
 }
 
@@ -714,19 +734,31 @@ static void rt_run_flush(unsigned long dummy)
 
 static DEFINE_SPINLOCK(rt_flush_lock);
 
+// 一旦系统中发生了某种变化，使缓存中的一些信息因此而过期，内核就会刷新路由缓存
+// 在许多情况下，尽管只有一些表项过期，但内核为了简化操作会清空所有表项
+// rt_cache_flush()依据delay的值对缓存进行刷新
+// delay < 0:在ip_rt_min_delay指定的时间后刷新缓存
+// delay = 0:立即缓存刷新
+// delay > 0:在delay指定的时间后刷新缓存，但最长延时不得超过ip_rt_max_delay
 void rt_cache_flush(int delay)
 {
 	unsigned long now = jiffies;
 	int user_mode = !in_softirq();
 
+	// 如果delay小于0，则重新设定delay为ip_rt_min_delay，确保ip_rt_min_delay
+	// 指定的时间后被刷新
 	if (delay < 0)
 		delay = ip_rt_min_delay;
 
 	/* flush existing multipath state*/
+	// 如果支持多路径路由，则需要同时刷新多路径路由算法实例的状态
 	multipath_flush();
 
 	spin_lock_bh(&rt_flush_lock);
 
+	// 当提交一个新刷新请求并且已经存在一个刷新请求尚未出发的情况下，需要重新为
+	// 请求设置定时时间，但需要通过使用全局变量rt_deadline来保证，这个新请求
+	// 不能让定时器迟于上次请求之后ip_rx_max_delay秒后才过期
 	if (del_timer(&rt_flush_timer) && delay > 0 && rt_deadline) {
 		long tmo = (long)(rt_deadline - now);
 
@@ -744,15 +776,18 @@ void rt_cache_flush(int delay)
 			delay = tmo;
 	}
 
+	// 调整之后的delay还小于或等于0时，则需要立即刷新缓存
 	if (delay <= 0) {
 		spin_unlock_bh(&rt_flush_lock);
 		rt_run_flush(0);
 		return;
 	}
 
+	// 重新计算rt_deadline，一倍下次刷新请求延时的计算
 	if (rt_deadline == 0)
 		rt_deadline = now + ip_rt_max_delay;
 
+	// 重新设置刷新定时器
 	mod_timer(&rt_flush_timer, now+delay);
 	spin_unlock_bh(&rt_flush_lock);
 }
@@ -777,11 +812,19 @@ static void rt_secret_rebuild(unsigned long dummy)
    is idle expires is large enough to keep enough of warm entries,
    and when load increases it reduces to limit cache size.
  */
-
+// 路由缓存的同步清理函数是rt_garbage_collect()，这个函数只在两处被调用，
+// 一是添加新表项到路由缓存的rt_intern_hash()中，绑定邻居项出错 -> 删除暂时不用的缓存项
+// 也会删除其中绑定的邻居表项
+// 二是分配表项的dst_alloc()中发现表项总数将超过门限值gc_thresh
+// 返回0，表示未能完成预期垃圾回收，不能分配路由缓存
+// 返回1,　表示当前的路由缓存项的数目小于缓存内的表项数目上限，可以继续分配路由缓存
 static int rt_garbage_collect(void)
 {
+	// expire为用于判断缓存项是否过期的超时条件
 	static unsigned long expire = RT_GC_TIMEOUT;
+	// last_gc记录每次进行垃圾回收的时间
 	static unsigned long last_gc;
+	// rover来记录上一次垃圾回收时扫描到的最后一个桶
 	static int rover;
 	static int equilibrium;
 	struct rtable *rth, **rthp;
@@ -794,7 +837,9 @@ static int rt_garbage_collect(void)
 	 */
 
 	RT_CACHE_STAT_INC(gc_total);
-
+	// 由于垃圾回收需要消耗大量的CPU时间，因此如果上次垃圾回收的时间与现在的时间间隔
+	// 小于ip_rt_gc_min_interval秒，则不做任何事而立即返回，除非缓存项数目已经达到
+	// 上限ip_rt_max_size
 	if (now - last_gc < ip_rt_gc_min_interval &&
 	    atomic_read(&ipv4_dst_ops.entries) < ip_rt_max_size) {
 		RT_CACHE_STAT_INC(gc_ignored);
@@ -802,6 +847,7 @@ static int rt_garbage_collect(void)
 	}
 
 	/* Calculate number of entries, which we want to expire now. */
+	// 计算待删除的缓存项数目和剩余的数目，分别存储到goal和equilibrium中
 	goal = atomic_read(&ipv4_dst_ops.entries) -
 		(ip_rt_gc_elasticity << rt_hash_log);
 	if (goal <= 0) {
@@ -820,9 +866,11 @@ static int rt_garbage_collect(void)
 		equilibrium = atomic_read(&ipv4_dst_ops.entries) - goal;
 	}
 
+	// 记录此次进行垃圾回收的时间
 	if (now - last_gc >= ip_rt_gc_min_interval)
 		last_gc = now;
 
+	// 如果不存在待删除的缓存项，则调整expire后返回
 	if (goal <= 0) {
 		equilibrium += goal;
 		goto work_done;
@@ -832,6 +880,8 @@ static int rt_garbage_collect(void)
 		int i, k;
 
 		for (i = rt_hash_mask, k = rover; i >= 0; i--) {
+			// 遍历散列表中的缓存项，利用rt_may_expire()检查它们是否符合过期条件
+			// 如果满足则将符合条件的表项直接删除
 			unsigned long tmo = expire;
 
 			k = (k + 1) & rt_hash_mask;
@@ -874,6 +924,8 @@ static int rt_garbage_collect(void)
 		}
 		rover = k;
 
+		// 在扫描缓存散列表过程中会检测删除的表项数是否已经达到goal个
+		// 一旦到达便返回，结束本次垃圾回收
 		if (goal <= 0)
 			goto work_done;
 
@@ -891,6 +943,11 @@ static int rt_garbage_collect(void)
 		if (expire == 0)
 			break;
 
+		// 如果删除路由缓存项的数目未达到goal个，
+		// 否则用更为激进的判断标准来重新扫描散列表
+		// 即将用于判断表项是否过期的超时条件减半
+		// 被删除的表项数依赖于散列表内的表项数目
+		// 目的是当散列表中的表项数目越多，表项过期也越快
 		expire >>= 1;
 #if RT_CACHE_DEBUG >= 2
 		printk(KERN_DEBUG "expire>> %u %d %d %d\n", expire,
@@ -901,6 +958,8 @@ static int rt_garbage_collect(void)
 			goto out;
 	} while (!in_softirq() && time_before_eq(jiffies, now));
 
+	// 当缓存内当前的路由缓存项的数目小于缓存内的表项数目上限时，则不需要
+	// 调整用于判断表项是否过期的超时条件了
 	if (atomic_read(&ipv4_dst_ops.entries) < ip_rt_max_size)
 		goto out;
 	if (net_ratelimit())
@@ -908,6 +967,7 @@ static int rt_garbage_collect(void)
 	RT_CACHE_STAT_INC(gc_dst_overflow);
 	return 1;
 
+// 当完成垃圾回收后，需要调整expire
 work_done:
 	expire += ip_rt_gc_min_interval;
 	if (expire > ip_rt_gc_timeout ||
@@ -920,6 +980,10 @@ work_done:
 out:	return 0;
 }
 
+// 每当为输入报文或输出报文选择路由时，如果缓存查找失败，则会查找路由表并将表项保存到
+// 路由缓存内，利用dst_alloc()分配一个新的缓存项，根据路由表查找结果来初始化该表项
+// 的一些字段，最终调用rt_intern_hash()将这个新表项插入到缓存表散列桶的链表首部
+// 当接收到一个ICMP重定向消息时，也会用到这个函数
 static int rt_intern_hash(unsigned hash, struct rtable *rt, struct rtable **rp)
 {
 	struct rtable	*rth, **rthp;
@@ -936,10 +1000,14 @@ restart:
 	candp = NULL;
 	now = jiffies;
 
+	// 遍历散列表中hash键上的路由缓存
 	rthp = &rt_hash_table[hash].chain;
 
 	spin_lock_bh(rt_hash_lock_addr(hash));
 	while ((rth = *rthp) != NULL) {
+// 查找来确定新路由表项是否已经存在，因为该路由项可能同时已经被另一个CPU添加到缓存内
+// 如果查找成功，则不需要添加到缓存中，更新该路由缓存被访问的最后时间，同时将原来的
+// 缓存路由表项移动到散列表桶链表的首部
 #ifdef CONFIG_IP_ROUTE_MULTIPATH_CACHED
 		if (!(rth->u.dst.flags & DST_BALANCED) &&
 		    compare_keys(&rth->fl, &rt->fl)) {
@@ -972,6 +1040,13 @@ restart:
 		}
 
 		if (!atomic_read(&rth->u.dst.__refcnt)) {
+			// rt_intern_hash()对每一个引用计数为0的路由项调用rt_score()来计算其价值
+			// 这是一个32位值，由此可以得到最没有价值而最应该被删除的表项
+			// 最高位：表示非常有价值，当路由项是由于ICMP重定向而插入的，或是正被用户空间命令监控
+			// 再或者设置了过期时间，置该位
+			// 次高位：表示价值相对较次，当路由项是本地生成报文的路由项、广播路由、多播路由、到本地
+			// 地址的路由时，置该位
+			// 其余30位：由最近一次使用到目前的时间间隔决定，间隔越久，价值越低
 			u32 score = rt_score(rth);
 
 			if (score <= min_score) {
@@ -986,6 +1061,7 @@ restart:
 		rthp = &rth->u.rt_next;
 	}
 
+	// rt_intern_hash()在每次添加一个新表项时都试图删除一个表项来控制缓存容量
 	if (cand) {
 		/* ip_rt_gc_elasticity used to be average length of chain
 		 * length, when exceeded gc becomes really aggressive.
@@ -993,6 +1069,7 @@ restart:
 		 * The second limit is less certain. At the moment it allows
 		 * only 2 entries per bucket. We will see.
 		 */
+		// 删除路由项还有一个条件，那就是散列桶链表的长度超过配置参数ip_rt_gc_elasticity
 		if (chain_length > ip_rt_gc_elasticity) {
 			*candp = cand->u.rt_next;
 			rt_free(cand);
@@ -1003,6 +1080,9 @@ restart:
 	   route or unicast forwarding path.
 	 */
 	if (rt->rt_type == RTN_UNICAST || rt->fl.iif == 0) {
+		// 对于本地生成报文的输出路由和单播转发路由，需要ARP来解析下一跳的二层地址
+		// 因此需要绑定到该路由下一跳的ARP缓存项；而转发目的地为广播地址、多播地址
+		// 和本地地址则不需要ARP解析，因为可以使用其他方法解析得到这个地址
 		int err = arp_bind_neighbour(&rt->u.dst);
 		if (err) {
 			spin_unlock_bh(rt_hash_lock_addr(hash));
@@ -1017,6 +1097,13 @@ restart:
 			   it is most likely it holds some neighbour records.
 			 */
 			if (attempts-- > 0) {
+				// 通过arp_bind_neighbour来为路由缓存项创建邻居并与之绑定
+				// 当函数由于缺少内存而失败时，rt_intern_hash通过调用降低
+				// ip_rt_gc_elasticity和ip_rt_gc_min_interval门限值
+				// 调用rt_garbage_collect来强行进行一次垃圾回收操作
+				// 这种垃圾回收只做一次，并且只有当rt_intern_hash的调用不是在
+				// 软中断上下文中时才进行，否则将耗费大量的CPU时间，一旦完成垃圾
+				// 回收，就重新从缓存查找步骤开始插入新的缓存项
 				int saved_elasticity = ip_rt_gc_elasticity;
 				int saved_int = ip_rt_gc_min_interval;
 				ip_rt_gc_elasticity	= 1;
@@ -1034,6 +1121,7 @@ restart:
 		}
 	}
 
+	// 最后将该缓存项添加到散列表上
 	rt->u.rt_next = rt_hash_table[hash].chain;
 #if RT_CACHE_DEBUG >= 2
 	if (rt->u.rt_next) {
@@ -1126,6 +1214,8 @@ static void rt_del(unsigned hash, struct rtable *rt)
 	spin_unlock_bh(rt_hash_lock_addr(hash));
 }
 
+// ICMP模块中接收到ICMP重定向消息后，调用ip_rt_redirect()来处理输入的ICMP重定向消息
+// 校验通过后，会添加一个目的地址为新网关地址的路由缓存项
 void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 		    __be32 saddr, struct net_device *dev)
 {
@@ -1136,25 +1226,35 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 	int  ikeys[2] = { dev->ifindex, 0 };
 	struct netevent_redirect netevent;
 
+	// 校验输入ICMP重定向消息报文的网络设备的IP配置块
 	if (!in_dev)
 		return;
-
+	// 符合以下条件会拒绝接收到的重定向消息
+	// ICMP重定向消息中的新网关地址和当前网关地址相同
+	// 新网关的IP地址是多播地址、无效地址（零地址）或保留地址
 	if (new_gw == old_gw || !IN_DEV_RX_REDIRECTS(in_dev)
 	    || MULTICAST(new_gw) || BADCLASS(new_gw) || ZERONET(new_gw))
 		goto reject_redirect;
 
 	if (!IN_DEV_SHARED_MEDIA(in_dev)) {
+		// 未启用shared_media情况下，新网关地址与当前网关地址不在同一个子网
 		if (!inet_addr_onlink(in_dev, new_gw, old_gw))
 			goto reject_redirect;
+		// 未启用shared_medai和secure_redirects
 		if (IN_DEV_SEC_REDIRECTS(in_dev) && ip_fib_check_default(new_gw, dev))
 			goto reject_redirect;
 	} else {
+		// 启用shared_media情况下，根据新网关地址获取到的路由表项不是RTN_UNICAST类型
+		// 即不是一条到单播地址的直连或通过一个网关的路由
 		if (inet_addr_type(new_gw) != RTN_UNICAST)
 			goto reject_redirect;
 	}
 
+	// 通过两层循环，匹配条件从严格到宽松，删除现有符合条件的缓存项，添加新的缓存项
 	for (i = 0; i < 2; i++) {
 		for (k = 0; k < 2; k++) {
+			// 根据目的地址、源地址和输出网络设备的索引得到的键值获取散列表的入口
+			// 并进行遍历操作
 			unsigned hash = rt_hash(daddr, skeys[i], ikeys[k]);
 
 			rthp=&rt_hash_table[hash].chain;
@@ -1163,6 +1263,7 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 			while ((rth = rcu_dereference(*rthp)) != NULL) {
 				struct rtable *rt;
 
+				// 查找与目的地址、源地址以及输出网络设备索引完全一致的待删除路由缓存项
 				if (rth->fl.fl4_dst != daddr ||
 				    rth->fl.fl4_src != skeys[i] ||
 				    rth->fl.oif != ikeys[k] ||
@@ -1181,6 +1282,7 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 				dst_hold(&rth->u.dst);
 				rcu_read_unlock();
 
+				// 找到之后，分配新的路由缓存项，并根据新网关地址设置相应的值
 				rt = dst_alloc(&ipv4_dst_ops);
 				if (rt == NULL) {
 					ip_rt_put(rth);
@@ -1211,11 +1313,14 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 				rt->rt_gateway		= new_gw;
 
 				/* Redirect received -> path was valid */
+				// 并确认该目的可达
 				dst_confirm(&rth->u.dst);
 
+				// 如果系统中还存在新网关的对端信息块，则增加对其的引用
 				if (rt->peer)
 					atomic_inc(&rt->peer->refcnt);
 
+				// 将创建的路由缓存项与邻居项绑定
 				if (arp_bind_neighbour(&rt->u.dst) ||
 				    !(rt->u.dst.neighbour->nud_state &
 					    NUD_VALID)) {
@@ -1228,12 +1333,16 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 				
 				netevent.old = &rth->u.dst;
 				netevent.new = &rt->u.dst;
+				// 通过netevent_notif_chain链表通知NETEVENT_REDIRECT消息，感兴趣的
+				// 模块可以通过register_netevent_notifier()注册后，接收该消息
 				call_netevent_notifiers(NETEVENT_REDIRECT, 
 						        &netevent);
 
+				// 删除老的路由缓存项，并将新的缓存项添加到系统中
 				rt_del(hash, rth);
 				if (!rt_intern_hash(hash, rt, &rt))
 					ip_rt_put(rt);
+				// 放宽匹配条件，继续查找并添加新的路由缓存项
 				goto do_next;
 			}
 			rcu_read_unlock();
@@ -1244,6 +1353,7 @@ void ip_rt_redirect(__be32 old_gw, __be32 daddr, __be32 new_gw,
 	in_dev_put(in_dev);
 	return;
 
+// 当拒绝接收到的重定向消息时，有条件地打印消息
 reject_redirect:
 #ifdef CONFIG_IP_ROUTE_VERBOSE
 	if (IN_DEV_LOG_MARTIANS(in_dev) && net_ratelimit())
@@ -1411,6 +1521,8 @@ static __inline__ unsigned short guess_mtu(unsigned short old_mtu)
 	return 68;
 }
 
+// 当接收到一个ICMP的FRAGMENTATION NEEDED消息时，所有路由相关的PMTU必须被更新为
+// ICMP首部中指定的MTU，ICMP模块调用ip_rt_frag_needed()来更新路由缓存项
 unsigned short ip_rt_frag_needed(struct iphdr *iph, unsigned short new_mtu)
 {
 	int i;
@@ -1420,15 +1532,18 @@ unsigned short ip_rt_frag_needed(struct iphdr *iph, unsigned short new_mtu)
 	__be32  daddr = iph->daddr;
 	unsigned short est_mtu = 0;
 
+	// 如果系统未启用pmtu功能，则不作处理返回
 	if (ipv4_config.no_pmtu_disc)
 		return 0;
 
+	//　在路由缓存中查找指定的目的路由缓存项
 	for (i = 0; i < 2; i++) {
 		unsigned hash = rt_hash(daddr, skeys[i], 0);
 
 		rcu_read_lock();
 		for (rth = rcu_dereference(rt_hash_table[hash].chain); rth;
 		     rth = rcu_dereference(rth->u.rt_next)) {
+			// 在对应的路由项缓存，并且存储PMTU的度量值没有上锁，则可以进行更新
 			if (rth->fl.fl4_dst == daddr &&
 			    rth->fl.fl4_src == skeys[i] &&
 			    rth->rt_dst  == daddr &&
@@ -1437,6 +1552,8 @@ unsigned short ip_rt_frag_needed(struct iphdr *iph, unsigned short new_mtu)
 			    !(dst_metric_locked(&rth->u.dst, RTAX_MTU))) {
 				unsigned short mtu = new_mtu;
 
+				// 在新PMTU小于68B或新PMTU大于原先保存的PMTU的情况
+				// 说明得到的新PMTU有异常，因此需要重新计算
 				if (new_mtu < 68 || new_mtu >= old_mtu) {
 
 					/* BSD 4.2 compatibility hack :-( */
@@ -1447,6 +1564,7 @@ unsigned short ip_rt_frag_needed(struct iphdr *iph, unsigned short new_mtu)
 
 					mtu = guess_mtu(old_mtu);
 				}
+				// 如果新PMTU小于当前存储的PMTU，则更新到路由项的度量值中
 				if (mtu <= rth->u.dst.metrics[RTAX_MTU-1]) {
 					if (mtu < rth->u.dst.metrics[RTAX_MTU-1]) { 
 						dst_confirm(&rth->u.dst);
@@ -1726,6 +1844,8 @@ static void ip_handle_martian_source(struct net_device *dev,
 #endif
 }
 
+// __mkroute_input()用来创建输入路由缓存项，但仅限于创建进行转发的路由缓存项
+// 输入到本地的缓存项参见ip_route_input_mc()和ip_route_input_slow()等
 static inline int __mkroute_input(struct sk_buff *skb, 
 				  struct fib_result* res, 
 				  struct in_device *in_dev, 
@@ -1741,6 +1861,7 @@ static inline int __mkroute_input(struct sk_buff *skb,
 	u32 itag;
 
 	/* get a working reference to the output device */
+	// 获取并检测用于输出报文的网络设备
 	out_dev = in_dev_get(FIB_RES_DEV(*res));
 	if (out_dev == NULL) {
 		if (net_ratelimit())
@@ -1750,6 +1871,7 @@ static inline int __mkroute_input(struct sk_buff *skb,
 	}
 
 
+	// 检测源地址的有效性，如果检测失败，则返回相应错误码
 	err = fib_validate_source(saddr, daddr, tos, FIB_RES_OIF(*res), 
 				  in_dev->dev, &spec_dst, &itag);
 	if (err < 0) {
@@ -1760,14 +1882,19 @@ static inline int __mkroute_input(struct sk_buff *skb,
 		goto cleanup;
 	}
 
+	// 如果检测到源地址不正确，则说明会给路由缓存项添加RTCF_DIRECTSRC标志，通知ICMP
+	// 模块不对来自此源地址的地址掩码请求消息做出回应
 	if (err)
 		flags |= RTCF_DIRECTSRC;
 
+	// 如果检测到并不是最优路由，则添加RTCF_DOREDIRECT标志，在转发报文时会根据
+	// 该标志和其他信息，决定是否需要发送ICMP重定向消息
 	if (out_dev == in_dev && err && !(flags & (RTCF_NAT | RTCF_MASQ)) &&
 	    (IN_DEV_SHARED_MEDIA(out_dev) ||
 	     inet_addr_onlink(out_dev, saddr, FIB_RES_GW(*res))))
 		flags |= RTCF_DOREDIRECT;
 
+	// 对于代理ARP（不是IP数据报），如果输入输出是同一个网络设备，则不能创建
 	if (skb->protocol != htons(ETH_P_IP)) {
 		/* Not IP (i.e. ARP). Do not create route, if it is
 		 * invalid for proxy arp. DNAT routes are always valid.
@@ -1779,6 +1906,8 @@ static inline int __mkroute_input(struct sk_buff *skb,
 	}
 
 
+	// 校验通过后，为路由缓存项分配内存，并设置相关的值，进行转发缓存项的
+	// input和output设置为ip_forward()和ip_output()
 	rth = dst_alloc(&ipv4_dst_ops);
 	if (!rth) {
 		err = -ENOBUFS;
@@ -1817,6 +1946,7 @@ static inline int __mkroute_input(struct sk_buff *skb,
 
 	rth->rt_flags = flags;
 
+	// 返回成功创建的路由缓存项
 	*result = rth;
 	err = 0;
  cleanup:
@@ -2123,6 +2253,13 @@ martian_source:
 	goto e_inval;
 }
 
+// 此函数用于输入报文的路由缓存查询，有时报文本身可能不需要被路由，例如ARP出于
+// 某些原因使用ip_route_input()来咨询local路由表，这时的skb应当是一个输入的
+// ARP请求
+// skb, 进行路由查找的报文
+// saddr和daddr，用于查找的源地址和目的地址
+// tos，IP首部中的TOS字段
+// dev，输入该数据报的网络设备
 int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		   u8 tos, struct net_device *dev)
 {
@@ -2131,9 +2268,13 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	int iif = dev->ifindex;
 
 	tos &= IPTOS_RT_MASK;
+	// 根据目的地址、源地址和输入网络设备得到存储该路由的散列桶
 	hash = rt_hash(daddr, saddr, iif);
 
 	rcu_read_lock();
+	// 遍历该桶查找与目的地址、源地址和输入网络设备相匹配的路由项，直至查找命中
+	// 或至链表尾部。如果能在缓存中命中路由项，则更新最后一次被使用的时间戳、该
+	// 表项已经被使用的次数，以及缓存命中率等，然后设置输入SKB的目的路由入口后返回
 	for (rth = rcu_dereference(rt_hash_table[hash].chain); rth;
 	     rth = rcu_dereference(rth->u.rt_next)) {
 		if (rth->fl.fl4_dst == daddr &&
@@ -2165,14 +2306,18 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	   Note, that multicast routers are not affected, because
 	   route cache entry is created eventually.
 	 */
+	// 如果在报文目的地址为多播时缓存查找失败，那么以下两个条件只要有一个满足
+	// 该报文就被送给多播处理函数ip_route_input_mc()，否则不作处理，返回错误码
 	if (MULTICAST(daddr)) {
 		struct in_device *in_dev;
 
 		rcu_read_lock();
 		if ((in_dev = __in_dev_get_rcu(dev)) != NULL) {
+			// 目的地址是本地配置的多播地址，通过ip_check_mc()来检查
 			int our = ip_check_mc(in_dev, daddr, saddr,
 				skb->nh.iph->protocol);
 			if (our
+//　在内核编译时启动了多播路由(CONFIG_IP_MROUTE)的情况下，目的地址不是本地配置，且设备支持多播转发
 #ifdef CONFIG_IP_MROUTE
 			    || (!LOCAL_MCAST(daddr) && IN_DEV_MFORWARD(in_dev))
 #endif
@@ -2185,9 +2330,11 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		rcu_read_unlock();
 		return -EINVAL;
 	}
+	// 如果目的地址不是多播情况下缓存查找失败，则调用ip_route_input_slow()在查找路由表中查找
 	return ip_route_input_slow(skb, daddr, saddr, tos, dev);
 }
 
+// __mkroute_output()用来创建输出路由缓存项
 static inline int __mkroute_output(struct rtable **result,
 				   struct fib_result* res, 
 				   const struct flowi *fl,
@@ -2200,9 +2347,11 @@ static inline int __mkroute_output(struct rtable **result,
 	u32 tos = RT_FL_TOS(oldflp);
 	int err = 0;
 
+	// 如果源地址是回环地址，则输出网络设备也必须是回环设备，不然无效
 	if (LOOPBACK(fl->fl4_src) && !(dev_out->flags&IFF_LOOPBACK))
 		return -EINVAL;
 
+	// 根据目的地址，设置路由缓存项的类型，保留地址和零地址不能作为目的地址
 	if (fl->fl4_dst == htonl(0xFFFFFFFF))
 		res->type = RTN_BROADCAST;
 	else if (MULTICAST(fl->fl4_dst))
@@ -2210,14 +2359,17 @@ static inline int __mkroute_output(struct rtable **result,
 	else if (BADCLASS(fl->fl4_dst) || ZERONET(fl->fl4_dst))
 		return -EINVAL;
 
+	// 如果输出网络设备是回环设备，则路由缓存项目的地址是一个本地地址
 	if (dev_out->flags & IFF_LOOPBACK)
 		flags |= RTCF_LOCAL;
 
 	/* get work reference to inet device */
+	// 获取并检测输出网络设备IP配置块
 	in_dev = in_dev_get(dev_out);
 	if (!in_dev)
 		return -EINVAL;
 
+	// 如果待创建的路由缓存项是广播类型，则添加RTCF_LOCAL标志
 	if (res->type == RTN_BROADCAST) {
 		flags |= RTCF_BROADCAST | RTCF_LOCAL;
 		if (res->fi) {
@@ -2225,6 +2377,8 @@ static inline int __mkroute_output(struct rtable **result,
 			res->fi = NULL;
 		}
 	} else if (res->type == RTN_MULTICAST) {
+		// 如果待创建的路由缓存项是组播类型，则也要添加RTCF_LOCAL标志
+		// 但必须通过检测
 		flags |= RTCF_MULTICAST|RTCF_LOCAL;
 		if (!ip_check_mc(in_dev, oldflp->fl4_dst, oldflp->fl4_src, 
 				 oldflp->proto))
@@ -2239,7 +2393,7 @@ static inline int __mkroute_output(struct rtable **result,
 		}
 	}
 
-
+	// 校验通过后，为路由缓存项分配内存，并设置相关的值
 	rth = dst_alloc(&ipv4_dst_ops);
 	if (!rth) {
 		err = -ENOBUFS;
@@ -2276,14 +2430,17 @@ static inline int __mkroute_output(struct rtable **result,
 	rth->rt_gateway = fl->fl4_dst;
 	rth->rt_spec_dst= fl->fl4_src;
 
+	// 输出缓存项的output设置为ip_output()
 	rth->u.dst.output=ip_output;
 
 	RT_CACHE_STAT_INC(out_slow_tot);
 
+	// 如果路由缓存项存在RTCF_LOCAL，则输出缓存项的input设置为ip_local_deliver()
 	if (flags & RTCF_LOCAL) {
 		rth->u.dst.input = ip_local_deliver;
 		rth->rt_spec_dst = fl->fl4_dst;
 	}
+	// 如果目的地址为组播或广播地址，则输出缓存项的output设置为ip_mc_output()
 	if (flags & (RTCF_BROADCAST | RTCF_MULTICAST)) {
 		rth->rt_spec_dst = fl->fl4_src;
 		if (flags & RTCF_LOCAL && 
@@ -2306,6 +2463,7 @@ static inline int __mkroute_output(struct rtable **result,
 
 	rth->rt_flags = flags;
 
+	// 返回成功创建的路由缓存项
 	*result = rth;
  cleanup:
 	/* release work reference to inet device */
@@ -2631,6 +2789,8 @@ make_route:
 out:	return err;
 }
 
+// __ip_route_output_key()在路由缓存中根据查询条件搜索符合条件的缓存项，该函数
+// 通常被间接调用，由ip_route_output_flow()封装调用
 int __ip_route_output_key(struct rtable **rp, const struct flowi *flp)
 {
 	unsigned hash;
@@ -2648,6 +2808,11 @@ int __ip_route_output_key(struct rtable **rp, const struct flowi *flp)
 		    rth->fl.mark == flp->mark &&
 		    !((rth->fl.fl4_tos ^ flp->fl4_tos) &
 			    (IPTOS_RT_MASK | RTO_ONLINK))) {
+			// 检查路由缓存，输出缓存查找成功需要匹配RTO_ONLINK标志
+			// 上面的条件只有在以下两个条件都满足时才为真：
+			// (1) 路由缓存的TOS与搜索条件中的TOS匹配，这个TOS字段被保存在8位tos
+			// 变量的2,3,4,5位
+			// (2) 当路由缓存项和搜索条件都设置了RTO_ONLINK标志，或者都没设置
 
 			/* check for multipath routes and choose one if
 			 * necessary
@@ -2671,18 +2836,27 @@ int __ip_route_output_key(struct rtable **rp, const struct flowi *flp)
 	}
 	rcu_read_unlock_bh();
 
+	// 在缓存查询失败的情况下调用ip_route_output_slow()
 	return ip_route_output_slow(rp, flp);
 }
 
 EXPORT_SYMBOL_GPL(__ip_route_output_key);
 
+// 由本地生成的报文输出时都会调用ip_route_output_flow()或ip_route_output_key()进行路由查询
+// 这两个函数的区别在于ip_route_output_flow()支持IPsec，而ip_route_output_key()不支持IPsec
+// 事实上ip_route_output_key()也是对ip_route_output_flow()的简单封装，只是省略了IPSec的参数
+// rp，当查询成功时，返回查询得到的路由缓存项
+// flp，用于查询路由缓存项的条件组合
+// sk, flags，支持IPsec策略处理
 int ip_route_output_flow(struct rtable **rp, struct flowi *flp, struct sock *sk, int flags)
 {
 	int err;
 
+	// 进程输出路由缓存的查询，查询失败则返回相应错误
 	if ((err = __ip_route_output_key(rp, flp)) != 0)
 		return err;
 
+	// 进行相关IPsec方面的路由查询
 	if (flp->proto) {
 		if (!flp->fl4_src)
 			flp->fl4_src = (*rp)->rt_src;
@@ -3191,13 +3365,18 @@ static int __init set_rhash_entries(char *str)
 }
 __setup("rhash_entries=", set_rhash_entries);
 
+// IPv4路由模块是由ip_rt_init()进行初始化的，该函数在系统启动时，被初始化IP模块的ip_init接口调用
 int __init ip_rt_init(void)
 {
 	int rc = 0;
 
+	// 初始化rt_hash_rnd：根据numberpages和jiffies初始化rt_hash_rnd
+	// 在刷新路由缓存之后，会重新选择随机值来设置该值，这是路由缓存中表项分布
+	// 算法的一个部分，使得表项不具有确定性，以防止DOS攻击
 	rt_hash_rnd = (int) ((num_physpages ^ (num_physpages>>8)) ^
 			     (jiffies ^ (jiffies >> 7)));
 
+// 路由表的classifier标签相关
 #ifdef CONFIG_NET_CLS_ROUTE
 	{
 	int order;
@@ -3211,10 +3390,16 @@ int __init ip_rt_init(void)
 	}
 #endif
 
+	// 创建用于分配路由缓存项的缓存池ipv4_dst_ops.kmem_cachep
 	ipv4_dst_ops.kmem_cachep =
 		kmem_cache_create("ip_dst_cache", sizeof(struct rtable), 0,
 				  SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL, NULL);
 
+	// 创建rt_hash_table散列表，用于存储路由缓存项。缓存容量依赖于主机
+	// 可用的物理内存的大小，在创建的同时初始化rt_hash_mask和rt_hash_log
+	// 分别表示散列表的容量（即散列桶的数量）和该容量以2为对数所得的值
+	// 当一个值必须通过比特位数量来移位时这种做法通常很有用，内核指定的默认
+	// 容量，可以被用户启动项rhash_entries覆盖
 	rt_hash_table = (struct rt_hash_bucket *)
 		alloc_large_system_hash("IP route cache",
 					sizeof(struct rt_hash_bucket),
@@ -3228,12 +3413,16 @@ int __init ip_rt_init(void)
 	memset(rt_hash_table, 0, (rt_hash_mask + 1) * sizeof(struct rt_hash_bucket));
 	rt_hash_lock_init();
 
+	// 确定由垃圾回收算法使用的gc_thresh门限值
 	ipv4_dst_ops.gc_thresh = (rt_hash_mask + 1);
 	ip_rt_max_size = (rt_hash_mask + 1) * 16;
 
+	// 初始化网络设备IPv4相关的IP编址
 	devinet_init();
+	// 初始化路由表
 	ip_fib_init();
 
+	// 初始化用于刷新路由缓存的定时器rt_flush_timer和rt_secret_timer
 	init_timer(&rt_flush_timer);
 	rt_flush_timer.function = rt_run_flush;
 	init_timer(&rt_periodic_timer);
@@ -3244,12 +3433,15 @@ int __init ip_rt_init(void)
 	/* All the timers, started at system startup tend
 	   to synchronize. Perturb it a bit.
 	 */
+	// 初始化用于删除路由缓存中旧表项的定时器rt_periodic_timer
 	rt_periodic_timer.expires = jiffies + net_random() % ip_rt_gc_interval +
 					ip_rt_gc_interval;
+	// 启动rt_periodic_timer定时器
 	add_timer(&rt_periodic_timer);
 
 	rt_secret_timer.expires = jiffies + net_random() % ip_rt_secret_interval +
 		ip_rt_secret_interval;
+	// 启动rt_secret_timer定时器
 	add_timer(&rt_secret_timer);
 
 #ifdef CONFIG_PROC_FS

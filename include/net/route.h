@@ -52,28 +52,58 @@ struct rtable
 {
 	union
 	{
+		// dst_entry结构作为一部分嵌入到rtable结构中，而dst_entry结构的第一个成员next
+		// 就是用于链接分布在同一个散列桶内的rtable实例，为了便于访问next，因此将dst和rt_next
+		// 联合起来，虽然指针的名称不同，但它们所指向的内存位置是相同的
 		struct dst_entry	dst;
 		struct rtable		*rt_next;
 	} u;
 
+	// 指向输出网络设备的IPv4协议族的IP配置块，注意：对送往本地的输入报文的路由
+	// 输出网络设备设置为回环设备
 	struct in_device	*idev;
 	
+	// 用于标识路由表项的一些特性和标志
+	// RTCF_NOTIFY：路由表项的所有变化通过netlink通知给感兴趣的用户空间应用程序
+	// RTCF_REDIRECTED：由接收到的ICMP_REDIRECT消息作出响应而添加的一条路由缓存项
+	// ...
 	unsigned		rt_flags;
+	// 路由表项的类型，它间接定义了当路由查找匹配时应采取的动作
+	// RTN_UNSPEC：定义一个未初始化的值
+	// RTN_LOCAL：目的地址被配置为一个本地接口的地址
+	// ...
 	__u16			rt_type;
+	// 标识多路径缓存算法，在创建路由表项时根据相关路由项的配置来设置
 	__u16			rt_multipath_alg;
 
+	// 目的IP地址和源IP地址
 	__be32			rt_dst;	/* Path destination	*/
 	__be32			rt_src;	/* Path source		*/
+	// 输入网络设备标识，从输入网络设备的net_device数据结构中得到，对本地生成的流量
+	// (因为不是从任何接口上接收到的)，该字段被设置为出设备的ifindex字段，对本地生成
+	// 的报文，fl中的iff字段被设置为０
 	int			rt_iif;
 
 	/* Info on neighbour */
+	// 当目的主机为直连时，即在同一链路上，rt_gateway表示目的地址，当需要通过一个网关
+	// 到达目的地时，rt_gateway被设置为路由项中的下一跳网关
 	__be32			rt_gateway;
 
 	/* Cache lookup keys */
+	// 用于缓存查找的搜索的条件组合
 	struct flowi		fl;
 
 	/* Miscellaneous cached information */
+	// 首选源地址
+	// 添加到路由缓存内的路由缓存项是单向的，但是在一些情况下，接收到报文可能触发一个动作，
+	// 要求本地主机选择一个源IP地址，以便在向发送方回送报文时使用，这个地址，即首选源IP地址
+	// 必须与路由该报文的路由缓存项保存在一起，下面是使用该地址的两种情况：
+	// (1) 当一个主机接收到一个ICMP回显请求时（常用的ping命令），如果主机没有明确配置不作出回应
+	// 则该主机返回一个ICMP回显应答消息。对该输入ICMP回显请求消息选择路由，路由项的rt_spec_dst被
+	// 用作路由ICMP回显请求消息而进行路由查找的源地址
+	// (2) 记录路由IP选项和时间戳IP选项要求途经主机的IP地址记录到选项中
 	__be32			rt_spec_dst; /* RFC1122 specific destination */
+	// 指向与目的地址相关的对端信息块
 	struct inet_peer	*peer; /* long-living peer info */
 };
 
