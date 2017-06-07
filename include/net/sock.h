@@ -679,6 +679,11 @@ static inline struct kiocb *siocb_to_kiocb(struct sock_iocb *si)
 	return si->kiocb;
 }
 
+// 套接口文件系统的i节点和套接口是一一对应的，因此套接口文件系统的i节点的分配
+// 是比较特殊的，分配的并不是一个单纯的i节点，而是i节点和socket结构的组合体
+// 即socket_alloc结构，这样可以使套接口的分配及与之绑定的套接口文件的i节点
+// 的分配同时进行。在应用层访问套接口要通过文件描述符，这样可以快速地通过文件
+// 描述符定位与之绑定的套接口
 struct socket_alloc {
 	struct socket socket;
 	struct inode vfs_inode;

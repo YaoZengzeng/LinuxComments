@@ -105,14 +105,45 @@ enum sock_type {
  *  @wait: wait queue for several uses
  *  @type: socket type (%SOCK_STREAM, etc)
  */
+// 套接口代表了一条通信链路的一端，存储了该端所有与通信有关的信息
+// 这些信息包括：使用的协议、套接口的状态、源和目的地址、到达的
+// 连接队列、数据缓存和可选标志等
 struct socket {
+	// 用于表示所在套接口所处的状态的标志，该标志有些状态只对TCP套接口有意义
+	// 因为只有TCP是面向连接的协议，有状态转换的过程，而UDP和RAW则不需要维护
+	// 套接口状态
+	// SS_FREE:该套接口尚未分配，未使用
+	// SS_UNCONNECTED:该套接口未连接任何一个对端的套接口
+	// SS_CONNECTING:正在连接过程中
+	// SS_CONNECTED:已连接一个套接口
+	// SS_DISCONNECTING:正在断开连接的过程中
 	socket_state		state;
+	// 一组标志位：
+	// SOCK_ASYNC_NOSPACE:标识该套接口的发送队列是否已满
+	// SOCK_ASYNC_WAITDATA:标识应用程序通过recv调用时，是否在等待数据的接收
+	// SOCK_NOSPACE:标识非异步条件下该套接口的发送队列是否已满
+	// ...
 	unsigned long		flags;
+	// 指向套接口系统调用中选择对应类型的套接口层接口，用来将套接口层系统调用映射到
+	//　相应的传输层协议实现
+	// TCP->inet_stream_ops
+	// UDP->inet_dgram_ops
+	// RAW->inet_sockraw_ops
 	const struct proto_ops	*ops;
+	// 存储了异步的通知队列
 	struct fasync_struct	*fasync_list;
+	// 指向了与该套接口相关联的file结构的指针
 	struct file		*file;
+	// 指向了与该套接口关联的传输控制块
 	struct sock		*sk;
+	// 等待该套接口的进程队列
 	wait_queue_head_t	wait;
+	// 套接口类型
+	// SOCK_STREAM:基于连接的套接口
+	// SOCK_DGRAM:基于数据报的套接口
+	// SOCK_RAW:原始套接口
+	// SOCK_PACKET:混杂模式套接口
+	// ...
 	short			type;
 };
 
@@ -123,6 +154,9 @@ struct sockaddr;
 struct msghdr;
 struct module;
 
+// proto_ops结构除了family和owner之外，是一组与套接口系统调用相对应的传输层函数指针
+// 因此整个proto_ops结构可以看做是一张套接口系统调用到传输层函数的跳转表，其中的某些
+// 操作会继续通过proto结构跳转表，进入具体的传输层或网络层的处理
 struct proto_ops {
 	int		family;
 	struct module	*owner;
