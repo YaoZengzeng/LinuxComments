@@ -1024,19 +1024,23 @@ static int sock_close(struct inode *inode, struct file *filp)
  *	   write_lock_bh(&sk->sk_callback_lock).
  *							--ANK (990710)
  */
-
+// sock_fasync()实现了对套接口的异步通知队列增加和删除的更新操作，因为它在进程上下文中
+// 或在软中断中被使用，因此，在访问异步通知列表时需要上锁，对套接口上锁，对传输控制块上
+// sk_callback_lock锁 
 static int sock_fasync(int fd, struct file *filp, int on)
 {
 	struct fasync_struct *fa, *fna = NULL, **prev;
 	struct socket *sock;
 	struct sock *sk;
 
+	// 如果是添加操作，则需要分配异步通知节点
 	if (on) {
 		fna = kmalloc(sizeof(struct fasync_struct), GFP_KERNEL);
 		if (fna == NULL)
 			return -ENOMEM;
 	}
 
+	// 获取与此文件相关的套接口和传输控制块
 	sock = filp->private_data;
 
 	sk = sock->sk;
@@ -1049,10 +1053,12 @@ static int sock_fasync(int fd, struct file *filp, int on)
 
 	prev = &(sock->fasync_list);
 
+	// 在套接口的异步通知列表中查找与filp相等的节点，用于删除或修改节点
 	for (fa = *prev; fa != NULL; prev = &fa->fa_next, fa = *prev)
 		if (fa->fa_file == filp)
 			break;
 
+	// 如果是添加操作，并且在异步通知列表中有与filp相等的节点，则进行修改操作	
 	if (on) {
 		if (fa != NULL) {
 			write_lock_bh(&sk->sk_callback_lock);
@@ -1062,6 +1068,7 @@ static int sock_fasync(int fd, struct file *filp, int on)
 			kfree(fna);
 			goto out;
 		}
+		// 异步通知节点的值进行设置后，增加到异步通知列表中
 		fna->fa_file = filp;
 		fna->fa_fd = fd;
 		fna->magic = FASYNC_MAGIC;
@@ -1070,6 +1077,7 @@ static int sock_fasync(int fd, struct file *filp, int on)
 		sock->fasync_list = fna;
 		write_unlock_bh(&sk->sk_callback_lock);
 	} else {
+		// 如果在删除的状态下，如果在异步通知列表中找到与filp相等的节点，则进行删除操作
 		if (fa != NULL) {
 			write_lock_bh(&sk->sk_callback_lock);
 			*prev = fa->fa_next;
@@ -1087,22 +1095,29 @@ out:
 
 int sock_wake_async(struct socket *sock, int how, int band)
 {
+	// 校验套接口和套接口上的异步等待通知队列是否有效
 	if (!sock || !sock->fasync_list)
 		return -1;
 	switch (how) {
+	// 检测标识应用程序通过recv等调用时，是否在等待数据的接收，如果正在
+	// 等待，则不需要通知应用程序了，否则给应用程序发送SIGIO信号
 	case 1:
 
 		if (test_bit(SOCK_ASYNC_WAITDATA, &sock->flags))
 			break;
 		goto call_kill;
+	// 如果此前传输控制块的发送队列曾经到上限，则此时传输控制块的发送队列
+	// 可能已经低于上限，因此可以给应用程序发送SIGIO信号	
 	case 2:
 		if (!test_and_clear_bit(SOCK_ASYNC_NOSPACE, &sock->flags))
 			break;
 		/* fall through */
+	// 对于普通数据，给应用程序发送SIGIO信号	
 	case 0:
 call_kill:
 		__kill_fasync(sock->fasync_list, SIGIO, band);
 		break;
+	// 对于带外数据，给应用程序发送SIGURG信号	
 	case 3:
 		__kill_fasync(sock->fasync_list, SIGURG, band);
 	}

@@ -103,41 +103,84 @@ struct rtable;
  * @mc_list - Group array
  * @cork - info to build ip hdr on each ip frag while socket is corked
  */
+// inet_sock结构是IPv4协议专用的传输控制块，是对sock结构的扩展，在传输控制块的基本
+// 属性已具备的情况下，进一步提供IPv4协议专有的一些属性，如TTL、组播列表、IP地址、端口等
 struct inet_sock {
 	/* sk and pinet6 has to be the first two members of inet_sock */
 	struct sock		sk;
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	// 如果支持IPv6特性，pinet6是指向IPv6控制块的指针
 	struct ipv6_pinfo	*pinet6;
 #endif
 	/* Socket demultiplex comparisons on incoming packets. */
+	// 目的IP地址
 	__be32			daddr;
+	// 已绑定的本地IP地址，接收数据时，作为条件的一部分查找数据所属的传输控制块
 	__be32			rcv_saddr;
+	// 目的端口
 	__be16			dport;
+	// 主机字节序存储的本地端口
 	__u16			num;
+	// 标识本地IP地址，但在发送时使用，rcv_saddr和saddr都描述本地IP地址，但用途不同
 	__be32			saddr;
+	// 单播报文的TTL、默认值为-1，表示使用默认的TTL值，在输出IP数据报时，TTL值首先从
+	// 这里获取，若没有设置，则从路由缓存的metric中获取
 	__s16			uc_ttl;
+	// 存放一些IPPROTO_IP级别的选项值
 	__u16			cmsg_flags;
+	// 指向IP数据报选项的指针
 	struct ip_options	*opt;
+	// 由num转换成的网络字节序的源端口
 	__be16			sport;
+	// 一个单调递增的值，用来赋给IP首部中的id域
 	__u16			id;
+	// 用于设置IP数据报首部的TOS域，参见IP_TOS套接口选项
 	__u8			tos;
+	// 设置多播数据报的TTL
 	__u8			mc_ttl;
+	// 标识套接口是否启用路径MTU发现功能，初始值根据系统控制参数ip_no_pmtu_disc来确定
+	// IP_PMTUDISC_DO:启用路径MTU发现功能，通常输出的数据报不分片，对于非STREAM套接口，
+	// 则会拒绝发送大于MTU的报文
+	// IP_PMTUDISC_DONT:不启用路径MTU发现功能，输出的报文允许分片
+	// IP_PMTUDISC_WANT:在允许修改存储在路由项中的路径MTU(没有锁定)情况下，启用路径MTU发现功能
+	// 在输出IP数据报时，会用ip_dont_fragment()来检测待输出的IP数据报能否分片，如果不能分片，
+	// 则会在IP数据报首部添加不允许分片的标志
 	__u8			pmtudisc;
+	// 标识是否允许接收扩展的可靠错误消息
 	__u8			recverr:1,
+				// 标识是否为基于连接的传输控制块，即是否为基于inet_connection_sock结构的传输控制块
+				// 如TCP的传输控制块
 				is_icsk:1,
+				// 标识是否允许绑定非主机地址，参见IP_FREEBIND套接口选项
 				freebind:1,
+				// 标识IP首部是否由用户数据构建，该标志只用于RAW套接口，一旦设置后，IP选项中的IP_TTL和
+				// IP_TOS都将被忽略
 				hdrincl:1,
+				// 标识组播是否发向回路
 				mc_loop:1;
+	// 发送组播报文的网络设备索引号，如果为0，则表示可以从任何网络设备发送			
 	int			mc_index;
+	// 发送组播报文的源地址
 	__be32			mc_addr;
+	// 所在套接口加入的组播地址列表
 	struct ip_mc_socklist	*mc_list;
+	// UDP或原始IP在每次发送时缓存的一些临时信息，如，UDP数据报或原始IP数据报分片的大小
 	struct {
+		// IPCORK_OPT:标识IP选项信息是否已在cork的opt成员中
+		// IPCORK_ALLFRAG:总是分片（只用于IPv6）
 		unsigned int		flags;
+		// UDP数据报或原始IP数据报分片大小
 		unsigned int		fragsize;
+		// 指向此次发送数据报的IP选项
 		struct ip_options	*opt;
+		// 发送数据报使用的输出路由缓存项
 		struct rtable		*rt;
+		// 当前发送的数据报的数据长度
 		int			length; /* Total length of all frames */
+		// 输出IP数据报的目的地址
 		__be32			addr;
+		// 用flowi结构来缓存目的地址，目的端口，源地址和源端口，构造UDP报文时
+		// 有关信息就取自这里
 		struct flowi		fl;
 	} cork;
 };

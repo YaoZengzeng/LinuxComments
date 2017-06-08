@@ -195,6 +195,8 @@ no_packet:
 	return NULL;
 }
 
+// skb_free_datagram()函数用于释放UDP传输控制块接收队列上已经复制到用户空间的SKB
+// 此函数很简单，直接封装调用kfree_skb()
 void skb_free_datagram(struct sock *sk, struct sk_buff *skb)
 {
 	kfree_skb(skb);
