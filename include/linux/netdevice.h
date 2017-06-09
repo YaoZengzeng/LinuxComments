@@ -189,8 +189,11 @@ struct dev_mc_list
 	int			dmi_gusers;
 };
 
+// hh_cache(hardware header)结构用来缓存二层首部，这样就可以复制而不是逐个域地设置
+// 二层首部，从而加速报文的输出，但也并非所有的设备驱动程序都需要缓存二层首部
 struct hh_cache
 {
+	// 通过hh_next将同属于一个邻居项的多个hh_cache实例链接起来，参见neigh_hh_init()
 	struct hh_cache *hh_next;	/* Next entry			     */
 	atomic_t	hh_refcnt;	/* number of users                   */
 /*
@@ -199,13 +202,17 @@ struct hh_cache
  * They are mostly read, but hh_refcnt may be changed quite frequently,
  * incurring cache line ping pongs.
  */
+ 	// 缓存的硬件首部中指明的三层协议类型
 	__be16		hh_type ____cacheline_aligned_in_smp;
 					/* protocol identifier, f.e ETH_P_IP
                                          *  NOTE:  For VLANs, this will be the
                                          *  encapuslated type. --BLG
                                          */
+    // 缓存的二层首部长度                                     
 	u16		hh_len;		/* length of header */
+    // 报文输出函数，如同neigh结构的output一样，由neigh->ops中的某个输出接口初始化                                     
 	int		(*hh_output)(struct sk_buff *skb);
+	// 用于保护hh_cache的自旋锁
 	seqlock_t	hh_lock;
 
 	/* cached hardware header; allow for machine alignment needs.        */
@@ -214,6 +221,7 @@ struct hh_cache
 	(HH_DATA_MOD - (((__len - 1) & (HH_DATA_MOD - 1)) + 1))
 #define HH_DATA_ALIGN(__len) \
 	(((__len)+(HH_DATA_MOD-1))&~(HH_DATA_MOD - 1))
+	// 用来存放二层首部，对于以太网则是以太网帧的首部
 	unsigned long	hh_data[HH_DATA_ALIGN(LL_MAX_HEADER) / sizeof(long)];
 };
 
