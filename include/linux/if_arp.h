@@ -100,12 +100,25 @@
 
 
 /* ARP ioctl request. */
+// arp_ioctl()实现了ARP模块的ioctl调用，由inet_ioctl()调用，包括三个命令：SIOCDARP
+// SIOCSARP和SIOCGARP，无论是删除、添加（替换）还是获取，都需要用到一个arpreq结构类型
+// 的参数
 struct arpreq {
+  // 三层协议地址，IPv4中为32位的IPv4地址
   struct sockaddr	arp_pa;		/* protocol address		*/
+　　// 硬件地址，例如48为的以太网地址
   struct sockaddr	arp_ha;		/* hardware address		*/
+  // 添加和删除邻居项时使用到的一些标志
   int			arp_flags;	/* flags			*/
+  // 子网掩码，只用于配置代理项，配置普通邻居项时设置为0xFFFFFFFF
   struct sockaddr       arp_netmask;    /* netmask (only for proxy arps) */
+　　// 邻居项输出网络设备名
   char			arp_dev[16];
+  // SIOCDARP->此命令是通过调用arp_req_delete()删除ARP表中的一个指定的邻居项
+  // 调用者指定要删除表项的IP地址
+  // SIOCSARP->此命令是通过调用arp_req_set()把一个新的表项加入到ARP表，或者修改其中已经存在
+  // 的一个表项
+  // SIOCGARP->此命令是通过调用arp_req_get()从ARP表中获取一个指定的表项
 };
 
 struct arpreq_old {
@@ -130,12 +143,20 @@ struct arpreq_old {
 
 struct arphdr
 {
+	// 硬件地址类型，该字段的取值为以ARPHRD_开头的常量，如ARPHRD_ETHER代表以太网
 	__be16		ar_hrd;		/* format of hardware address	*/
+	// 协议地址类型，该字段的取值是一组以ETH_P_开头的常量，如ETH_P_IP即代表IP地址
 	__be16		ar_pro;		/* format of protocol address	*/
+	// 硬件地址的长度，对于以太网地址为6
 	unsigned char	ar_hln;		/* length of hardware address	*/
+	// 协议地址的长度，对于IP地址为4
 	unsigned char	ar_pln;		/* length of protocol address	*/
+	// 操作码：ARPOP_REQUEST，ARPOP_REPLY，ARPOP_RREQUEST，ARPOP_RREPLY
 	__be16		ar_op;		/* ARP opcode (command)		*/
 
+// 由于不同网络介质的MAC地址长度是不同的，因此ARP报文的结构不能包括操作码后面的内容
+// ARP协议并不仅仅被IPv4使用，在内核的网络模块代码中使用SIP和TIP来代表发送方IP地址
+// 和目的IP地址	
 #if 0
 	 /*
 	  *	 Ethernet looks like this : This bit is variable sized however...
