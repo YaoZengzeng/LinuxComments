@@ -1280,6 +1280,7 @@ static struct net_protocol udp_protocol = {
 	.no_policy =	1,
 };
 
+// ICMP的net_protocol结构为icmp_protocol，定义了接收ICMP报文例程为icmp_rcv()
 static struct net_protocol icmp_protocol = {
 	.handler =	icmp_rcv,
 };
