@@ -27,6 +27,8 @@ static struct kmem_cache *br_fdb_cache __read_mostly;
 static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 		      const unsigned char *addr);
 
+// 网桥转发数据库子系统是由br_fdb_init初始化的，它简单地创建br_fdb_cache缓存
+// 用于分配net_bridge_fdb_entry实例
 void __init br_fdb_init(void)
 {
 	br_fdb_cache = kmem_cache_create("bridge_fdb_cache",
@@ -129,6 +131,8 @@ void br_fdb_cleanup(unsigned long _data)
 }
 
 
+// br_fdb_delete_by_port函数会删除每个端口在转发数据库中所有相关的数据项
+// 停止该端口所有的定时器，然后将promiscuity计数器减1
 void br_fdb_delete_by_port(struct net_bridge *br,
 			   const struct net_bridge_port *p,
 			   int do_all)
@@ -172,6 +176,7 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 }
 
 /* No locking or refcounting, assumes caller has no preempt (rcu_read_lock) */
+// 与fdb_find类似，由桥接程序调用来转发流量，它不考虑过期的数据项
 struct net_bridge_fdb_entry *__br_fdb_get(struct net_bridge *br,
 					  const unsigned char *addr)
 {
@@ -262,6 +267,11 @@ int br_fdb_fillbuf(struct net_bridge *br, void *buf,
 	return num;
 }
 
+// 转发数据库中的记录是通过MAC地址来标识的，查询这个表包括用br_mac_hash选出正确的hash
+// 表bucket，以及浏览bucket中的net_bridge_fdb_entry实例列表，找出一个和指定MAC地址
+// 相匹配的数据项
+// fdb_find就是对给定的MAC地址简单搜索net_bridge_fdb_entry，且它不能用于转发数据流量
+// 它主要是被桥接管理函数使用
 static inline struct net_bridge_fdb_entry *fdb_find(struct hlist_head *head,
 						    const unsigned char *addr)
 {
@@ -275,6 +285,8 @@ static inline struct net_bridge_fdb_entry *fdb_find(struct hlist_head *head,
 	return NULL;
 }
 
+// 分配工作由fdb_create完成，此外，它也会根据其输入参数初始化net_bridge_fdb_entry
+// 的一些字段
 static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 					       struct net_bridge_port *source,
 					       const unsigned char *addr, 

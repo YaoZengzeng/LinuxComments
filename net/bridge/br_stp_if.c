@@ -84,8 +84,13 @@ void br_stp_disable_bridge(struct net_bridge *br)
 }
 
 /* called under bridge lock */
+// 启用网桥端口，要启用网桥端口必须满足下列所有条件：
+// 被绑定的相关设备已用管理手段启动
+// 被绑定的相关设备有载波状态，但是网桥设备上没有载波状态，因为网桥是虚拟设备
+// 相关的网桥设备已用管理手段启动
 void br_stp_enable_port(struct net_bridge_port *p)
 {
+	// 初始化端口->计算端口ID，分配指定角色初始化端口定时器
 	br_init_port(p);
 	br_ifinfo_notify(RTM_NEWLINK, p);
 	br_port_state_selection(p->br);

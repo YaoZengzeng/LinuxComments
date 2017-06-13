@@ -1741,12 +1741,19 @@ struct net_bridge_fdb_entry *(*br_fdb_get_hook)(struct net_bridge *br,
 						unsigned char *addr);
 void (*br_fdb_put_hook)(struct net_bridge_fdb_entry *ent);
 
+// 如果内核不支持桥接，handle_bridge就被定义成NULL指针，并且netif_receive_skb
+// 会把入口帧交给其他协议处理，若内核支持桥接，当网桥端口上接收到帧时，handle_bridge
+// 就会用br_handle_frame_hook处理该帧，当初始化桥接模块时，br_handle_frame_hook
+// 的指针就初始化为br_handle_bridge
 static __inline__ int handle_bridge(struct sk_buff **pskb,
 				    struct packet_type **pt_prev, int *ret,
 				    struct net_device *orig_dev)
 {
 	struct net_bridge_port *port;
 
+	// 当一个NIC配置成网桥端口时，其net_device中的br_port指针就会指向相关联的网桥端口
+	// 每个网桥端口都包含指向其所属网桥实例的指针，所以，可以轻易从任何真实设备中找出其所属
+	// 的网桥实例
 	if ((*pskb)->pkt_type == PACKET_LOOPBACK ||
 	    (port = rcu_dereference((*pskb)->dev->br_port)) == NULL)
 		return 0;

@@ -18,6 +18,8 @@
 #define BPDU_TYPE_CONFIG 0
 #define BPDU_TYPE_TCN 0x80
 
+// 入口配置BPDU的一些关键字段会复制到该数据结构中，该结构会将这些字段
+// 传递到给处理配置BPDU的函数，而不是由原BPDU来传递
 struct br_config_bpdu
 {
 	unsigned	topology_change:1;

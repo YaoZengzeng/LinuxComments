@@ -27,6 +27,11 @@ int (*br_should_route_hook) (struct sk_buff **pskb) = NULL;
 
 static struct llc_sap *br_stp_sap;
 
+// 初始化工作包括：
+// 转发数据库初始化，就是在内存中建立一块slab cache，以存放net_bridge_fdb_entry结构(br_fdb_init)
+// 初始化函数指针br_ioctl_hook为处理ioctl命令的函数
+// 初始化函数指针br_handle_frame_hook，使其指向处理入口的BPDU的函数
+// 用netdev_chain通知链注册一个回调函数
 static int __init br_init(void)
 {
 	int err;
@@ -39,6 +44,8 @@ static int __init br_init(void)
 
 	br_fdb_init();
 
+	// 当内核被编译成支持Bridging-Firewalling时，br_netfilter_init函数就会在此时
+	// 初始化Bridging-Firewalling
 	err = br_netfilter_init();
 	if (err)
 		goto err_out1;
@@ -63,6 +70,7 @@ err_out1:
 	return err;
 }
 
+// br_deinit()只是把br_init所做的事情撤销而已
 static void __exit br_deinit(void)
 {
 	rcu_assign_pointer(br_stp_sap->rcv_func, NULL);

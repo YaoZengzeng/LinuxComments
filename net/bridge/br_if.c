@@ -180,31 +180,39 @@ static void del_nbp(struct net_bridge_port *p)
 }
 
 /* called with RTNL */
+// 具体执行网桥的删除工作
 static void del_br(struct net_bridge *br)
 {
 	struct net_bridge_port *p, *n;
 
+	// 删除网桥设备的全部端口，对于每个网桥端口来说，也会删除/sys目录
+	// 中相关的链接(这些链接是目录)
 	list_for_each_entry_safe(p, n, &br->port_list, list) {
 		del_nbp(p);
 	}
 
+	// 停止垃圾收集定时器br->gc_timer
 	del_timer_sync(&br->gc_timer);
 
+	// 删除/sys/class/net目录中的网桥设备子目录
 	br_sysfs_delbr(br->dev);
  	unregister_netdevice(br->dev);
 }
 
+// 建立一个新网桥设备
 static struct net_device *new_bridge_dev(const char *name)
 {
 	struct net_bridge *br;
 	struct net_device *dev;
 
+	// 分配一个net_device数据结构并初始化，用br_dev_setup作为设置函数
 	dev = alloc_netdev(sizeof(struct net_bridge), name,
 			   br_dev_setup);
 	
 	if (!dev)
 		return NULL;
 
+	// 初始化私有数据结构
 	br = netdev_priv(dev);
 	br->dev = dev;
 
@@ -212,24 +220,30 @@ static struct net_device *new_bridge_dev(const char *name)
 	INIT_LIST_HEAD(&br->port_list);
 	spin_lock_init(&br->hash_lock);
 
+	// 初始化网桥优先权为默认值:32768 (0x8000)
 	br->bridge_id.prio[0] = 0x80;
 	br->bridge_id.prio[1] = 0x00;
 
 	memcpy(br->group_addr, br_group_address, ETH_ALEN);
 
+	// 初始化指定网桥ID(设为其识别码)、根路径开销(设为0)以及根端口(设为0，也就没有根端口)
+	// 这样的设置是因为当一台网桥首次加电时，会认为它就是根网桥
 	br->feature_mask = dev->features;
 	br->stp_enabled = 0;
 	br->designated_root = br->bridge_id;
 	br->root_path_cost = 0;
+	// 根端口设为0，也就是没有根端口
 	br->root_port = 0;
 	br->bridge_max_age = br->max_age = 20 * HZ;
 	br->bridge_hello_time = br->hello_time = 2 * HZ;
 	br->bridge_forward_delay = br->forward_delay = 15 * HZ;
 	br->topology_change = 0;
 	br->topology_change_detected = 0;
+	// 设老化时间的初始值为默认的5min
 	br->ageing_time = 300 * HZ;
 	INIT_LIST_HEAD(&br->age_list);
 
+	// 初始化每个网桥的定时器
 	br_stp_timer_init(br);
 
 	return dev;
@@ -264,6 +278,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	int index;
 	struct net_bridge_port *p;
 	
+	// 给该网桥端口指定一个端口号
 	index = find_portno(br);
 	if (index < 0)
 		return ERR_PTR(index);
@@ -272,13 +287,17 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	if (p == NULL)
 		return ERR_PTR(-ENOMEM);
 
+	// 将网桥端口连接到网桥设备
 	p->br = br;
 	dev_hold(dev);
+	// 将网桥端口连接到被绑定的设备
 	p->dev = dev;
 	p->path_cost = port_cost(dev);
+	// 给端口号指派默认优先权
  	p->priority = 0x8000 >> BR_PORT_BITS;
 	p->port_no = index;
 	br_init_port(p);
+	// 指定BR_STATE_DISABLED初始状态
 	p->state = BR_STATE_DISABLED;
 	INIT_DELAYED_WORK_NAR(&p->carrier_check, port_carrier_check);
 	br_stp_port_timer_init(p);
@@ -292,6 +311,7 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	return p;
 }
 
+// 网桥设备的建立
 int br_add_bridge(const char *name)
 {
 	struct net_device *dev;
@@ -322,6 +342,7 @@ int br_add_bridge(const char *name)
 	return ret;
 }
 
+// 网桥设备的删除
 int br_del_bridge(const char *name)
 {
 	struct net_device *dev;
@@ -406,20 +427,28 @@ void br_features_recompute(struct net_bridge *br)
 }
 
 /* called with RTNL */
+// br_add_if函数可以给一台网桥设备添加端口，它并不关心网桥设备上是否开启了STP
 int br_add_if(struct net_bridge *br, struct net_device *dev)
 {
 	struct net_bridge_port *p;
 	int err = 0;
 
+	// 开始先做合理性检查
+
+	// 要添加端口的设备不是Ethernet设备，或者是回环设备
 	if (dev->flags & IFF_LOOPBACK || dev->type != ARPHRD_ETHER)
 		return -EINVAL;
 
+	// 若要添加端口的设备是网桥
+	// 但网桥端口必须指定到真实设备，或者不是网络设备的虚拟设备
 	if (dev->hard_start_xmit == br_dev_xmit)
 		return -ELOOP;
 
+	// 该网桥端口已指派给一个设备
 	if (dev->br_port != NULL)
 		return -EBUSY;
 
+	// 检查通过，分配新网桥端口，并用new_nbp做部分初始化
 	p = new_nbp(br, dev);
 	if (IS_ERR(p))
 		return PTR_ERR(p);
@@ -428,25 +457,34 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (err)
 		goto err0;
 
+	// 与这个新端口相关的设备的MAC地址会被br_fdb_insert添加到转发数据库中
  	err = br_fdb_insert(br, p, dev->dev_addr);
 	if (err)
 		goto err1;
 
+	// br_sysfs_addif函数会在/sys目录中添加些必要的链接
 	err = br_sysfs_addif(p);
 	if (err)
 		goto err2;
 
 	rcu_assign_pointer(dev->br_port, p);
+	// 与该网桥端口相关的NIC会通过dev_set_promiscuity函数进入混杂模式，混杂模式可以捕获所有
+	// LAN网络数据，而且当网桥转发数据帧时，也需要进入混杂模式，对每个网桥端口，都有一个计数器
+	// 而不是一个布尔标志来保存该模式，这样内核就能够处理进入混杂模式的嵌套请求（不断进入混杂模式）
+	// 当一个网桥端口上进入混杂模式时（由dev_set_promiscuity实现），在相关绑定的设备上的计数器就
+	// 会递减；当混杂模式关闭时，该计数器就会递减
 	dev_set_promiscuity(dev, 1);
 
 	list_add_rcu(&p->list, &br->port_list);
 
 	spin_lock_bh(&br->lock);
+	// 更新网桥ID
 	br_stp_recalculate_bridge_id(br);
 	br_features_recompute(br);
 	schedule_delayed_work(&p->carrier_check, BR_PORT_DEBOUNCE);
 	spin_unlock_bh(&br->lock);
 
+	// 更新端口MTU
 	dev_set_mtu(br->dev, br_min_mtu(br));
 	kobject_uevent(&p->kobj, KOBJ_ADD);
 
@@ -461,6 +499,7 @@ err0:
 }
 
 /* called with RTNL */
+// 给网桥设备删除端口
 int br_del_if(struct net_bridge *br, struct net_device *dev)
 {
 	struct net_bridge_port *p = dev->br_port;

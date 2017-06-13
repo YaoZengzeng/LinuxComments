@@ -25,19 +25,23 @@
 #define BR_HOLD_TIME (1*HZ)
 
 #define BR_PORT_BITS	10
+// 每个网桥设备最多可以有BR_MAX_PORTS个端口
 #define BR_MAX_PORTS	(1<<BR_PORT_BITS)
 
 #define BR_PORT_DEBOUNCE (HZ/10)
 
 #define BR_VERSION	"2.2"
 
+// 网桥ID
 typedef struct bridge_id bridge_id;
 typedef struct mac_addr mac_addr;
 typedef __u16 port_id;
 
 struct bridge_id
 {
+	// 网桥优先权
 	unsigned char	prio[2];
+	// 网桥MAC地址
 	unsigned char	addr[6];
 };
 
@@ -46,23 +50,36 @@ struct mac_addr
 	unsigned char	addr[6];
 };
 
+// 转发数据库的记录项
+// 网桥所学到的每一个MAC地址都有这样一个记录
 struct net_bridge_fdb_entry
 {
+	// 用于把该数据结构链接到hash表bucket的冲突元素列表的指针
 	struct hlist_node		hlist;
+	// 网桥端口
 	struct net_bridge_port		*dst;
 
 	struct rcu_head			rcu;
 	atomic_t			use_count;
+	// Aging定时器
 	unsigned long			ageing_timer;
+	// mac地址，这是查询函数所用的关键字段
 	mac_addr			addr;
+	// 当该标志为1时，表示MAC地址addr被配置在一个本地设备上
 	unsigned char			is_local;
+	// 当该标识为1时，表示MAC地址addr是静态的，且不会过期，所有本地地址
+	// 都是静态的
 	unsigned char			is_static;
 };
 
+// 网桥端口
 struct net_bridge_port
 {
+	// 网桥设备
 	struct net_bridge		*br;
+	// 被绑定的设备
 	struct net_device		*dev;
+	// 用于把数据结构链接至hash表bucket的冲突元素列表的指针
 	struct list_head		list;
 
 	/* STP */
@@ -86,14 +103,23 @@ struct net_bridge_port
 	struct rcu_head			rcu;
 };
 
+// 应用到单个网桥的信息，该结构会附加到一个net_device数据结构之上
+// 和大多数虚拟设备一样，其内部包括只有虚拟设备程序（这里指桥接代码）
+// 才能理解的私有信息
 struct net_bridge
 {
+	// 该锁使改变net_bridge结构或改变port_list中的某个端口的操作串行化
 	spinlock_t			lock;
+	// 网桥端口列表
 	struct list_head		port_list;
+	// 网桥设备
 	struct net_device		*dev;
+	// 统计
 	struct net_device_stats		statistics;
+	// hash是转发数据库，hash_lock是用于对其数据项读写访问串行化的锁
 	spinlock_t			hash_lock;
 	struct hlist_head		hash[BR_HASH_SIZE];
+	// 未使用
 	struct list_head		age_list;
 	unsigned long			feature_mask;
 
@@ -105,12 +131,14 @@ struct net_bridge
 	unsigned long			hello_time;
 	unsigned long			forward_delay;
 	unsigned long			bridge_max_age;
+	// 一个数据项没被使用时可以待在转发数据库里的最大时间
 	unsigned long			ageing_time;
 	unsigned long			bridge_hello_time;
 	unsigned long			bridge_forward_delay;
 
 	u8				group_addr[ETH_ALEN];
 	u16				root_port;
+	// 当设定该标识后，表示网桥开启了STP
 	unsigned char			stp_enabled;
 	unsigned char			topology_change;
 	unsigned char			topology_change_detected;

@@ -37,6 +37,7 @@ static void br_pass_frame_up(struct net_bridge *br, struct sk_buff *skb)
 }
 
 /* note: already called with rcu_read_lock (preempt_disabled) */
+// 入口数据帧是由br_handle_frame_finish函数处理的
 int br_handle_frame_finish(struct sk_buff *skb)
 {
 	const unsigned char *dest = eth_hdr(skb)->h_dest;
@@ -50,21 +51,27 @@ int br_handle_frame_finish(struct sk_buff *skb)
 
 	/* insert into forwarding database after filtering to avoid spoofing */
 	br = p->br;
+	// 帧的源MAC地址会由br_fdb_update加入到转发数据库
 	br_fdb_update(br, p, eth_hdr(skb)->h_source);
 
 	if (p->state == BR_STATE_LEARNING)
 		goto drop;
 
+	// 网桥接口处于混杂模式
+	// 所有网桥端口绑定的设备都会处于混杂模式，因为网桥运行需要此模式，但除非明确地对其
+	// 进行配置，否则网桥自己是不会处在混杂模式的
 	if (br->dev->flags & IFF_PROMISC) {
 		struct sk_buff *skb2;
 
 		skb2 = skb_clone(skb, GFP_ATOMIC);
 		if (skb2 != NULL) {
 			passedup = 1;
+			// 帧的一个副本由br_pass_frame_up(即传送帧到上层协议的函数)提交至本地
 			br_pass_frame_up(br, skb2);
 		}
 	}
 
+	// 扩散帧
 	if (is_multicast_ether_addr(dest)) {
 		br->statistics.multicast++;
 		br_flood_forward(br, skb, !passedup);
@@ -73,20 +80,26 @@ int br_handle_frame_finish(struct sk_buff *skb)
 		goto out;
 	}
 
+	// 在转发数据库中搜索目的MAC地址
 	dst = __br_fdb_get(br, dest);
+	// 转发数据库显示，目的MAC地址属于本地接口
 	if (dst != NULL && dst->is_local) {
 		if (!passedup)
+			// 帧的一个副本由br_pass_frame_up(即传送帧到上层协议的函数)提交至本地
 			br_pass_frame_up(br, skb);
 		else
 			kfree_skb(skb);
 		goto out;
 	}
 
+	// 如果找到该地址，帧就会由br_forward转发到正确网桥端口
 	if (dst != NULL) {
 		br_forward(dst->dst, skb);
 		goto out;
 	}
 
+	// 否则就通过br_flood_forward将帧扩散到网桥的所有转发端口
+	// 目的地是广播或多播链路层地址的帧总是会被扩散
 	br_flood_forward(br, skb, 0);
 
 out:

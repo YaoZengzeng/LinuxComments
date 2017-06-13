@@ -369,10 +369,17 @@ static void br_make_blocking(struct net_bridge_port *p)
 /* called under bridge lock */
 static void br_make_forwarding(struct net_bridge_port *p)
 {
+	// 不能把BR_STATE_BLOCKING和BR_STATE_FORWARDING间的任何中间状态指派给端口
+	// 因为中间状态就预示着该端口已在前往BR_STATE_FORWARDING态的路上，且在适当的
+	// 定时器到期时就会到达那个状态
 	if (p->state == BR_STATE_BLOCKING) {
+		// 当没启用STP时，所有网络端口都会被指派为转发状态，因此，可以跳过
+		// BR_STATE_LEARNING态
 		if (p->br->stp_enabled) {
 			p->state = BR_STATE_LISTENING;
 		} else {
+			// BR_STATE_LEARNING可以让网桥学习MAC地址，并减少扩散的数量
+			// 转发数据库为空就需要扩散
 			p->state = BR_STATE_LEARNING;
 		}
 		br_log_state(p);
@@ -380,10 +387,16 @@ static void br_make_forwarding(struct net_bridge_port *p)
 }
 
 /* called under bridge lock */
+// 当一个端口启动时，首先要做初始化，然后用br_port_state_selection函数为其指定合适的状态
 void br_port_state_selection(struct net_bridge *br)
 {
 	struct net_bridge_port *p;
 
+	// 遍历所有网络端口，把适当状态应用到每个端口上，对于一台没有运行STP的网桥
+	// 该函数实际就是把新端口设置为BR_STATE_FORWARDING态，这是因为该端口被指派
+	// 为指定角色（尽管不运行STP的网桥不在意端口角色），应该谨记，大多数函数无法区分
+	// STP是启动还是关闭的，例如，br_state_port_selection会遍历所有端口，因为当
+	// STP启动且经过配置更新时，有可能改变很多端口的角色和状态
 	list_for_each_entry(p, &br->port_list, list) {
 		if (p->state != BR_STATE_DISABLED) {
 			if (p->port_no == br->root_port) {
