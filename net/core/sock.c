@@ -242,16 +242,19 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	/* Cast skb->rcvbuf to unsigned... It's pointless, but reduces
 	   number of warnings when compiling with -W --ANK
 	 */
+	// 检测当前用于接收的缓存大小是否已达到了缓冲区大小的上限，一旦达到，则不能继续接收
 	if (atomic_read(&sk->sk_rmem_alloc) + skb->truesize >=
 	    (unsigned)sk->sk_rcvbuf) {
 		err = -ENOMEM;
 		goto out;
 	}
 
+	// 如果在传输控制块中安装了过滤器，则只有符合过滤规则的报文才能放行，其余的都丢弃
 	err = sk_filter(sk, skb);
 	if (err)
 		goto out;
 
+	// 设置接收数据报的宿主传输控制块
 	skb->dev = NULL;
 	skb_set_owner_r(skb, sk);
 
@@ -262,8 +265,10 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	 */
 	skb_len = skb->len;
 
+	// 将数据报添加到传输控制块的接收队列中
 	skb_queue_tail(&sk->sk_receive_queue, skb);
 
+	// 如果套接口未关闭，则唤醒等待该套接口的接收进程
 	if (!sock_flag(sk, SOCK_DEAD))
 		sk->sk_data_ready(sk, skb_len);
 out:
@@ -1731,8 +1736,12 @@ int compat_sock_common_setsockopt(struct socket *sock, int level, int optname,
 EXPORT_SYMBOL(compat_sock_common_setsockopt);
 #endif
 
+// sk_common_release()是一个较为通用的函数，在创建套接口后初始化失败，关闭UDP套接口
+// 和原始IP套接口时都会调用该函数
 void sk_common_release(struct sock *sk)
 {
+	// 调用传输接口层的destroy接口，在传输控制块释放前做清理工作
+	// 实现UDP传输接口层destroy接口的函数为udp_destroy_sock()
 	if (sk->sk_prot->destroy)
 		sk->sk_prot->destroy(sk);
 
@@ -1743,7 +1752,8 @@ void sk_common_release(struct sock *sk)
 	 *
 	 * A. Remove from hash tables.
 	 */
-
+	// 调用传输接口层的unhash接口，将传输控制块从管理散列表中删除，实现UDP传输接口层
+	// unhash接口的函数为udp_lib_unhash()
 	sk->sk_prot->unhash(sk);
 
 	/*
@@ -1758,10 +1768,13 @@ void sk_common_release(struct sock *sk)
 	 * until the last reference will be released.
 	 */
 
+	// 通过以上对传输控制块释放前的清理，传输控制块宣告死亡
 	sock_orphan(sk);
 
+	// 释放有关IPSEC的传输策略
 	xfrm_sk_free_policy(sk);
 
+	// 最后递减引用计数，当递减到0时，说明不再有任何实体使用或引用该传输控制块，可以释放它了
 	sk_refcnt_debug_release(sk);
 	sock_put(sk);
 }

@@ -962,12 +962,21 @@ static struct inet_protosw inetsw_array[] =
         },
 
         {
+        		// UDP套接口类型为SOCK_DGRAM
                 .type =       SOCK_DGRAM,
+                // UDP协议类型为IPPROTO_UDP 
                 .protocol =   IPPROTO_UDP,
+                // UDP的传输层接口为udp_prot
                 .prot =       &udp_prot,
+                // UDP的套接口层操作接口为inet_dgram_ops
                 .ops =        &inet_dgram_ops,
+                // 在创建UDP套接口时需检验创建该套接口的进程是否有这种能力
+                // capability为-1表示无需作检验
                 .capability = -1,
+                // UDP的校验和是课选的,UDP_CSUM_DEFAULT标识UDP需要进行正常的
+                // 校验和操作
                 .no_check =   UDP_CSUM_DEFAULT,
+                // 标识不能作为内核模块进行动态的加载或卸载
                 .flags =      INET_PROTOSW_PERMANENT,
        },
         

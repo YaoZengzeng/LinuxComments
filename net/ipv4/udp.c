@@ -128,11 +128,12 @@ static inline int __udp_lib_lport_inuse(__u16 num, struct hlist_head udptable[])
 /**
  *  __udp_lib_get_port  -  UDP/-Lite port lookup for IPv4 and IPv6
  *
- *  @sk:          socket struct in question
- *  @snum:        port number to look up
- *  @udptable:    hash list table, must be of UDP_HTABLE_SIZE
- *  @port_rover:  pointer to record of last unallocated port
- *  @saddr_comp:  AF-dependent comparison of bound local IP addresses
+ *  @sk:          socket struct in question // 待绑定的传输控制块
+ *  @snum:        port number to look up // 绑定的端口号
+ *  @udptable:    hash list table, must be of UDP_HTABLE_SIZE　// 管理UDP传输控制块的散列表
+ *  @port_rover:  pointer to record of last unallocated port　// 最近一次自动绑定的端口号
+ *  @saddr_comp:  AF-dependent comparison of bound local IP addresses　// 用于比较两个传输
+　*  控制块的接收地址是否相等	
  */
 int __udp_lib_get_port(struct sock *sk, unsigned short snum,
 		       struct hlist_head udptable[], int *port_rover,
@@ -147,10 +148,11 @@ int __udp_lib_get_port(struct sock *sk, unsigned short snum,
 	write_lock_bh(&udp_hash_lock);
 	if (snum == 0) {
 		int best_size_so_far, best, result, i;
-
+		// 当udp_port_rover不在指定范围内，则被强制设定为指定范围的最小值
 		if (*port_rover > sysctl_local_port_range[1] ||
 		    *port_rover < sysctl_local_port_range[0])
 			*port_rover = sysctl_local_port_range[0];
+		// 为了使UDP传输控制块在udp_hash散列表中的分布比较均匀，选择如下方法查找端口号
 		best_size_so_far = 32767;
 		best = result = *port_rover;
 		for (i = 0; i < UDP_HTABLE_SIZE; i++, result++) {
@@ -186,8 +188,12 @@ int __udp_lib_get_port(struct sock *sk, unsigned short snum,
 		if (i >= (1 << 16) / UDP_HTABLE_SIZE)
 			goto fail;
 gotit:
+		// 如果查找到可用的端口号，则保存该端口号，同时更新全局变量udp_port_rover
+		// 下次再次自动绑定端口号时，再从udp_port_rover的值起开始查找
 		*port_rover = snum = result;
 	} else {
+		// 如果指定了端口，则根据端口号得到该散列表的入口，并遍历该链表检测该端口
+		// 是否可用，一旦检测到该指定端口不能使用，则返回相应的错误
 		head = &udptable[snum & (UDP_HTABLE_SIZE - 1)];
 
 		sk_for_each(sk2, node, head)
@@ -199,6 +205,7 @@ gotit:
 			    (*saddr_comp)(sk, sk2)                             )
 				goto fail;
 	}
+	// 确定端口可用后，则将端口号设置到传输控制块中，并将该传输控制块添加到udp_hash散列表中
 	inet_sk(sk)->num = snum;
 	if (sk_unhashed(sk)) {
 		head = &udptable[snum & (UDP_HTABLE_SIZE - 1)];
@@ -451,6 +458,9 @@ static void udp4_hwcsum_outgoing(struct sock *sk, struct sk_buff *skb,
 /*
  * Push out all pending data as one UDP datagram. Socket is locked.
  */
+// 将待发送数据打包成一个UDP数据报输出，该函数的逻辑比较简单，在设置了传输层源端口
+// 目的端口和数据长度等字段，准备了校验和之后，即交由ip_push_pending_frames()
+// 作进一步处理
 static int udp_push_pending_frames(struct sock *sk)
 {
 	struct udp_sock  *up = udp_sk(sk);
@@ -462,12 +472,14 @@ static int udp_push_pending_frames(struct sock *sk)
 	__wsum csum = 0;
 
 	/* Grab the skbuff where UDP header space exists. */
+	// 如果发送队列中没有报文，则无需再作发送操作
 	if ((skb = skb_peek(&sk->sk_write_queue)) == NULL)
 		goto out;
 
 	/*
 	 * Create a UDP header
 	 */
+	// 设置待发送数据报的源、目的端口和长度
 	uh = skb->h.uh;
 	uh->source = fl->fl_ip_sport;
 	uh->dest = fl->fl_ip_dport;
@@ -475,35 +487,45 @@ static int udp_push_pending_frames(struct sock *sk)
 	uh->check = 0;
 
 	if (up->pcflag)  				 /*     UDP-Lite      */
+		// 如果是轻量级UDP，则需要对数据报的前cscov个字节进行校验和的计算
 		csum  = udplite_csum_outgoing(sk, skb);
 
 	else if (sk->sk_no_check == UDP_CSUM_NOXMIT) {   /* UDP csum disabled */
-
+		// 如果禁止UDP数据报校验和，则设置SKB中的校验标志为CHECKSUM_NONE
 		skb->ip_summed = CHECKSUM_NONE;
 		goto send;
 
 	} else if (skb->ip_summed == CHECKSUM_PARTIAL) { /* UDP hardware csum */
-
+		// 如果是由硬件作校验和计算，则为硬件指针校验和作准备
 		udp4_hwcsum_outgoing(sk, skb, fl->fl4_src,fl->fl4_dst, up->len);
 		goto send;
 
 	} else						 /*   `normal' UDP    */
+		// 其他情况则进行普通的校验和计算
 		csum = udp_csum_outgoing(sk, skb);
 
 	/* add protocol-dependent pseudo-header */
+	// 将计算得到的校验和设置到UDP首部中
 	uh->check = csum_tcpudp_magic(fl->fl4_src, fl->fl4_dst, up->len,
 				      sk->sk_protocol, csum             );
 	if (uh->check == 0)
 		uh->check = CSUM_MANGLED_0;
 
 send:
+	// 完成校验和的设置后，调用IP层接口输出UDP数据报
 	err = ip_push_pending_frames(sk);
 out:
+	// 复位待发送数据的长度和发送状态
 	up->len = 0;
 	up->pending = 0;
 	return err;
 }
 
+// udp_sendmsg()实现了UDP数据报的组织和发送，首先获取发送的目的地址和目的端口
+// 然后处理控制信息，接着选路，最后将数据分片并组成UDP数据报发送出去
+// iocb: 异步IO控制块，目前尚未使用
+// msg: 描述发送数据的msghdr的指针
+// len: 待发送数据的长度
 int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len)
 {
@@ -517,10 +539,14 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	__be32 daddr, faddr, saddr;
 	__be16 dport;
 	u8  tos;
+	// 获取pcflag标志确定该套接口是普通的UDP套接口还是轻量级UDP套接口
 	int err, is_udplite = up->pcflag;
+	// 由UDP_CORK选项值，或发送标志中的MSG_MORE标志来确定发送者是否还有更多的数据需要判断
 	int corkreq = up->corkflag || msg->msg_flags&MSG_MORE;
 	int (*getfrag)(void *, char *, int, int, int, struct sk_buff *);
 
+	// 由于IP数据报的限制，UDP数据报最长为64KB，在此检测UDP数据报长度是否达到64KB
+	// 如果达到，则UDP数据报长度无效
 	if (len > 0xFFFF)
 		return -EMSGSIZE;
 
@@ -528,6 +554,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	 *	Check the flags.
 	 */
 
+	// UDP不支持发送带外数据
 	if (msg->msg_flags&MSG_OOB)	/* Mirror BSD error message compatibility */
 		return -EOPNOTSUPP;
 
@@ -541,32 +568,43 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		lock_sock(sk);
 		if (likely(up->pending)) {
 			if (unlikely(up->pending != AF_INET)) {
+				// 如果pending值非0亦非AF_INET，则说明该值无效，返回错误码
 				release_sock(sk);
 				return -EINVAL;
 			}
+			// 如果UDP正在输出数据过程中，则跳转到do_apppend_data处直接处理UDP数据
  			goto do_append_data;
 		}
 		release_sock(sk);
 	}
+	// 累计UDP数据报长度，数据长度加上UDP首部长度
 	ulen += sizeof(struct udphdr);
 
 	/*
 	 *	Get and verify the address. 
 	 */
 	if (msg->msg_name) {
+		// 处理msg中带有目的地址的情况，通常调用sendto发送UDP数据
 		struct sockaddr_in * usin = (struct sockaddr_in*)msg->msg_name;
 		if (msg->msg_namelen < sizeof(*usin))
 			return -EINVAL;
+		// 校验目的地址所属地址族，必须为AF_INET
 		if (usin->sin_family != AF_INET) {
 			if (usin->sin_family != AF_UNSPEC)
 				return -EAFNOSUPPORT;
 		}
 
+		// 将目的地址和端口缓存到临时变量daddr、dport中，同时校验目的端口不能为0
 		daddr = usin->sin_addr.s_addr;
 		dport = usin->sin_port;
 		if (dport == 0)
 			return -EINVAL;
 	} else {
+		// 处理msg中没有目的地址的情况，通常调用send发送UDP数据前调用了connect
+
+		// UDP套接口调用connect()后，UDP传输控制块状态为TCP_ESTABLISHED
+		// 因此在发送UDP数据报时，如果未指明目的地址又没有调用connect()连接
+		// 则返回EDESTADDRREQ错误，即未指明套接口的目的地址
 		if (sk->sk_state != TCP_ESTABLISHED)
 			return -EDESTADDRREQ;
 		daddr = inet->daddr;
@@ -574,25 +612,40 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		/* Open fast path for connected socket.
 		   Route will not be used, if at least one option is set.
 		 */
+		// 如果是"已连接"的UDP套接口，则设置connected标志，在后续查找路由的过程中
+		// 可以作快速处理
 		connected = 1;
   	}
+  	// 在处理待发送的控制信息之前，先由传输控制块中的信息初始化ipc的源地址和输出网络设备索引
 	ipc.addr = inet->saddr;
 
 	ipc.oif = sk->sk_bound_dev_if;
 	if (msg->msg_controllen) {
+		// 有控制信息要处理
+
+		// 调用ip_cmsg_send()处理控制信息，包括存在IP选项(IP_RETOPTS)则校验
+		// 如果设定源地址和输出网络设备索引(IP_PKTINFO)则从控制信息中获取
 		err = ip_cmsg_send(msg, &ipc);
 		if (err)
 			return err;
+		// 如果存在IP选项，则设置free标志，表示ipc中opt指向的IP选项信息是在
+		// ip_cmsg_send()中分配的，处理完成后需释放
 		if (ipc.opt)
 			free = 1;
 		connected = 0;
 	}
+	// 如果发送的数据中没有IP选项控制信息，则从inet_sock结构的opt中获取IP选项信息
+	// 通过IP_OPTIONS套接口选项设置
 	if (!ipc.opt)
 		ipc.opt = inet->opt;
 
+	// 由于控制信息需保存目的地址，因此将源地址保存到saddr中
 	saddr = ipc.addr;
 	ipc.addr = faddr = daddr;
 
+	// 如果存在宽松或严格源站路由IP选项，则不能根据目的地址选路，而应将选项的下一站地址
+	// 作为目的地址来选路，因此在此将下一站地址保存到临时变量中，供后续的选路作为目的地址
+	// 同时，因为后续需要重新选路，因此复位connected标志
 	if (ipc.opt && ipc.opt->srr) {
 		if (!daddr)
 			return -EINVAL;
@@ -600,6 +653,9 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 	tos = RT_TOS(inet->tos);
+	// 如果设置了SOCK_LOCALROUTE选项，或发送时设置了MSG_DONTROUTE标志
+	// 再或者在IP选项中存在严格源站路由，则说明目的地址或下一跳必定位于本地子网
+	// 因此在tos变量中设置RTO_ONLINK标志，后续查找路由时表示与目的地直连
 	if (sock_flag(sk, SOCK_LOCALROUTE) ||
 	    (msg->msg_flags & MSG_DONTROUTE) || 
 	    (ipc.opt && ipc.opt->is_strictroute)) {
@@ -607,17 +663,28 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 
+	// 处理目的地址为组播地址的情况
 	if (MULTICAST(daddr)) {
+		// 如果发送的是组播报文，且在控制信息中没有指定组播输出网络设备
+		// 或组播源地址，则使用IP_MULTICAST_IF选项设置默认的输出网络
+		// 设备和组播源地址
 		if (!ipc.oif)
 			ipc.oif = inet->mc_index;
 		if (!saddr)
 			saddr = inet->mc_addr;
+		// 由于是组播报文，因此需要在路由表中查找
 		connected = 0;
 	}
 
+	// 获取相应路由缓存项
 	if (connected)
+		// 对于已建立连接又没有发送控制信息的UDP套接口，直接从套接口中
+		// 获取路由缓存项
 		rt = (struct rtable*)sk_dst_check(sk, 0);
 
+	// 对于未建立"连接"的UDP套接口，或者发送了控制信息，或者是组播报文，
+	// 则需在路由表中查找路由，此外如果通过优化方式没有获得路由，则也只能在
+	// 路由表中查找路由项
 	if (rt == NULL) {
 		struct flowi fl = { .oif = ipc.oif,
 				    .nl_u = { .ip4_u =
@@ -633,23 +700,36 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		if (err)
 			goto out;
 
+		// 如果得到的路由的目的地址是一个广播地址，但套接口本身又是不支持发送广播报文
+		// 则禁止发送，返回EACCES错误
 		err = -EACCES;
 		if ((rt->rt_flags & RTCF_BROADCAST) &&
 		    !sock_flag(sk, SOCK_BROADCAST))
 			goto out;
 		if (connected)
+			// 对于已建立"连接"的UDP套接口，在路由表中查找到路由后，需将路由缓存项
+			// 缓存到套接口中，以便下次发送时快速获取
 			sk_dst_set(sk, dst_clone(&rt->u.dst));
 	}
 
+	// 如果发送数据时设置了MSG_CONFIRM标志，则说明应用层知道网关有效并可达，跳转到
+	// do_confirm处对目的路由缓存项进行确认
 	if (msg->msg_flags&MSG_CONFIRM)
 		goto do_confirm;
 back_from_confirm:
+	// 预处理发送的数据
 
+	// 从获取到的路由中获取源地址和目的地址，事实上，在发送UDP数据报时可以不指定
+	// 目的地址，而在发送的控制信息中加入严格或宽松源站选路选项，因此如果此时还没有
+	// 获取目的地址，则需要从路由缓存项中获取
 	saddr = rt->rt_src;
 	if (!ipc.addr)
 		daddr = ipc.addr = rt->rt_dst;
 
 	lock_sock(sk);
+	// 再次确定UDP发送状态，如果UDP还处于上次的发送过程中，则说明处理过程中存在bug
+	// 因为按逻辑，如果UDP还处于上次的发送过程中，应该已经直接跳转到do_append_data
+	// 处理UDP数据报了
 	if (unlikely(up->pending)) {
 		/* The socket is already corked while preparing it. */
 		/* ... which is an evident application bug. --ANK */
@@ -662,6 +742,9 @@ back_from_confirm:
 	/*
 	 *	Now cork the socket to pend data.
 	 */
+	// 到此处为止需要校验的都已经完成，目的路由缓存项也已获取，此时需要缓存目的
+	// 地址、目的端口、源地址和源端口信息，以便在发送处理时方便获取信息，最后
+	// 设置pending标志，表示正在处理数据
 	inet->cork.fl.fl4_dst = daddr;
 	inet->cork.fl.fl_ip_dport = dport;
 	inet->cork.fl.fl4_src = saddr;
@@ -669,23 +752,40 @@ back_from_confirm:
 	up->pending = AF_INET;
 
 do_append_data:
+	// 处理数据并发送
+
+	// 累计在从UDP套接口发送数据到IP层时待发送数据的长度
 	up->len += ulen;
+	// 根据is_udplite标志来获取"复制数据到UDP分片"函数
 	getfrag  =  is_udplite ?  udplite_getfrag : ip_generic_getfrag;
+	//　调用IP层接口函数ip_append_data()，按输出路由查询得到的输出网络设备接口的MTU
+	// 将数据分割开，并创建对应的SKB，添加到传输控制块的发送队列
 	err = ip_append_data(sk, getfrag, msg->msg_iov, ulen,
 			sizeof(struct udphdr), &ipc, rt,
 			corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
+	// 如果ip_append_data()在处理过程中发生错误，则需要清除释放发送队列中的SKB
+	// 并复位pending标志
 	if (err)
 		udp_flush_pending_frames(sk);
 	else if (!corkreq)
+		// 如果ip_append_data()处理数据成功，且无需等待组成64KB大小的UDP数据报后
+		// 再发送，则立刻调用udp_push_pending_frames()生成UDP数据报，并通过IP层
+		// 接口发送出去
 		err = udp_push_pending_frames(sk);
 	else if (unlikely(skb_queue_empty(&sk->sk_write_queue)))
+		// 如果发送队列为空，则说明没有数据需要发送，复位pending标志
 		up->pending = 0;
 	release_sock(sk);
 
 out:
+	// 发送数据完成后返回
+
+	// 发送完成，不再需要路由，因此递减对路由的引用
 	ip_rt_put(rt);
+	// 如果控制信息中有IP选项，则需要在此将它释放
 	if (free)
 		kfree(ipc.opt);
+	// 如果发送数据成功，则返回发送数据的字节数
 	if (!err) {
 		UDP_INC_STATS_USER(UDP_MIB_OUTDATAGRAMS, is_udplite);
 		return len;
@@ -697,14 +797,24 @@ out:
 	 * things).  We could add another new stat but at least for now that
 	 * seems like overkill.
 	 */
+	// 否则返回相应错误码
 	if (err == -ENOBUFS || test_bit(SOCK_NOSPACE, &sk->sk_socket->flags)) {
 		UDP_INC_STATS_USER(UDP_MIB_SNDBUFERRORS, is_udplite);
 	}
 	return err;
 
 do_confirm:
+	// 处理发送数据时设置了MSG_CONFIRM标志的情况
+
+	// 应用层知道网关可达，因此直接对目的路由缓存项进行确认
 	dst_confirm(&rt->u.dst);
+	// MSG_PROBE标志只是用来发现路径的，而并不真正发送数据，在网关确认可达后
+	// 还需检测MSG_PROBE标志，从处理逻辑上可以看出，MSG_PROBE标志必须和
+	// MSG_CONFIRM标志一起使用，否则没有意义
 	if (!(msg->msg_flags&MSG_PROBE) || len)
+		// 如果在发送时并没有设置MSG_PROBE，却有数据需要作探测，则跳转到
+		// back_from_confirm处，否则处理完MSG_CONFIRM标志后，即跳转
+		// 到out准备返回
 		goto back_from_confirm;
 	err = 0;
 	goto out;
@@ -802,7 +912,7 @@ int udp_ioctl(struct sock *sk, int cmd, unsigned long arg)
  * 	This should be easy, if there is something there we
  * 	return it, otherwise we block.
  */
-
+// udp_recvmsg()实现了主动从传输控制块的接收队列中读取数据到用户空间的缓冲区中
 int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	        size_t len, int noblock, int flags, int *addr_len)
 {
@@ -814,17 +924,28 @@ int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	/*
 	 *	Check any passed addresses
 	 */
+	// 通过输出参数返回发送方地址长度
 	if (addr_len)
 		*addr_len=sizeof(*sin);
 
+	// 如果读取标志中存在MSG_ERRQUEUE标志，则说明需要读取错误信息，因此调用
+	// ip_recv_error()从传输控制块的错误队列中读取错误信息后返回
 	if (flags & MSG_ERRQUEUE)
 		return ip_recv_error(sk, msg, len);
 
 try_again:
+	// 调用skb_recv_datagram()从接收队列sk_receive_queue中获取UDP数据报
+	// 如果没有获取，说明接收队列为空，或是发生了错误，因此返回相应的错误码
+	// skb_recv_datagram()获取UDP数据报，接收队列中可能没有数据，如果是阻塞
+	// 则需要一直睡眠等待，直到超时或队列中有数据而被唤醒。如果接收标志中存在
+	// MSG_PEEK，则说明只是查看当前数据，数据将被复制到缓冲区中，但并不从接收
+	// 队列中删除
 	skb = skb_recv_datagram(sk, flags, noblock, &err);
 	if (!skb)
 		goto out;
-  
+
+	// 计算出需要复制数据的长度(不包含UDP首部)，如果用户提供的缓冲区长度不够
+	// 则只复制用户需要的长度，并设置截短数据标志
   	copied = skb->len - sizeof(struct udphdr);
 	if (copied > len) {
 		copied = len;
@@ -838,18 +959,26 @@ try_again:
 	 * 	          (re-)compute it if message is truncated.
 	 * 	UDP-Lite: always needs to checksum, no HW support.
 	 */
+	// 复制数据至用户空间
+
+	// 根据SKB中的ip_summed标志来判断UDP数据报是否需要进行校验和检测
 	copy_only = (skb->ip_summed==CHECKSUM_UNNECESSARY);
 
+	// 如果是轻量级UDP，或者既需要校验和检测又要截断数据，则需要在复制之前就进行
+	// 校验和的检测
 	if (is_udplite  ||  (!copy_only  &&  msg->msg_flags&MSG_TRUNC)) {
 		if (__udp_lib_checksum_complete(skb))
 			goto csum_copy_err;
+		// 设置copy_only标志，在后续的复制过程中就无需再作校验和的检测
 		copy_only = 1;
 	}
 
+	//　将数据复制到用户空间，但需根据copy_only标志调用不同的复制函数
 	if (copy_only)
 		err = skb_copy_datagram_iovec(skb, sizeof(struct udphdr),
 					      msg->msg_iov, copied       );
 	else {
+		// skb_copy_and_csum_datagram_iovec()在复制的同时还进行校验和检测
 		err = skb_copy_and_csum_datagram_iovec(skb, sizeof(struct udphdr), msg->msg_iov);
 
 		if (err == -EINVAL)
@@ -859,9 +988,12 @@ try_again:
 	if (err)
 		goto out_free;
 
+	// 更新传输控制块中最后一个数据包接收的时间戳，如果设置了SO_RCVTSTAMP选项
+	// 则还需爆发接收时间戳作为控制信息复制给用户进程
 	sock_recv_timestamp(msg, sk, skb);
 
 	/* Copy the address. */
+	// 复制地址信息
 	if (sin)
 	{
 		sin->sin_family = AF_INET;
@@ -869,19 +1001,27 @@ try_again:
 		sin->sin_addr.s_addr = skb->nh.iph->saddr;
 		memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
   	}
+  	// 根据控制信息标志位(通过套接口选项设置)，将相应的控制信息复制到用户空间
+  	// 例如，设置了IP_TOS选项，则把IP首部中的TOS域复制到用户空间
 	if (inet->cmsg_flags)
 		ip_cmsg_recv(msg, skb);
 
+	// 设置复制的字节数，如果数据段已经被截短，则返回原始的实际长度
 	err = copied;
 	if (flags & MSG_TRUNC)
 		err = skb->len - sizeof(struct udphdr);
   
 out_free:
+	// 完成数据复制，或者复制数据时发生错误，会到此作处理，释放当前SKB并返回
   	skb_free_datagram(sk, skb);
 out:
   	return err;
 
 csum_copy_err:
+	// 当校验和检测失败时会到此作处理，如果支持查看数据，但校验和检测失败
+	// 则必须调用skb_kill_datagram()将其删除并释放，如果是非阻塞读取，
+	// 因为没有读取到数据，则返回-EAGAIN错误，如果是阻塞读取，则跳转到
+	// try_again处获取下一个数据报
 	UDP_INC_STATS_BH(UDP_MIB_INERRORS, is_udplite);
 
 	skb_kill_datagram(sk, skb, flags);
@@ -1019,6 +1159,10 @@ static int udp_encap_rcv(struct sock * sk, struct sk_buff *skb)
  * Note that in the success and error cases, the skb is assumed to
  * have either been requeued or freed.
  */
+// 将UDP数据报添加到所属传输控制块的接收队列
+// 在添加到接收队列之前，必须先进行数据报类型检测，因为不同类型数据报，如IPSEC
+// 协议的封装报文，组播广播数据报、单播数据报，各自的接收处理方式不尽相同，此外
+// 还需进行一些相关的校验，如安全策略检测、校验和检查等
 int udp_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 {
 	struct udp_sock *up = udp_sk(sk);
@@ -1027,10 +1171,13 @@ int udp_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 	/*
 	 *	Charge it to the socket, dropping if the queue is full.
 	 */
+	// 对接收到的UDP数据报进行安全策略检查，若检查失败则丢弃
 	if (!xfrm4_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto drop;
+	// 复位接收到的SKB中与netfilter相关的数据
 	nf_reset(skb);
 
+	// 如果输入的是一个通过IPSEC协议封装的报文，则调用udp_encap_rcv()处理
 	if (up->encap_type) {
 		/*
 		 * This is an encapsulation socket, so let's see if this is
@@ -1061,6 +1208,7 @@ int udp_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 	/*
 	 * 	UDP-Lite specific tests, ignored on UDP sockets
 	 */
+	// 如果接收的是轻量级UDP数据报，则校验该数据报需校验的字节是否有效
 	if ((up->pcflag & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
 
 		/*
@@ -1094,12 +1242,14 @@ int udp_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 		}
 	}
 
+	// 如果安装了套接口过滤器且报文需校验，则检测UDP数据报校验和，若校验失败，则丢弃报文
 	if (sk->sk_filter && skb->ip_summed != CHECKSUM_UNNECESSARY) {
 		if (__udp_lib_checksum_complete(skb))
 			goto drop;
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 	}
 
+	// 将接收到的数据报添加到传输控制块的接收队列中
 	if ((rc = sock_queue_rcv_skb(sk,skb)) < 0) {
 		/* Note that an ENOMEM error is charged twice */
 		if (rc == -ENOMEM)
@@ -1203,13 +1353,18 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 	/*
 	 *  Validate the packet.
 	 */
+	// 校验UDP数据报
 	if (!pskb_may_pull(skb, sizeof(struct udphdr)))
 		goto drop;		/* No space for header. */
 
+	// 检测数据报的长度，不能小偶遇UDP首部长度，否则丢弃
 	ulen = ntohs(uh->len);
+	// 如果UDP首部中标识的数据长度大于实际SKB中UDP数据报的长度，则封包
+	// 可能出现错误，但这种情况比较少见
 	if (ulen > skb->len)
 		goto short_packet;
 
+	// 初始化UDP的校验和
 	if(! is_udplite ) {		/* UDP validates ulen. */
 
 		if (ulen < sizeof(*uh) || pskb_trim_rcsum(skb, ulen))
@@ -1222,13 +1377,17 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 			goto csum_error;
 	}
 
+	// 如果接收到的UDP数据报是广播或组播报文，则调用__udp4_lib_mcast_deliver()作输入处理
+	// 将会多次克隆接收到的数据报，并将克隆数据报添加到接收该组播报文的各传输控制块的接收队列中
 	if(rt->rt_flags & (RTCF_BROADCAST|RTCF_MULTICAST))
 		return __udp4_lib_mcast_deliver(skb, uh, saddr, daddr, udptable);
 
+	// 根据源地址、源端口、目的地址和目的端口，在udptable散列表中查找所属传输控制块
 	sk = __udp4_lib_lookup(saddr, uh->source, daddr, uh->dest,
 			       skb->dev->ifindex, udptable        );
 
 	if (sk != NULL) {
+		// 如果找到所属传输控制块，则将UDP数据报添加到所属传输控制块的接收队列中
 		int ret = udp_queue_rcv_skb(sk, skb);
 		sock_put(sk);
 
@@ -1240,15 +1399,22 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 		return 0;
 	}
 
+	// 处理找不到所属传输控制块的数据报
+
+	// 检查IPSEC包策略是否合法，对普通数据报则返回合法
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto drop;
+	// 复位接收到的SKB中与netfilter相关的数据
 	nf_reset(skb);
 
 	/* No socket. Drop packet silently, if checksum is wrong */
+	// 检测UDP数据报的校验和是否正确，如果不正确，则认为它是一个错误的包
+	// 统计后将其丢弃
 	if (udp_lib_checksum_complete(skb))
 		goto csum_error;
 
 	UDP_INC_STATS_BH(UDP_MIB_NOPORTS, is_udplite);
+	// 通过校验和检测但又找不到所属传输控制块的包，则向发送端发送目的不可达ICMP报文
 	icmp_send(skb, ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, 0);
 
 	/*
@@ -1259,6 +1425,7 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 	return(0);
 
 short_packet:
+	// 如果接收到UDP数据报太短而无效，则记录一些调试信息后返回
 	LIMIT_NETDEBUG(KERN_DEBUG "UDP%s: short packet: From %u.%u.%u.%u:%u %d/%d to %u.%u.%u.%u:%u\n",
 		       is_udplite? "-Lite" : "",
 		       NIPQUAD(saddr),
@@ -1270,6 +1437,7 @@ short_packet:
 	goto drop;
 
 csum_error:
+	// 如果接收到的UDP数据报校验和异常，则记录一些调试信息后丢弃
 	/* 
 	 * RFC1122: OK.  Discards the bad packet silently (as far as 
 	 * the network is concerned, anyway) as per 4.1.3.4 (MUST). 
@@ -1282,6 +1450,7 @@ csum_error:
 		       ntohs(uh->dest),
 		       ulen);
 drop:
+	// 记录UDP_MIB_INERRORS统计值后丢弃UDP数据报
 	UDP_INC_STATS_BH(UDP_MIB_INERRORS, is_udplite);
 	kfree_skb(skb);
 	return(0);
@@ -1295,6 +1464,7 @@ __inline__ int udp_rcv(struct sk_buff *skb)
 int udp_destroy_sock(struct sock *sk)
 {
 	lock_sock(sk);
+	// 将未发送的数据发送出去，如果有等待该传输控制块的进程，则将它们唤醒
 	udp_flush_pending_frames(sk);
 	release_sock(sk);
 	return 0;
