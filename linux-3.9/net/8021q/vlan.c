@@ -205,6 +205,7 @@ out_vid_del:
 static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 {
 	struct net_device *new_dev;
+	// 获取对应的net_device的network namespace
 	struct net *net = dev_net(real_dev);
 	struct vlan_net *vn = net_generic(net, vlan_net_id);
 	char name[IFNAMSIZ];
@@ -248,6 +249,7 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 	if (new_dev == NULL)
 		return -ENOBUFS;
 
+	// 通过dev_net_set()改变net_device的network namespace
 	dev_net_set(new_dev, net);
 	/* need 4 bytes for extra VLAN header info,
 	 * hope the underlying device can handle it.

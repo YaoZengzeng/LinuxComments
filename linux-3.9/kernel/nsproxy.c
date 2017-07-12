@@ -28,6 +28,7 @@
 
 static struct kmem_cache *nsproxy_cachep;
 
+// init_nsproxy是初始的，默认的nsproxy，它还包含了其他五个初始的namespace
 struct nsproxy init_nsproxy = {
 	.count	= ATOMIC_INIT(1),
 	.uts_ns	= &init_uts_ns,
@@ -56,6 +57,8 @@ static inline struct nsproxy *create_nsproxy(void)
  * Return the newly created nsproxy.  Do not attach this to the task,
  * leave it to the caller to do proper locking and attach it to task.
  */
+// setns()系统调用不会创建新的namespace，只是将calling thread关联到特定的namespace
+// 它同样会调用create_new_namespace，但flags为0，表示只创建一个nsproxy
 static struct nsproxy *create_new_namespaces(unsigned long flags,
 	struct task_struct *tsk, struct user_namespace *user_ns,
 	struct fs_struct *new_fs)
@@ -63,6 +66,7 @@ static struct nsproxy *create_new_namespaces(unsigned long flags,
 	struct nsproxy *new_nsp;
 	int err;
 
+	// 调用create_nsproxy()创建一个新的nsproxy结构
 	new_nsp = create_nsproxy();
 	if (!new_nsp)
 		return ERR_PTR(-ENOMEM);
@@ -91,6 +95,9 @@ static struct nsproxy *create_new_namespaces(unsigned long flags,
 		goto out_pid;
 	}
 
+	// 如果CLONE_NEWNET没有设置，则返回tsk->nsproxy->net_ns
+	// 否则，调用net_alloc()创建一个新的network namespace，并调用setup_net()
+	//　进行初始化，并且将它加入到一个全局的network namespace列表，net_namespace_list中
 	new_nsp->net_ns = copy_net_ns(flags, user_ns, tsk->nsproxy->net_ns);
 	if (IS_ERR(new_nsp->net_ns)) {
 		err = PTR_ERR(new_nsp->net_ns);
@@ -198,6 +205,7 @@ int unshare_nsproxy_namespaces(unsigned long unshare_flags,
 	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
+	// 调用create_new_namespaces()创建新的nsproxy和若干个namespace
 	*new_nsp = create_new_namespaces(unshare_flags, current, user_ns,
 					 new_fs ? new_fs : current->fs);
 	if (IS_ERR(*new_nsp)) {
@@ -231,6 +239,7 @@ void switch_task_namespaces(struct task_struct *p, struct nsproxy *new)
 	}
 }
 
+// 进程终止时被调用
 void exit_task_namespaces(struct task_struct *p)
 {
 	switch_task_namespaces(p, NULL);

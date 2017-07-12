@@ -2195,6 +2195,8 @@ struct net *sock_net(const struct sock *sk)
 	return read_pnet(&sk->sk_net);
 }
 
+// struct sock结构中包含一个叫sk_net的成员，用来指向一个namespace
+// 和net_device类似，每个sock结构在给定时刻只能指向一个network namespace
 static inline
 void sock_net_set(struct sock *sk, struct net *net)
 {

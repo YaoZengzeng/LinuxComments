@@ -29,6 +29,8 @@ enum {
 	NETIF_F_GSO_BIT,		/* Enable software GSO. */
 	NETIF_F_LLTX_BIT,		/* LockLess TX - deprecated. Please */
 					/* do not use LLTX in new drivers */
+	// 当NETIF_F_NETNS_LOCAL_BIT被置位时，说明该网卡只属于当前network namespace
+	// 不能在network namespace之间移动
 	NETIF_F_NETNS_LOCAL_BIT,	/* Does not change network namespaces */
 	NETIF_F_GRO_BIT,		/* Generic receive offload */
 	NETIF_F_LRO_BIT,		/* large receive offload */

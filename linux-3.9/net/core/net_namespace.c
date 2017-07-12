@@ -28,6 +28,7 @@ static DEFINE_MUTEX(net_mutex);
 LIST_HEAD(net_namespace_list);
 EXPORT_SYMBOL_GPL(net_namespace_list);
 
+// network namespace的initial namespace
 struct net init_net = {
 	.dev_base_head = LIST_HEAD_INIT(init_net.dev_base_head),
 };
@@ -381,6 +382,7 @@ struct net *get_net_ns_by_pid(pid_t pid)
 }
 EXPORT_SYMBOL_GPL(get_net_ns_by_pid);
 
+// 每当一个新的network namespace被创建，init callback(net_ns_net_inis)就会被调用
 static __net_init int net_ns_net_init(struct net *net)
 {
 	return proc_alloc_inum(&net->proc_inum);
@@ -664,6 +666,7 @@ static unsigned int netns_inum(void *ns)
 	return net->proc_inum;
 }
 
+// network namespace对应的proc_ns_operations结构
 const struct proc_ns_operations netns_operations = {
 	.name		= "net",
 	.type		= CLONE_NEWNET,

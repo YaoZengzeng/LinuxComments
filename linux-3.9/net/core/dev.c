@@ -5868,6 +5868,7 @@ int dev_change_net_namespace(struct net_device *dev, struct net *net, const char
 	kobject_uevent(&dev->dev.kobj, KOBJ_REMOVE);
 
 	/* Actually switch the network namespace */
+	// 通过设置net_device的nd_net来切换network namespace
 	dev_net_set(dev, net);
 
 	/* If there is an ifindex conflict assign a new one */

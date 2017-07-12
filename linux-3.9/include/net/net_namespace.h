@@ -36,6 +36,7 @@ struct netns_ipvs;
 #define NETDEV_HASHBITS    8
 #define NETDEV_HASHENTRIES (1 << NETDEV_HASHBITS)
 
+// 一个network namespace看起来像是一个独立的内核网络栈
 struct net {
 	atomic_t		passive;	/* To decided when the network
 						 * namespace should be freed.
@@ -54,11 +55,16 @@ struct net {
 	struct list_head	cleanup_list;	/* namespaces on death row */
 	struct list_head	exit_list;	/* Use only net_mutex */
 
+	// user_ns代表了创建该network namespace的user namespace，它拥有该network namespace
+	// 和它的所有资源
 	struct user_namespace   *user_ns;	/* Owning user namespace */
 
+	// 赋予该network namespace的独特的proc inode number
 	unsigned int		proc_inum;
 
+	// proc_net代表了该network namespace的procfs entry(/proc/net)
 	struct proc_dir_entry 	*proc_net;
+	// /proc/net/stat
 	struct proc_dir_entry 	*proc_net_stat;
 
 #ifdef CONFIG_SYSCTL
@@ -68,10 +74,16 @@ struct net {
 	struct sock 		*rtnl;			/* rtnetlink socket */
 	struct sock		*genl_sock;
 
+	// 指向所有的network devices构成的链表
 	struct list_head 	dev_base_head;
+	// 由network device name索引的哈希表
 	struct hlist_head 	*dev_name_head;
+	// 由network device index索引的哈希表
 	struct hlist_head	*dev_index_head;
 	unsigned int		dev_base_seq;	/* protected by rtnl_mutex */
+	// ifindex是在network namespace中最后被赋值的device index，index在network namespace
+	// 中是被虚拟化的，即loopback　device的index总为1，其他在不同network namespace中的设备可能
+	// 有重合的index
 	int			ifindex;
 
 	/* core fib_rules */
@@ -83,6 +95,7 @@ struct net {
 	struct netns_mib	mib;
 	struct netns_packet	packet;
 	struct netns_unix	unx;
+	// ipv4用于记录不同的network namespace之间不同的特定的IPv4设置
 	struct netns_ipv4	ipv4;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct netns_ipv6	ipv6;
@@ -107,10 +120,12 @@ struct net {
 #ifdef CONFIG_WEXT_CORE
 	struct sk_buff_head	wext_nlevents;
 #endif
+	// 用于指向network namespace上下文中可选的subsystem的指针
 	struct net_generic __rcu	*gen;
 
 	/* Note : following structs are cache line aligned */
 #ifdef CONFIG_XFRM
+	// IPsec
 	struct netns_xfrm	xfrm;
 #endif
 	struct netns_ipvs	*ipvs;
@@ -275,6 +290,8 @@ static inline struct net *read_pnet(struct net * const *pnet)
 #define __net_initconst	__initconst
 #endif
 
+// 当network devices和network subsystem需要network namespace的特定数据
+// 则需要结构pernet_operations
 struct pernet_operations {
 	struct list_head list;
 	int (*init)(struct net *net);
