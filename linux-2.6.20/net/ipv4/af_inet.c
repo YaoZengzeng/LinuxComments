@@ -473,8 +473,8 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	 */
 	// 根据系统参数结合获取到的地址类型进行校验，以便决定是否可以进行地址和端口的绑定
 	err = -EADDRNOTAVAIL;
-	if (!sysctl_ip_nonlocal_bind &&
-	    !inet->freebind &&
+	if (!sysctl_ip_nonlocal_bind &&	// 是否允许绑定非本机地址
+	    !inet->freebind &&		// 是否允许自由绑定
 	    addr->sin_addr.s_addr != INADDR_ANY &&
 	    chk_addr_ret != RTN_LOCAL &&
 	    chk_addr_ret != RTN_MULTICAST &&
@@ -506,12 +506,14 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	// 将地址设置到传输控制块中
 	inet->rcv_saddr = inet->saddr = addr->sin_addr.s_addr;
 	if (chk_addr_ret == RTN_MULTICAST || chk_addr_ret == RTN_BROADCAST)
+		// 如果地址类型为组播或广播，则将源地址设置为0
 		inet->saddr = 0;  /* Use device */
 
 	/* Make sure we are allowed to bind here. */
 	// 调用传输层接口上的get_port()，进行具体传输层的地址绑定，TCP中对应
 	// 的函数为tcp_v4_get_port()，而UDP中为upd_v4_get_port()
 	if (sk->sk_prot->get_port(sk, snum)) {
+		// 检查失败就清空设置的地址
 		inet->saddr = inet->rcv_saddr = 0;
 		err = -EADDRINUSE;
 		goto out_release_sock;
@@ -519,8 +521,10 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	// 标识传输控制块已经绑定了本地地址和本地端口
 	if (inet->rcv_saddr)
+		// 如果已经设置地址就增加锁标志，表示已经绑定了地址
 		sk->sk_userlocks |= SOCK_BINDADDR_LOCK;
 	if (snum)
+		// 如果端口也已经确定也要增加锁标志，表示已经绑定了端口
 		sk->sk_userlocks |= SOCK_BINDPORT_LOCK;
 	// 设置本地端口（网络字节序），初始化目的地址、目的端口，由于重新进行了绑定
 	// 因此需要清除传输控制块的路由缓存项
@@ -864,6 +868,7 @@ const struct proto_ops inet_stream_ops = {
 	.family		   = PF_INET,
 	.owner		   = THIS_MODULE,
 	.release	   = inet_release,
+	//　绑定地址函数
 	.bind		   = inet_bind,
 	.connect	   = inet_stream_connect,
 	.socketpair	   = sock_no_socketpair,
@@ -983,6 +988,7 @@ static struct inet_protosw inetsw_array[] =
 
        {
                .type =       SOCK_RAW,
+               // "虚拟的IP协议"类型
                .protocol =   IPPROTO_IP,	/* wild card */
                .prot =       &raw_prot,
                .ops =        &inet_sockraw_ops,

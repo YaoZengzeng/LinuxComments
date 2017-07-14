@@ -79,12 +79,16 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 
 	local_bh_disable();
 	if (!snum) {
+		// 如果端口号没有指定
+		// 取得端口号的使用范围
+		// int sysctl_local_port_range[2] = {32768, 61000}
 		int low = sysctl_local_port_range[0];
 		int high = sysctl_local_port_range[1];
 		int remaining = (high - low) + 1;
 		int rover = net_random() % (high - low) + low;
 
 		do {
+			// 在内核中查找一个端口号
 			head = &hashinfo->bhash[inet_bhashfn(rover, hashinfo->bhash_size)];
 			spin_lock(&head->lock);
 			inet_bind_bucket_for_each(tb, node, &head->chain)
@@ -110,8 +114,10 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 		/* OK, here is the one we will use.  HEAD is
 		 * non-NULL and we hold it's mutex.
 		 */
+		// snum指向最终的推荐端口号
 		snum = rover;
 	} else {
+		// 在哈希桶队列中查找相同端口的桶结构
 		head = &hashinfo->bhash[inet_bhashfn(snum, hashinfo->bhash_size)];
 		spin_lock(&head->lock);
 		inet_bind_bucket_for_each(tb, node, &head->chain)
@@ -121,33 +127,33 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 	tb = NULL;
 	goto tb_not_found;
 tb_found:
-	if (!hlist_empty(&tb->owners)) {
+	if (!hlist_empty(&tb->owners)) {	// 检查sock队列是否为空
 		if (sk->sk_reuse > 1)
 			goto success;
 		if (tb->fastreuse > 0 &&
 		    sk->sk_reuse && sk->sk_state != TCP_LISTEN) {
 			goto success;
 		} else {
-			ret = 1;
+			ret = 1;	// 桶结构中的sock队列是否存在冲突
 			if (bind_conflict(sk, tb))
 				goto fail_unlock;
 		}
 	}
-tb_not_found:
+tb_not_found:	// 如果桶结构不存在就创建
 	ret = 1;
 	if (!tb && (tb = inet_bind_bucket_create(hashinfo->bind_bucket_cachep, head, snum)) == NULL)
 		goto fail_unlock;
-	if (hlist_empty(&tb->owners)) {
+	if (hlist_empty(&tb->owners)) {	// 如果sock队列为空
 		if (sk->sk_reuse && sk->sk_state != TCP_LISTEN)
-			tb->fastreuse = 1;
+			tb->fastreuse = 1;	// 设置桶结构可以复用
 		else
 			tb->fastreuse = 0;
 	} else if (tb->fastreuse &&
 		   (!sk->sk_reuse || sk->sk_state == TCP_LISTEN))
 		tb->fastreuse = 0;
-success:
+success:	// 如果还没有绑定桶结构
 	if (!inet_csk(sk)->icsk_bind_hash)
-		inet_bind_hash(sk, tb, snum);
+		inet_bind_hash(sk, tb, snum);	// 绑定桶结构
 	BUG_TRAP(inet_csk(sk)->icsk_bind_hash == tb);
  	ret = 0;
 

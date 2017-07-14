@@ -244,7 +244,7 @@ static struct inode *sock_alloc_inode(struct super_block *sb)
 	ei = kmem_cache_alloc(sock_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
-	// 初始化等待队列
+	// 初始化进程等待队列
 	init_waitqueue_head(&ei->socket.wait);
 
 	// 初始化套接口中的其他信息
@@ -353,8 +353,10 @@ static int sock_alloc_fd(struct file **filep)
 {
 	int fd;
 
+	// 申请文件描述符
 	fd = get_unused_fd();
 	if (likely(fd >= 0)) {
+		// 分配文件结构空间
 		struct file *file = get_empty_filp();
 
 		*filep = file;
@@ -381,6 +383,7 @@ static int sock_attach_fd(struct socket *sock, struct file *file)
 	if (unlikely(!file->f_path.dentry))
 		return -ENOMEM;
 
+	// 目录项的操作表挂入socket文件系统的目录操作表
 	file->f_path.dentry->d_op = &sockfs_dentry_operations;
 	/*
 	 * We dont want to push this dentry into global dentry hash table.
@@ -420,6 +423,7 @@ int sock_map_fd(struct socket *sock)
 		int err = sock_attach_fd(sock, newfile);
 
 		if (unlikely(err < 0)) {
+			// 操作过程中出现错误则释放文件和文件号
 			put_filp(newfile);
 			put_unused_fd(fd);
 			return err;
@@ -521,12 +525,14 @@ static struct socket *sockfd_lookup_light(int fd, int *err, int *fput_needed)
  *	and initialised. The socket is then returned. If we are out of inodes
  *	NULL is returned.
  */
-
+// 分配socket结构和文件节点
 static struct socket *sock_alloc(void)
 {
 	struct inode *inode;
 	struct socket *sock;
 
+	// sock_mnt是socket网络文件系统的根节点
+	// 最终调用sock_alloc_inode函数
 	inode = new_inode(sock_mnt->mnt_sb);
 	if (!inode)
 		return NULL;

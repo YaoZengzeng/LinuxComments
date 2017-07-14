@@ -295,6 +295,9 @@ static int init_inodecache(void)
 	return 0;
 }
 
+// 网络文件系统的超级块操作函数表
+// 该函数表对网络文件系统的节点和目录提供了具体的操作函数，以后涉及网络文件系统的重要
+// 操作均会到该函数表中查找对应的操作函数
 static const struct super_operations sockfs_ops = {
 	.alloc_inode	= sock_alloc_inode,
 	.destroy_inode	= sock_destroy_inode,
@@ -2598,6 +2601,7 @@ void sock_unregister(int family)
 }
 EXPORT_SYMBOL(sock_unregister);
 
+// sock_init()函数的主要作用是将sock_fs_type登记到内核安装网络文件系统
 static int __init sock_init(void)
 {
 	int err;
@@ -2619,9 +2623,11 @@ static int __init sock_init(void)
 
 	init_inodecache();
 
+	// 将网络文件系统注册到Linux中
 	err = register_filesystem(&sock_fs_type);
 	if (err)
 		goto out_fs;
+	// 完成在内核中的安装，并在内核中建立网络文件系统的安装点
 	sock_mnt = kern_mount(&sock_fs_type);
 	if (IS_ERR(sock_mnt)) {
 		err = PTR_ERR(sock_mnt);

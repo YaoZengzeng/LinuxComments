@@ -6002,6 +6002,7 @@ static struct hlist_head *netdev_create_hash(void)
 }
 
 /* Initialize per network namespace state */
+// net_dev_init()->register_pernet_operations()->netdev_init()
 static int __net_init netdev_init(struct net *net)
 {
 	if (net != &init_net)
@@ -6216,6 +6217,7 @@ static int __init net_dev_init(void)
 
 	INIT_LIST_HEAD(&offload_base);
 
+	// register_pernet_subsys用于完成对network namespace操作表的登记注册工作
 	if (register_pernet_subsys(&netdev_net_ops))
 		goto out;
 
@@ -6257,6 +6259,8 @@ static int __init net_dev_init(void)
 	 * is the first device that appears and the last network device
 	 * that disappears.
 	 */
+	// register_pernet_device和register_pernet_subsys都会调用
+	// register_pernet_operations()
 	if (register_pernet_device(&loopback_net_ops))
 		goto out;
 

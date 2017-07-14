@@ -176,6 +176,7 @@ struct in_pktinfo
 };
 
 /* Structure describing an Internet (IP) socket address. */
+// 用于表示IP的socket地址
 #define __SOCK_SIZE__	16		/* sizeof(struct sockaddr)	*/
 struct sockaddr_in {
   sa_family_t		sin_family;	/* Address family		*/
@@ -183,6 +184,7 @@ struct sockaddr_in {
   struct in_addr	sin_addr;	/* Internet address		*/
 
   /* Pad to size of `struct sockaddr'. */
+  // 用于补齐struct sockaddr的长度
   unsigned char		__pad[__SOCK_SIZE__ - sizeof(short int) -
 			sizeof(unsigned short int) - sizeof(struct in_addr)];
 };

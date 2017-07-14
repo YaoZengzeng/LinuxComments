@@ -840,8 +840,10 @@ struct sock *sk_alloc(int family, gfp_t priority,
 	// 根据分配传输控制块的slab缓存是否有效，从slab缓存或通过kmalloc()
 	// 分配传输控制块
 	if (slab != NULL)
+		// 在专用的sock高速缓冲池中分配结构空间
 		sk = kmem_cache_alloc(slab, priority);
 	else
+		// 在通用的高速缓冲池中分配结构空间
 		sk = kmalloc(prot->obj_size, priority);
 
 	if (sk) {
@@ -1551,6 +1553,7 @@ EXPORT_SYMBOL(sk_stop_timer);
 
 void sock_init_data(struct socket *sock, struct sock *sk)
 {
+	// skb_queue_head_init对sock结构中的几个数据包队列头进行初始化
 	skb_queue_head_init(&sk->sk_receive_queue);
 	skb_queue_head_init(&sk->sk_write_queue);
 	skb_queue_head_init(&sk->sk_error_queue);

@@ -159,8 +159,11 @@ unsigned inet_addr_type(__be32 addr)
 	struct fib_result	res;
 	unsigned ret = RTN_BROADCAST;
 
+	// 检查是否为零地址或者广播地址
+	// 零地址也作为广播地址返回
 	if (ZERONET(addr) || BADCLASS(addr))
 		return RTN_BROADCAST;
+	// 检查地址是否是组播地址
 	if (MULTICAST(addr))
 		return RTN_MULTICAST;
 
