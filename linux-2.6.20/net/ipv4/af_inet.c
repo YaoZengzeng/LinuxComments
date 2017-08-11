@@ -1289,8 +1289,14 @@ static struct net_protocol tcp_protocol = {
 	.no_policy =	1,
 };
 
+// ip层与udp协议之间接收数据包的接口由udp_protocol来描述
+// udp协议与ip层之间没有定义发送接口，为了通过ip层发送数据
+// udp协议实例在udp_sendmsg函数中调用ip层发送数据包的回调函数ip_append_data
+// 或在udp_sendpage函数中调用IP层的回调函数ip_append_page
+// 将udp数据报放入ip层
 static struct net_protocol udp_protocol = {
 	.handler =	udp_rcv,
+	// udp_err()函数处理icmp错误消息
 	.err_handler =	udp_err,
 	.no_policy =	1,
 };
@@ -1339,7 +1345,9 @@ static struct packet_type ip_packet_type = {
 	.gso_segment = inet_gso_segment,
 };
 
-// Internet协议族的初始化函数为inet_init()，该函数会在系统启动时被调用
+// 在内核启动时，会按优先级顺序调用各组件注册在内核中的初始函数
+// Internet协议族的初始化函数为inet_init()
+// inet_init函数的功能之一就是完成传输层各协议实例的初始化
 static int __init inet_init(void)
 {
 	struct sk_buff *dummy_skb;
@@ -1355,6 +1363,7 @@ static int __init inet_init(void)
 	if (rc)
 		goto out;
 
+	// 注册udp与套接字的接口
 	rc = proto_register(&udp_prot, 1);
 	if (rc)
 		goto out_unregister_tcp_proto;
@@ -1376,6 +1385,7 @@ static int __init inet_init(void)
 	// 将系统中的常用传输层协议以及传输层的报文接收例程注册到inet_protos[]数组中
 	if (inet_add_protocol(&icmp_protocol, IPPROTO_ICMP) < 0)
 		printk(KERN_CRIT "inet_init: Cannot add ICMP protocol\n");
+	// 将udp协议的接口udp_protocol加入全局数组struct net_protocol *inet_protos[MAX_INET_PROTOS]中
 	if (inet_add_protocol(&udp_protocol, IPPROTO_UDP) < 0)
 		printk(KERN_CRIT "inet_init: Cannot add UDP protocol\n");
 	if (inet_add_protocol(&tcp_protocol, IPPROTO_TCP) < 0)

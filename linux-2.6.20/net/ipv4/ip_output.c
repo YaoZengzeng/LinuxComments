@@ -697,11 +697,13 @@ ip_generic_getfrag(void *from, char *to, int offset, int len, int odd, struct sk
 {
 	struct iovec *iov = from;
 
+	// 如果网络设备硬件可以计算校验和，则调用memcpy_fromiovecend函数实现用户数据的复制
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		if (memcpy_fromiovecend(to, iov, offset, len) < 0)
 			return -EFAULT;
 	} else {
 		__wsum csum = 0;
+		// 计算校验和并复制数据，如果复制数据不成功或计算校验和不成功，则返回错误
 		if (csum_partial_copy_fromiovecend(to, iov, offset, len, &csum) < 0)
 			return -EFAULT;
 		skb->csum = csum_block_add(skb->csum, csum, odd);

@@ -38,14 +38,18 @@
  *	@cscov:       checksum coverage length (UDP-Lite only)
  *	@partial_cov: if set indicates partial csum coverage
  */
+// udp的控制缓冲区，用来指明udp协议实例进行校验和的方式等信息
 struct udp_skb_cb {
 	union {
+		// IPv4的选项信息
 		struct inet_skb_parm	h4;
 #if defined(CONFIG_IPV6) || defined (CONFIG_IPV6_MODULE)
 		struct inet6_skb_parm	h6;
 #endif
 	} header;
+	// 计算校验和时，校验和覆盖的udp数据包的长度
 	__u16		cscov;
+	// 如果设置这个域，它指明udp协议计算部分校验和，以及校验和覆盖的udp数据报长度
 	__u8		partial_cov;
 };
 #define UDP_SKB_CB(__skb)	((struct udp_skb_cb *)((__skb)->cb))

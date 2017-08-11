@@ -521,20 +521,25 @@ out:
 	return err;
 }
 
+// udp_sendmsg()完成的功能是从用户地址空间接收发送数据，复制到内核地址空间
 // udp_sendmsg()实现了UDP数据报的组织和发送，首先获取发送的目的地址和目的端口
 // 然后处理控制信息，接着选路，最后将数据分片并组成UDP数据报发送出去
-// iocb: 异步IO控制块，目前尚未使用
-// msg: 描述发送数据的msghdr的指针
-// len: 待发送数据的长度
+// iocb: 异步IO控制块，用于提高对用户地址空间操作效率的数据结构
+// sk: 指向打开的套接字的数据结构，其中包含了该套接字的所有设置和选项信息
+// msg: 存放和管理来自用户地址空间的数据
+// len: 从用户地址空间复制数据的总长度
 int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len)
 {
+	// 用输入参数初始化函数局部变量
 	struct inet_sock *inet = inet_sk(sk);
 	struct udp_sock *up = udp_sk(sk);
 	int ulen = len;
+	// ipc中存放从IP层的ICMP协议返回的控制消息值
 	struct ipcm_cookie ipc;
 	struct rtable *rt = NULL;
 	int free = 0;
+	// connected存放数据包目标路由是否已经缓存的标志
 	int connected = 0;
 	__be32 daddr, faddr, saddr;
 	__be16 dport;
@@ -554,18 +559,18 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	 *	Check the flags.
 	 */
 
-	// UDP不支持发送带外数据
+	// 用户程序是否对udp套接字设置了非法标志，udp不支持发送带外数据
 	if (msg->msg_flags&MSG_OOB)	/* Mirror BSD error message compatibility */
 		return -EOPNOTSUPP;
 
 	ipc.opt = NULL;
 
-	if (up->pending) {
+	if (up->pending) {		// 套接字中有挂起的数据帧等待发送
 		/*
 		 * There are pending frames.
 	 	 * The socket lock must be held while it's corked.
 		 */
-		lock_sock(sk);
+		lock_sock(sk);		// 获取套接字
 		if (likely(up->pending)) {
 			if (unlikely(up->pending != AF_INET)) {
 				// 如果pending值非0亦非AF_INET，则说明该值无效，返回错误码
@@ -585,8 +590,9 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	 */
 	if (msg->msg_name) {
 		// 处理msg中带有目的地址的情况，通常调用sendto发送UDP数据
+		// 对目标地址做正确性检查
 		struct sockaddr_in * usin = (struct sockaddr_in*)msg->msg_name;
-		if (msg->msg_namelen < sizeof(*usin))
+		if (msg->msg_namelen < sizeof(*usin))	// 地址长度是否正确
 			return -EINVAL;
 		// 校验目的地址所属地址族，必须为AF_INET
 		if (usin->sin_family != AF_INET) {
@@ -607,6 +613,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		// 则返回EDESTADDRREQ错误，即未指明套接口的目的地址
 		if (sk->sk_state != TCP_ESTABLISHED)
 			return -EDESTADDRREQ;
+		// 如果套接字已连接，则用连接信息初始化目标IP地址和端口号
 		daddr = inet->daddr;
 		dport = inet->dport;
 		/* Open fast path for connected socket.
@@ -623,8 +630,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	if (msg->msg_controllen) {
 		// 有控制信息要处理
 
-		// 调用ip_cmsg_send()处理控制信息，包括存在IP选项(IP_RETOPTS)则校验
-		// 如果设定源地址和输出网络设备索引(IP_PKTINFO)则从控制信息中获取
+		// 控制信息长度不为空，套接字设置的是IP层控制信息，将IP层选项设置在ipc变量中
 		err = ip_cmsg_send(msg, &ipc);
 		if (err)
 			return err;
@@ -635,7 +641,6 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 	// 如果发送的数据中没有IP选项控制信息，则从inet_sock结构的opt中获取IP选项信息
-	// 通过IP_OPTIONS套接口选项设置
 	if (!ipc.opt)
 		ipc.opt = inet->opt;
 
@@ -696,6 +701,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 					       { .sport = inet->sport,
 						 .dport = dport } } };
 		security_sk_classify_flow(sk, &fl);
+		// 在路由表中搜索路由
 		err = ip_route_output_flow(&rt, &fl, sk, !(msg->msg_flags&MSG_DONTWAIT));
 		if (err)
 			goto out;
@@ -714,6 +720,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	// 如果发送数据时设置了MSG_CONFIRM标志，则说明应用层知道网关有效并可达，跳转到
 	// do_confirm处对目的路由缓存项进行确认
+	// 函数dst_confirm向应用程序返回路由确认信息
 	if (msg->msg_flags&MSG_CONFIRM)
 		goto do_confirm;
 back_from_confirm:
@@ -763,7 +770,7 @@ do_append_data:
 	err = ip_append_data(sk, getfrag, msg->msg_iov, ulen,
 			sizeof(struct udphdr), &ipc, rt,
 			corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
-	// 如果ip_append_data()在处理过程中发生错误，则需要清除释放发送队列中的SKB
+	// 如果ip_append_data()在处理过程中发生错误，则需要清空套接字中等待传送的队列sk_write_queue
 	// 并复位pending标志
 	if (err)
 		udp_flush_pending_frames(sk);
@@ -913,6 +920,13 @@ int udp_ioctl(struct sock *sk, int cmd, unsigned long arg)
  * 	return it, otherwise we block.
  */
 // udp_recvmsg()实现了主动从传输控制块的接收队列中读取数据到用户空间的缓冲区中
+// iocb: 应用层IO控制缓冲区
+// sk: 指向接收数据包的套接字结构
+// msg: 接收数据包应用层缓冲块及处理函数
+// len: 数据信息长度
+// noblock: 当没有数据接收时，应用程序是否阻塞的标志
+// flag: 套接字接收队列中的数据包信息标志
+// addr_len: 应用层存放发送方地址长度
 int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	        size_t len, int noblock, int flags, int *addr_len)
 {
@@ -994,6 +1008,7 @@ try_again:
 
 	/* Copy the address. */
 	// 复制地址信息
+	// 如果应用程序提供了缓冲区sin，来存放数据发送端的源IP和源端口号，则将数据包发送地址复制到sin中
 	if (sin)
 	{
 		sin->sin_family = AF_INET;
@@ -1004,6 +1019,7 @@ try_again:
   	// 根据控制信息标志位(通过套接口选项设置)，将相应的控制信息复制到用户空间
   	// 例如，设置了IP_TOS选项，则把IP首部中的TOS域复制到用户空间
 	if (inet->cmsg_flags)
+		// 如果IP协议头中设置了任何控制标志，则调用ip_cmsg_recv完成对IP选项值的提取
 		ip_cmsg_recv(msg, skb);
 
 	// 设置复制的字节数，如果数据段已经被截短，则返回原始的实际长度
@@ -1177,7 +1193,9 @@ int udp_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 	// 复位接收到的SKB中与netfilter相关的数据
 	nf_reset(skb);
 
-	// 如果输入的是一个通过IPSEC协议封装的报文，则调用udp_encap_rcv()处理
+	// 如果输入的是一个通过IPSEC协议封装的报文
+	// 输入的数据一定被封装在IPSec协议的数据包中，则要将数据包从封装的数据包中
+	// 解析出来并接收，并调用up->encap_rcv函数来处理该数据包
 	if (up->encap_type) {
 		/*
 		 * This is an encapsulation socket, so let's see if this is
@@ -1339,7 +1357,8 @@ static inline void udp4_csum_init(struct sk_buff *skb, struct udphdr *uh)
 /*
  *	All we need to do is get the socket, and then do a checksum. 
  */
- 
+// __udp4_lib_rcv完成的主要功能是对接收到的数据包进行正确性检查，地址类型分析
+// 调用相应的函数处理输入过程
 int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 		   int is_udplite)
 {
@@ -1357,7 +1376,7 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 	if (!pskb_may_pull(skb, sizeof(struct udphdr)))
 		goto drop;		/* No space for header. */
 
-	// 检测数据报的长度，不能小偶遇UDP首部长度，否则丢弃
+	// 检测数据报的长度，不能小于UDP首部长度，否则丢弃
 	ulen = ntohs(uh->len);
 	// 如果UDP首部中标识的数据长度大于实际SKB中UDP数据报的长度，则封包
 	// 可能出现错误，但这种情况比较少见
@@ -1394,6 +1413,8 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct hlist_head udptable[],
 		/* a return value > 0 means to resubmit the input, but
 		 * it wants the return to be -protocol, or 0
 		 */
+		// 当udp_queue_rcv_skb函数的返回值大于0时，__udp4_lib_rcv函数需要告诉
+		// 调用程序重新提交输入数据包
 		if (ret > 0)
 			return -ret;
 		return 0;
@@ -1675,10 +1696,16 @@ unsigned int udp_poll(struct file *file, struct socket *sock, poll_table *wait)
 	
 }
 
+// udp_prot为套接字与传输层之间的接口
+// udp协议通过int proto_register(struct proto *prot, int alloc_slab)
+// 将udp_prot注册到TCP/IP协议栈中
 struct proto udp_prot = {
  	.name		   = "UDP",
 	.owner		   = THIS_MODULE,
 	.close		   = udp_lib_close,
+	// udp协议支持connect系统调用的主要目的是建立到达目的地址的路由，并把该路由放入
+	// 路由高速缓冲存储器中，一旦路由建立起来，接下来在通过udp套接字发送数据包时就可以
+	// 使用高速缓冲区中的信息了，这种方式称之为在连接套接字上的快速路径"fast path"
 	.connect	   = ip4_datagram_connect,
 	.disconnect	   = udp_disconnect,
 	.ioctl		   = udp_ioctl,
