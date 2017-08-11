@@ -108,6 +108,8 @@ enum sock_type {
 // 套接口代表了一条通信链路的一端，存储了该端所有与通信有关的信息
 // 这些信息包括：使用的协议、套接口的状态、源和目的地址、到达的
 // 连接队列、数据缓存和可选标志等
+// 每个打开的套接字都有一个struct socket数据结构的实例
+// struct socket数据结构中还包含一个文件描述符可由应用程序代码引用
 struct socket {
 	// 用于表示所在套接口所处的状态的标志，该标志有些状态只对TCP套接口有意义
 	// 因为只有TCP是面向连接的协议，有状态转换的过程，而UDP和RAW则不需要维护
@@ -117,6 +119,8 @@ struct socket {
 	// SS_CONNECTING:正在连接过程中
 	// SS_CONNECTED:已连接一个套接口
 	// SS_DISCONNECTING:正在断开连接的过程中
+	// state与传输层建立的连接和关闭毫无关系，它反映的是内核外部
+	// (用户地址空间)的常规套接字状态
 	socket_state		state;
 	// 一组标志位：
 	// SOCK_ASYNC_NOSPACE:标识该套接口的发送队列是否已满
@@ -130,9 +134,11 @@ struct socket {
 	// UDP->inet_dgram_ops
 	// RAW->inet_sockraw_ops
 	const struct proto_ops	*ops;
-	// 存储了异步的通知队列
+	// 存储了异步的通知队列，等待被唤醒的套接字列表
 	struct fasync_struct	*fasync_list;
 	// 指向了与该套接口相关联的file结构的指针
+	// 在创建和打开套接字时，套接字层向应用程序返回该文件描述符
+	// 应用程序通过文件描述符访问套接字
 	struct file		*file;
 	// 指向了与该套接口关联的传输控制块
 	struct sock		*sk;
@@ -204,6 +210,9 @@ struct proto_ops {
 // net_proto_family结构提供了一个协议族到套接口之间的接口
 // 屏蔽了不同的协议族在传输层的结构和实现的巨大差异，使得各协议族
 // 在初始化时，可以统一使用sock_register()注册到net_family数组中
+// 内核中所有传输层协议的套接字创建函数结构块组织在
+// struct net_proto_family　*net_families[NPROTO]中，数组中的每个
+// 成员是各协议的套接字创建、初始化函数
 struct net_proto_family {
 	// 协议族对应的协议族常量，Internet协议族是PF_INET
 	int		family;

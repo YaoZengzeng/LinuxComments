@@ -112,7 +112,7 @@ struct proto;
 // sock_common结构是传输控制块信息的最小集合，由sock和inet_timeout_sock结构前面
 // 相同部分单独构成，因此只用来构成这两种结构
 struct sock_common {
-	// 所属协议族
+	// 所属协议族，如IPv4的地址族为AF_INET
 	unsigned short		skc_family;
 	// 等同于TCP的状态，虽然UDP不存在连接或传输状态，但在实现中用到了一些状态值
 	// 例如TCP_CLOSE
@@ -241,7 +241,7 @@ struct sock {
 	// 同步锁，其中包括了两种锁：一种是用于用户进程读取数据和网络层向传输层传递数据之间的
 	// 同步锁；二是控制Linux下半部访问本传输控制块的同步锁，以免多个下半部同时访问本传输
 	// 控制块
-	socket_lock_t		sk_lock;
+	socket_lock_t		sk_lock;	
 	// 进程等待队列，进程等待连接，等待输出缓冲区，等待读数据时，都会将进程暂存到此队列中
 	wait_queue_head_t	*sk_sleep;
 	// 目的路由项缓存，一般都是在创建传输控制块发送数据报文时，发现未设置该字段才从路由表
@@ -265,7 +265,7 @@ struct sock {
 	// 发送队列，在TCP中，此队列同时也是重传队列，在sk_send_head之前为重传队列，之后
 	// 为发送队列
 	struct sk_buff_head	sk_write_queue;
-	// 与网络设备的DMA相关
+	// 用DMA方式传送数据包的队列
 	struct sk_buff_head	sk_async_wait_queue;
 	// 发送队列中所有报文数据的总长度，目前只用于TCP
 	int			sk_wmem_queued;
@@ -636,6 +636,7 @@ struct timewait_sock_ops;
 // 的跳转，在proto结构中的某些成员跟proto_ops结构中的成员对应，比如connect()等
 // 这里可以称之为传输层接口，如果对有关数据操作的函数调用(如sendmsg())通过此接口后
 // 进入网络层，在IPv4协议族中，则进入IP层的处理
+// struct proto数据结构中的函数用于套接字层与传输层之间在内核地址空间的通信
 struct proto {
 	// 传输层接口初始化接口，在创建套接口时，在inet_create()中被调用
 	void			(*close)(struct sock *sk, 

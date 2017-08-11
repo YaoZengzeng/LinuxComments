@@ -77,6 +77,8 @@ struct inet6_protocol
 
 /* This is used to register socket interfaces for IP protocols.  */
 // 此结构只在套接口层起作用
+// inet_protosw用来管理和描述套接字层对应系统调用套接字操作函数块struct proto_ops
+// 与内核协议相关套接字操作函数块struct proto之间的对应关系
 struct inet_protosw {
 	// 用于初始化时在散列表中将type值相同的inet_protosw结构实例连接成链表
 	struct list_head list;

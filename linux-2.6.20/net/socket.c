@@ -537,6 +537,7 @@ static struct socket *sock_alloc(void)
 	if (!inode)
 		return NULL;
 
+	// 将struct inode数据结构上的指针转换到对应的struct socket数据结构中
 	sock = SOCKET_I(inode);
 
 	inode->i_mode = S_IFSOCK | S_IRWXUGO;
@@ -1130,6 +1131,7 @@ call_kill:
 	return 0;
 }
 
+// __sock_create函数的任务是为套接字预留需要的内存空间
 static int __sock_create(int family, int type, int protocol,
 			 struct socket **res, int kern)
 {
@@ -1141,8 +1143,10 @@ static int __sock_create(int family, int type, int protocol,
 	 *      Check protocol is in range
 	 */
 	// 对参数的合法性进行检查
+	// 创建的套接字所属的协议族是否在Linux支持的协议族中
 	if (family < 0 || family >= NPROTO)
 		return -EAFNOSUPPORT;
+	// 套接字类型在Linux内核支持的套接字类型范围内
 	if (type < 0 || type >= SOCK_MAX)
 		return -EINVAL;
 
@@ -1288,6 +1292,7 @@ asmlinkage long sys_socket(int family, int type, int protocol)
 	struct socket *sock;
 
 	// 根据参数给定的协议族、套接口类型、以及传输层协议创建并初始化一个套接口
+	// sock_create完成通用套接字的创建，初始化任务后，再调用特定协议族的套接字创建函数
 	retval = sock_create(family, type, protocol, &sock);
 	if (retval < 0)
 		goto out;
@@ -1678,10 +1683,14 @@ asmlinkage long sys_sendto(int fd, void __user *buff, size_t len,
 	int fput_needed;
 	struct file *sock_file;
 
+	// fget_light和sock_from_file函数负责查寻由文件描述符引用的相关套接字
+	// fget_light访问进程数据结构的描述符表，查询到相应的file实例
 	sock_file = fget_light(fd, &fput_needed);
 	if (!sock_file)
 		return -EBADF;
 
+	// sock_from_file函数确定与文件实例相关的inode，最后用SOCKET_I宏
+	// 将inode映射到套接字描述符上
 	sock = sock_from_file(sock_file, &err);
 	if (!sock)
 		goto out_put;
@@ -2105,13 +2114,19 @@ static const unsigned char nargs[18]={
  *  This function doesn't need to set the kernel lock because
  *  it is set by the callees.
  */
-
+// sys_socketcall函数主要完成两个功能：
+// 1、将从用户地址空间传来的每一个地址映射到内核地址空间，该功能通过copy_from_user函数完成
+// 2、将应用层套接字的API函数映射到内核实现函数上，如把用户空间的bind映射到内核函数sys_bind上
+// 参数：
+// call: 系统调用函数的索引号
+// args: 指向用户地址空间参数地址的指针
 asmlinkage long sys_socketcall(int call, unsigned long __user *args)
 {
 	unsigned long a[6];
 	unsigned long a0, a1;
 	int err;
 
+	// 首先检查函数调用索引号是否正确
 	if (call < 1 || call > SYS_RECVMSG)
 		return -EINVAL;
 
@@ -2126,6 +2141,7 @@ asmlinkage long sys_socketcall(int call, unsigned long __user *args)
 	a0 = a[0];
 	a1 = a[1];
 
+	// 将应用层套接字API调用转换到内核函数
 	switch (call) {
 	// 创建一个套接口，套接口创建成功以后返回一个打开的文件描述符，这个打开的文件描述符
 	// 与一个套接口关联，而不是与磁盘上的某个文件关联
@@ -2272,6 +2288,9 @@ static int __init sock_init(void)
 	 *      Initialize sock SLAB cache.
 	 */
 	// 初始化套接口层的SLAB缓存的初始参数
+	// 初始化套接字的缓存槽由sk_init函数完成，套接字的缓存槽是套接字层初始化的内存对象
+	// 为套接字的数据结构struct sock分配内存时，就从该缓存槽中获取内存对象实例，在套接字
+	// 使用完成，释放struct sock时，内存对象返回该缓存槽
 	sk_init();
 
 	/*
@@ -2287,6 +2306,8 @@ static int __init sock_init(void)
 	// 创建套接口层的i节点SLAB缓存，名称为sock_inode_cache
 	init_inodecache();
 	// 注册套接口文件系统，并把套接口文件系统挂载到文件系统列表上
+	// 在Linux内实现统一的IO系统，这样应用程序对IO的调用可以使用
+	// 统一的API传送给它们要访问的设备，文件或套接字
 	register_filesystem(&sock_fs_type);
 	sock_mnt = kern_mount(&sock_fs_type);
 
@@ -2294,6 +2315,7 @@ static int __init sock_init(void)
 	 */
 
 #ifdef CONFIG_NETFILTER
+	// 如果在配置内核时选择了网络过滤功能，则调用netfilter_init初始化网络过滤子系统
 	netfilter_init();
 #endif
 

@@ -123,6 +123,8 @@ extern void ip_mc_drop_socket(struct sock *sk);
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
  */
+// inetsw[SOCK_MAX]是协议交换表数组，数组中的每个成员都是一个协议族的交换表
+// 用于存放某个协议族中各个协议实例的套接字系统调用函数与协议套接字函数的对应关系
 static struct list_head inetsw[SOCK_MAX];
 static DEFINE_SPINLOCK(inetsw_lock);
 
@@ -238,6 +240,7 @@ static int inet_create(struct socket *sock, int protocol)
 
 	/* Look for the requested type/protocol pair. */
 	answer = NULL;
+// 查询协议交换表，根据协议族套接字创建类型type获取要创建的协议实例
 lookup_protocol:
 	err = -ESOCKTNOSUPPORT;
 	rcu_read_lock();
@@ -1376,6 +1379,7 @@ static int __init inet_init(void)
 	 *	Tell SOCKET that we are alive... 
 	 */
 	// 让套接口层支持Internet协议族
+	// 将AF_INET协议族套接字创建函数数据结构放入net_families中
   	(void)sock_register(&inet_family_ops);
 
 	/*
@@ -1396,6 +1400,7 @@ static int __init inet_init(void)
 #endif
 
 	/* Register the socket-side information for inet_create. */
+	// 初始化协议交换表的套接字层的存放各协议族API的链表
 	for (r = &inetsw[0]; r < &inetsw[SOCK_MAX]; ++r)
 		INIT_LIST_HEAD(r);
 
