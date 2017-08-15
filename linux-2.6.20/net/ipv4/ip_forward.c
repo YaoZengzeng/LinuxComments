@@ -67,6 +67,8 @@ int ip_forward(struct sk_buff *skb)
 
 	// 如果数据报中存在路由警告选项，则调用ip_call_ra_chain()将数据报输入给对
 	// 路由警告选项感兴趣的用户进程，如果成功，则不再转发数据报
+	// ip_call_ra_chain会依据一个全局套接字列表: ip_ra_chain，其中的套接字对所有
+	// 设置了IP_ROUTER_ALERT选项的数据包感兴趣
 	if (IPCB(skb)->opt.router_alert && ip_call_ra_chain(skb))
 		return NET_RX_SUCCESS;
 
@@ -83,6 +85,7 @@ int ip_forward(struct sk_buff *skb)
 	 *	that reaches zero, we must reply an ICMP control message telling
 	 *	that the packet's lifetime expired.
 	 */
+	// 此时还没对ttl递减是因为此时数据包可能还与别的子系统共享，还不能对头信息进行修改
 	if (skb->nh.iph->ttl <= 1)
                 goto too_many_hops;
 
@@ -111,10 +114,12 @@ int ip_forward(struct sk_buff *skb)
 	 *	we calculated.
 	 */
 	// 该数据报的输出路由存在重定向标志，且该数据报中不存在源路由选项
-	// 则向发送方发送重定向ICMP报文
+	// 而路由子系统获取的路由更优化，则向发送方发送重定向ICMP报文
 	if (rt->rt_flags&RTCF_DOREDIRECT && !opt->srr)
 		ip_rt_send_redirect(skb);
 
+	// 设置skb->priority数据域，该数据域给ip协议头的type of service使用，
+	// 流量控制子系统(QoS)使用优先级决定数据包发送顺序
 	skb->priority = rt_tos2priority(iph->tos);
 
 	return NF_HOOK(PF_INET, NF_IP_FORWARD, skb, skb->dev, rt->u.dst.dev,

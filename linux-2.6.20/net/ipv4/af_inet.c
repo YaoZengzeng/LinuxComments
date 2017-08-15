@@ -1411,18 +1411,20 @@ static int __init inet_init(void)
 	/*
 	 *	Set the ARP module up
 	 */
-
-	arp_init();
+	// 注册传输层协议数据包处理数据结构实体，加入tcp/ip协议栈各基础协议
+	// 建立协议栈运行环境，初始化各协议实例
+	arp_init();		// 建立arp协议模块
 
   	/*
   	 *	Set the IP module up
   	 */
 
-	ip_init();
+	ip_init();		// 建立ip协议模块
 
 	// 创建一个内部的TCP套接口，主要用来发送RST段和ACK段
 	tcp_v4_init(&inet_family_ops);
 
+	// 建立tcp/ip内存槽等
 	/* Setup TCP slab cache for open requests. */
 	tcp_init();
 

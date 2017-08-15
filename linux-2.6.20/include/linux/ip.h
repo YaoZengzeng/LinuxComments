@@ -39,10 +39,12 @@
 
 
 /* IP options */
+// 以下为ip选项相关定义
 #define IPOPT_COPY		0x80
 #define IPOPT_CLASS_MASK	0x60
 #define IPOPT_NUMBER_MASK	0x1f
 
+// 操作copy, class, number域的宏
 #define	IPOPT_COPIED(o)		((o)&IPOPT_COPY)
 #define	IPOPT_CLASS(o)		((o)&IPOPT_CLASS_MASK)
 #define	IPOPT_NUMBER(o)		((o)&IPOPT_NUMBER_MASK)
@@ -52,6 +54,7 @@
 #define	IPOPT_MEASUREMENT	0x40
 #define	IPOPT_RESERVED2		0x60
 
+// 内核中使用的ip选项的符号
 #define IPOPT_END	(0 |IPOPT_CONTROL)
 #define IPOPT_NOOP	(1 |IPOPT_CONTROL)
 #define IPOPT_SEC	(2 |IPOPT_CONTROL|IPOPT_COPY)

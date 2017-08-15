@@ -36,7 +36,7 @@
  * daddr is real destination address, next hop is recorded in IP header.
  * saddr is address of outgoing interface.
  */
-
+// 发送本地数据包构建ip选项，根据应用设置的选项参数来初始化struct ip_options数据结构
 void ip_options_build(struct sk_buff * skb, struct ip_options * opt,
 			    __be32 daddr, struct rtable *rt, int is_frag)
 {
@@ -84,7 +84,7 @@ void ip_options_build(struct sk_buff * skb, struct ip_options * opt,
  *
  * NOTE: dopt cannot point to skb.
  */
-
+// 创建给数据包发送方，用于返回信息的数据包的ip选项
 int ip_options_echo(struct ip_options * dopt, struct sk_buff * skb) 
 {
 	struct ip_options *sopt;
@@ -214,7 +214,9 @@ int ip_options_echo(struct ip_options * dopt, struct sk_buff * skb)
  *	allowed in fragments with NOOPs.
  *	Simple and stupid 8), but the most efficient way.
  */
-
+// ip数据包分片时，处理分片数据包的选项
+// 发送时，第一个分片数据传送出去之后，linux内核会调用ip_options_fragment来修改
+// ip协议头，为后面的分片数据包写新的头信息
 void ip_options_fragment(struct sk_buff * skb) 
 {
 	unsigned char * optptr = skb->nh.raw + sizeof(struct iphdr);
@@ -234,6 +236,7 @@ void ip_options_fragment(struct sk_buff * skb)
 		optlen = optptr[1];
 		if (optlen<2 || optlen>l)
 		  return;
+		// 某些数据分片中不需要的选项(它们的IPOPT_COPY并没有设置)用空选项(IPOPT_COPY)来覆盖
 		if (!IPOPT_COPIED(*optptr))
 			memset(optptr, IPOPT_NOOP, optlen);
 		l -= optlen;
@@ -252,30 +255,48 @@ void ip_options_fragment(struct sk_buff * skb)
  * Caller should clear *opt, and set opt->data.
  * If opt == NULL, then skb->data should point to IP header.
  */
-
+// ip_options_compile只检查IP选项是否正确，并将其存放在ip_options数据结构中
+// 由skb->cb指针指向其地址，ip_options_compile函数并不对选项本身做处理
+// 解析ip协议头中的选项，初始化struct ip_options数据结构的各数据域，该数据结构中
+// 的标志和指针用于告诉路由子系统，在处理转发的数据包时应在ip协议选项的什么位置写入什么信息
+//
+// 根据ip_options_compile函数两个参数(opt和skb)的值可获知该函数被调用的场合及原始ip选项存放的位置
+// skb不为空，opt为空，解析的是输入数据包的ip选项，选项存放在skb的数据包中，应从skb数据包的ip协议头中
+// 取出ip选项解析，结果存放到opt指向的数据结构中
+// skb为空，opt不为空，解析外传数据包的ip选项，选项存放在opt指向的数据结构的__data数据域，应从opt指向
+// 的数据结构中提取ip选项进行解析，解析结果用于创建ip选项数据，存放到skb数据缓冲区的ip协议头中
 int ip_options_compile(struct ip_options * opt, struct sk_buff * skb)
 {
+	// l指向尚未处理的ip选项的总长度
 	int l;
 	unsigned char * iph;
+	// 当前正处理的ip选项的起始地址
 	unsigned char * optptr;
+	// 当前正在处理的ip选项的长度
 	int optlen;
+	// 如果ip选项出错，指向出错位置的地址指针(给icmp使用)
 	unsigned char * pp_ptr = NULL;
 	struct rtable *rt = skb ? (struct rtable*)skb->dst : NULL;
 
 	if (!opt) {
+		// 处理接收数据包
 		opt = &(IPCB(skb)->opt);
 		iph = skb->nh.raw;
 		opt->optlen = ((struct iphdr *)iph)->ihl*4 - sizeof(struct iphdr);
 		optptr = iph + sizeof(struct iphdr);
 		opt->is_data = 0;
 	} else {
+		// 处理本地产生的数据包
 		optptr = opt->is_data ? opt->__data : (unsigned char*)&(skb->nh.iph[1]);
 		iph = optptr - sizeof(struct iphdr);
 	}
 
 	for (l = opt->optlen; l > 0; ) {
+		// optptr指向选项块中当前正在分析的位置，optptr[1]是该选项的长度
+		// optptr[2]是存放选项的指针(指明选项从什么位置开始存放)
 		switch (*optptr) {
 		      case IPOPT_END:
+		      // 任何IPOPT_END后的信息都被重写为IPOPT_END，并设置头信息被修改的标志
 			for (optptr++, l--; l>0; optptr++, l--) {
 				if (*optptr != IPOPT_END) {
 					*optptr = IPOPT_END;
@@ -288,6 +309,8 @@ int ip_options_compile(struct ip_options * opt, struct sk_buff * skb)
 			optptr++;
 			continue;
 		}
+		// 逐一获取选项，对其做正确性检查，当前选项长度应大于2，小于余下选项块
+		// 的总长度，如果未通过以上检查，则选项有错，记录出错位置，供icmp消息使用
 		optlen = optptr[1];
 		if (optlen<2 || optlen>l) {
 			pp_ptr = optptr;
@@ -472,6 +495,11 @@ eol:
 
 error:
 	if (skb) {
+		// 当ip选项中发生错误时，一个特定的icmp消息会被发送给数据包发送方，一个icmp
+		// 消息包中包含原始的ip协议头，后跟8个字节的负载，以及一个指针指明错误发生的位置
+		// (相对于起始地址的偏移)，8个字节的负载是传输层协议头起始地址和端口号，这使接收
+		// icmp消息方能找到本次ip数据包发送失败套接字，在返回错误消息之前，ip_options_compile
+		// 函数会初始化pp_ptr指针指向出错的位置
 		icmp_send(skb, ICMP_PARAMETERPROB, 0, htonl((pp_ptr-iph)<<24));
 	}
 	return -EINVAL;
@@ -547,6 +575,8 @@ int ip_options_get_from_user(struct ip_options **optp, unsigned char __user *dat
 	return ip_options_get_finish(optp, opt, optlen);
 }
 
+// 输入参数为ip选项块，调用ip_options_compile来解析参数，用解析结果来初始化
+// struct ip_options数据结构
 int ip_options_get(struct ip_options **optp, unsigned char *data, int optlen)
 {
 	struct ip_options *opt = ip_options_get_alloc(optlen);
@@ -558,6 +588,7 @@ int ip_options_get(struct ip_options **optp, unsigned char *data, int optlen)
 	return ip_options_get_finish(optp, opt, optlen);
 }
 
+// 处理转发数据包的ip选项
 void ip_forward_options(struct sk_buff *skb)
 {
 	struct   ip_options * opt	= &(IPCB(skb)->opt);

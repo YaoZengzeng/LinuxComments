@@ -204,7 +204,8 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	return -EINVAL;
 }
 
-// 该函数的主要功能是如果数据报大于MTU，则调用ip_fragment()分片
+// 该函数的主要功能是根据网络配置确定是否需要对数据包进行重路由，
+// 如果数据报大于MTU，则调用ip_fragment()分片
 // 否则调用ip_finish_output2()输出
 static inline int ip_finish_output(struct sk_buff *skb)
 {

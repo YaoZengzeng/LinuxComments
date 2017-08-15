@@ -36,21 +36,43 @@
  * @ts_needaddr - Need to record addr of outgoing dev
  */
 struct ip_options {
+	// 只针对向外发送，并设置了源路由选项的数据包有意义，faddr存放源路由列表的第一个ip地址
 	__be32		faddr;
+	// ip选项的总长度
 	unsigned char	optlen;
+	// 源路由选项存放在协议头的偏移量
 	unsigned char	srr;
+	// rr表示路由器应在ip协议头的何处记录路由选项的偏移量
 	unsigned char	rr;
+	// ts记录了时间戳选项在ip协议头中位置的偏移量
 	unsigned char	ts;
+	// 接下来的数据域为一个标志位数据域，各标志位在该数据域中占1位，标志
+	// ip选项的设备状态及应对选项或数据包做的处理
 	unsigned char	is_data:1,
+			// 该位为true时，说明ip选项中源路由选项设置的是严格源路由
 			is_strictroute:1,
+			// 该位为true时，说明数据包中设置了源路由选项，在为发送数据包
+			// 做路由决策时，通过skb->dst或路由表获取的下一跳ip地址和路由
+			// 列表中下一跳ip地址一致称为ip地址命中(hit)
 			srr_is_hit:1,
+			// 若ip协议头发生变好，则设置该位，ip协议头是否发生变化决定了是否需要
+			// 重新计算ip校验和
 			is_changed:1,
+			// 当ip选项设置了记录路由选项时，如果rr_needaddr的值为1，表明协议头中
+			// 还有空间记录其他路由信息，这时当前站点应将发送数据包的网络接口ip地址
+			// 复制到协议头中rr指定的偏移量处
 			rr_needaddr:1,
+			// ts_needtime和ts_needaddr这两个标志与时间戳选项有关，分别表明了时间戳
+			// 选项是否记录数据包达到站点的时间和ip地址
 			ts_needtime:1,
 			ts_needaddr:1;
+	// 如果ip选项中设置了路由报警选项，route_alert指明路由报警选项在协议头中存放位置的偏移量
 	unsigned char	router_alert;
 	unsigned char	cipso;
+	// 此数据域是为使ip选项处于32位地址边界对齐而加在最后的填充数据
 	unsigned char	__pad2;
+	// 这个数据域用于将本地主机产生的数据包向外发送情况下，以及本地站点要求回答的icmp请求传回
+	// 应答数据包时，__data[0]指向存放要加入数据包协议头的ip选项的地址
 	unsigned char	__data[0];
 };
 

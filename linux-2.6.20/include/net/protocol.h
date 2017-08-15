@@ -36,7 +36,8 @@
 // 此结构是网络层和传输层（包括ICMP和IGMP协议）之间的桥梁
 // 内核中为Internet协议族定义了4个net_protocol结构实例，icmp_protocol,udp_protocol
 // tcp_protocol和igmp_protocol
-// 调用inet_add_protocol()将它们注册到net_protocol结构指针数组inet_protos[MAX_INET_PROTOS]ZHONG
+// 调用inet_add_protocol()将它们注册到net_protocol结构指针数组inet_protos[MAX_INET_PROTOS]中
+// 网络层的数据包可以传给传输层的一个或多个协议处理函数
 struct net_protocol {
 	// 传输层协议数据报接收处理函数指针，当网络层接收IP数据报之后，根据IP数据报所指示传输层协议
 	// 调用对应传输层net_protocol结构的该例程接收报文

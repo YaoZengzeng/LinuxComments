@@ -197,6 +197,9 @@ int ip_call_ra_chain(struct sk_buff *skb)
 }
 
 // 该函数将输入数据报从网络层传递到传输层
+// 除了内核要处理网络数据包以外，应用程序也可以处理数据包，因此，无论协议是否在内核中
+// 注册了协议处理函数，ip_local_deliver_finish都要查看是否有应用程序创建了裸套接字
+// 来处理协议相关的数据包，如果有，就复制一个数据包给应用程序
 static inline int ip_local_deliver_finish(struct sk_buff *skb)
 {
 	int ihl = skb->nh.iph->ihl*4;
@@ -232,6 +235,7 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 		if ((ipprot = rcu_dereference(inet_protos[hash])) != NULL) {
 			int ret;
 
+			// 如果配置了IPsec策略路由，则调用IPsec策略检查函数
 			if (!ipprot->no_policy) {
 				if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 					kfree_skb(skb);
@@ -267,7 +271,11 @@ static inline int ip_local_deliver_finish(struct sk_buff *skb)
 
 /*
  * 	Deliver IP Packets to the higher protocol layers.
- */ 
+ */
+// 发送至本地的一个重要任务就是重组分了片的数据包，除了某些特殊情况，
+// 例如网络过滤子系统重组了数据包来查看其内容，这时分过片数据包已完成重组
+// 与此相反，在大多数情况下，转发操作不需要关系数据包的重组，转发操作可以
+// 独立转发每个分片数据包
 int ip_local_deliver(struct sk_buff *skb)
 {
 	/*
@@ -275,6 +283,7 @@ int ip_local_deliver(struct sk_buff *skb)
 	 */
 	// 若是分片，则需要将分片重组
 	if (skb->nh.iph->frag_off & htons(IP_MF|IP_OFFSET)) {
+		// 重组数据包的功能通过ip_defrag函数完成
 		skb = ip_defrag(skb, IP_DEFRAG_LOCAL_DELIVER);
 		// 返回0，则表示IP数据报分片尚未到齐，重组没有完成，直接返回
 		if (!skb)
@@ -298,6 +307,8 @@ static inline int ip_rcv_options(struct sk_buff *skb)
 	   and running sniffer is extremely rare condition.
 					      --ANK (980813)
 	*/
+	// 如果skb由多个进程贡献，则先产生一个skb头的拷贝，
+	// 因为在处理IP选项时，可能会对skb头的数据做修改，　若拷贝不成功，则将数据包丢掉
 	if (skb_cow(skb, skb_headroom(skb))) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto drop;
@@ -305,15 +316,19 @@ static inline int ip_rcv_options(struct sk_buff *skb)
 
 	iph = skb->nh.iph;
 
+	// ip_options_compile用于解析ip选项
 	if (ip_options_compile(NULL, skb)) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
 		goto drop;
 	}
 
+	// 控制缓冲区用IPCB宏访问
 	opt = &(IPCB(skb)->opt);
+	// 如果ip选项中设置了源路由选项，将路由信息设置给skb->dst
 	if (unlikely(opt->srr)) {
 		struct in_device *in_dev = in_dev_get(dev);
 		if (in_dev) {
+			// 如果系统禁止使用源路由选项，扔掉数据包
 			if (!IN_DEV_SOURCE_ROUTE(in_dev)) {
 				if (IN_DEV_LOG_MARTIANS(in_dev) &&
 				    net_ratelimit())
@@ -328,6 +343,9 @@ static inline int ip_rcv_options(struct sk_buff *skb)
 			in_dev_put(in_dev);
 		}
 
+		// 如果系统设置中允许使用源路由，调用ip_options_rcv_srr函数将路由设置
+		// 在skb->dst中，并确定使用哪个设备将数据包发送到源路由列表中指定的下一跳
+		// 通常要求下一站点是另一主机，则函数只设置opt->srr.is_hit，指明发现了地址
 		if (ip_options_rcv_srr(skb))
 			goto drop;
 	}
@@ -339,6 +357,10 @@ drop:
 
 // 在ip_rcv_finish()中，根据数据报的路由信息，决定这个数据报是转发还是输入到本地
 // 由此产生两条路径，输入到本机由ip_local_deliver()处理，而转发由ip_forward()处理
+// ip_rcv_finish的作用：
+// 1. 确定数据包是转发还是在本机协议栈中上传，如果是转发需要确定输出网络设备和下一个
+// 接收站点的地址
+// 2. 解析和处理部分ip选项
 static inline int ip_rcv_finish(struct sk_buff *skb)
 {
 	struct iphdr *iph = skb->nh.iph;
@@ -358,6 +380,7 @@ static inline int ip_rcv_finish(struct sk_buff *skb)
 		}
 	}
 
+// 如果在配置内核时配置了流量控制功能，则更新QoS的统计信息
 #ifdef CONFIG_NET_CLS_ROUTE
 	if (unlikely(skb->dst->tclassid)) {
 		struct ip_rt_acct *st = ip_rt_acct + 256*smp_processor_id();
@@ -373,6 +396,7 @@ static inline int ip_rcv_finish(struct sk_buff *skb)
 	if (iph->ihl > 5 && ip_rcv_options(skb))
 		goto drop;
 
+	// 调用kb->dst->input函数指针指向的处理函数
 	// 最后根据输入路由缓存决定输入到本地或转发，最终前者调用ip_local_deliver()
 	// 后者调用ip_forward()
 	return dst_input(skb);
@@ -401,6 +425,10 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 
 	// 检测接收到的数据报是否为一个共享数据包，如果是，必须复制一个副本，再做进一步处理
 	// 因为在处理过程中可能会修改数据报中的信息
+	// 在调用网络层IP协议的处理函数之前，netif_receive_skb会对skb的引用技术加1，IP
+	// 协议处理函数查看到数据包的引用计数大于1时，会创建一个数据包的拷贝，这样IP协议处理
+	// 函数就可以任意修改数据包的值，而netif_receive_skb接下来调用网络层其他协议处理
+	// 函数收到的就是原始数据包
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto out;
@@ -431,10 +459,19 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 
 	iph = skb->nh.iph;
 
+	// 检验校验和是否正确
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
 		goto inhdr_error;
 
 	len = ntohs(iph->tot_len);
+	// 确定缓冲区的长度大于或等于ip协议头信息中报告的数据包的长度
+	// 确定整个数据包的长度至少不小于ip协议头的长度
+	// 做检查的原因是数据链路层的协议可能会在负载后加补丁，以保证
+	// 发送的数据包长度不小于数据链路层协议允许的最小数据包长度，这样
+	// skb中的数据包长度(由skb->len数据域给出)可能大于实际的数据包长度
+	// (由ip协议头信息len=ntohs(iph->tot_len)给出)
+	// 第二个检查的原因是ip协议头不能被分割，如果数据包被分割成小的数据片
+	// 每个ip数据片至少包含一个ip协议头(iph->ihl * 4)
 	if (skb->len < len || len < (iph->ihl*4))
 		goto inhdr_error;
 
@@ -443,15 +480,19 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 * Note this now means skb->len holds ntohs(iph->tot_len).
 	 */
 	// 根据IP数据报首部中的数据报总长度重新设置skb的长度
+	// 去掉网络传输介质在数据包中加的填充字节
 	if (pskb_trim_rcsum(skb, len)) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
 
 	/* Remove any debris in the socket control block */
-	// 将skb中的IP控制块清零，以便后续对IP选项的处理
+	// 清空skb中的控制缓冲区skb->cb，以便后续对IP选项的处理
 	memset(IPCB(skb), 0, sizeof(struct inet_skb_parm));
 
+	// skb是由dev收到的数据包，网络过滤子系统查看该数据包是否允许继续处理，是否
+	// 需要对该数据包做修改，这由网络协议栈的NF_IP_PRE_ROUTING来决定，通过检查
+	// 后如果数据包没被扔掉，则继续执行ip_rcv_finish
 	return NF_HOOK(PF_INET, NF_IP_PRE_ROUTING, skb, dev, NULL,
 		       ip_rcv_finish);
 
