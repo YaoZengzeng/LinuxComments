@@ -139,7 +139,7 @@ struct inet_sock {
 	__be32			daddr;
 	// 已绑定的本地IP地址，接收数据时，作为条件的一部分查找数据所属的传输控制块
 	__be32			rcv_saddr;
-	// 目的端口
+	// 数据包目标地址的套接字端口号，端口号标志了目标地址接收数据包的应用程序
 	__be16			dport;
 	// 主机字节序存储的本地端口
 	__u16			num;
@@ -191,13 +191,14 @@ struct inet_sock {
 		// IPCORK_OPT:标识IP选项信息是否已在cork的opt成员中
 		// IPCORK_ALLFRAG:总是分片（只用于IPv6）
 		unsigned int		flags;
-		// UDP数据报或原始IP数据报分片大小
+		// UDP数据报或原始IP数据报分片大小，其大小包括网络层的协议头和负载数据
+		// 通常与pmtu的值相同
 		unsigned int		fragsize;
 		// 指向此次发送数据报的IP选项
 		struct ip_options	*opt;
 		// 发送数据报使用的输出路由缓存项
 		struct rtable		*rt;
-		// 当前发送的数据报的数据长度
+		// 当前发送的数据报的数据长度，包括所有分段数据的总和
 		int			length; /* Total length of all frames */
 		// 输出IP数据报的目的地址
 		__be32			addr;
@@ -205,6 +206,10 @@ struct inet_sock {
 		// 有关信息就取自这里
 		struct flowi		fl;
 	} cork;
+	// cork数据域在ip_append_data和ip_append_page中起着重要作用，它存储这两个函数实现
+	// 对数据包进行正确分割所需的信息，struct cork中还有ip协议头中的选项和分段长度，当发送
+	// 数据包是由本地主机产生时，每个skb都是由某个套接字创建的，应与一个struct sock数据结构
+	// 实例相关，这种关联存放在skb->sk数据域中
 };
 
 #define IPCORK_OPT	1	/* ip-options has been held in ipcork.opt */

@@ -473,6 +473,7 @@ static int udp_push_pending_frames(struct sock *sk)
 
 	/* Grab the skbuff where UDP header space exists. */
 	// 如果发送队列中没有报文，则无需再作发送操作
+	// 获取sk_write_queue队列中第一个skb缓冲区的指针
 	if ((skb = skb_peek(&sk->sk_write_queue)) == NULL)
 		goto out;
 

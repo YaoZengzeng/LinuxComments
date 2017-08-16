@@ -52,9 +52,10 @@ struct inet_skb_parm
 // IP控制信息块由ipcm_cookie结构描述，存储有关输出的控制信息，在整个输出过程中起传递信息的作用
 struct ipcm_cookie
 {
-	// UDP数据报或RAW数据报的目的地址，只有当存在IP选项时才设置，用作源路由选项的最后一跳地址
+	// UDP数据报或RAW数据报的目的地址，只有当存在IP选项时才设置
+	// 输出数据包的目标ip地址
 	__be32			addr;
-	// UDP数据报或RAW数据报的输出网络设备
+	// UDP数据报或RAW数据报的输出网络设备索引号
 	int			oif;
 	// 如果不为NULL，则指向发送数据报的IP选项信息
 	struct ip_options	*opt;

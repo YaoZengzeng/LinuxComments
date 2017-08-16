@@ -306,6 +306,8 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 {
 	struct sock *sk = skb->sk;
 	struct inet_sock *inet = inet_sk(sk);
+	// struct ip_options之所以包含在struct inet_sock中，是因为同一个套接字发送
+	// 的数据包，他们的ip选项都是一样的，如果为每个数据包重建这些信息会非常浪费时间
 	struct ip_options *opt = inet->opt;
 	struct rtable *rt;
 	struct iphdr *iph;
@@ -324,8 +326,11 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 		__be32 daddr;
 
 		/* Use correct destination address if we have options. */
+		// 如果套接字中没有缓存有效的路由信息，ip选项中配置了源路由选项，从选项的ip地址
+		// 列表读取下一跳的ip地址，在路由表中查询，查询路由的目标地址取自inet->daddr
 		daddr = inet->daddr;
 		if(opt && opt->srr)
+			// 如果ip选项设置了源路由选项，查询新路由和daddr取自源路由ip地址列表
 			daddr = opt->faddr;
 
 		{
@@ -347,6 +352,7 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 			if (ip_route_output_flow(&rt, &fl, sk, 0))
 				goto no_route;
 		}
+		// sk_setup_cap将用于发送数据包的输出网络设备信息，存放在套接字的sk数据结构中
 		sk_setup_caps(sk, &rt->u.dst);
 	}
 	skb->dst = dst_clone(&rt->u.dst);
@@ -375,16 +381,26 @@ packet_routed:
 
 	if (opt && opt->optlen) {
 		iph->ihl += opt->optlen >> 2;
+		// 如果ip协议头包含选项，调用ip_options_build来构建协议头的选项数据块
+		// ip_options_build用opt局部变量(先前由inet->opt初始化)中的值和标志
+		// 将选项中要求的值加到ip协议头中，需要注意的是，ip_options_build的最后
+		// 一个参数设置为0，指明协议头不属于分片数据
 		ip_options_build(skb, opt, inet->daddr, rt, 0);
 	}
 
+	// 根据对ip是否进行分片，在ip头中设置ip数据包的标识符id
 	ip_select_ident_more(iph, &rt->u.dst, sk,
 			     (skb_shinfo(skb)->gso_segs ?: 1) - 1);
 
 	/* Add an IP checksum. */
+	// 计算校验和
 	ip_send_check(iph);
 
 	// 设置输出数据报的QoS级别
+	// skb->priority是由流量控制子系统，用于决定数据包应发送到网络设备的哪个输出队列中等待
+	// 发送，这也可以间接德确定数据包要等多久才能被发送出去，该函数中的值是从strut sock中获取的
+	// 而在ip_forward(其数据不是本地数据，因此没有本地套接字)，它的值是从一个基于ip tos值的转换表
+	// 得来的
 	skb->priority = sk->sk_priority;
 
 	return NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, skb, NULL, rt->u.dst.dev,
@@ -793,6 +809,29 @@ static inline int ip_ufo_append_data(struct sock *sk,
 // ip_append_data()主要是将接收到的大数据包分成多个小于或等于MTU的SKB
 // 为网络层要实现的IP分片做准备
 // getfrag，用于复制数据到SKB中，不同的传输层，由于特性不同，因此对应复制的方法也不一样
+// ip_append_data函数不传送数据，而是把数据放到一个大小合适的缓冲区，随后的函数来对数据包
+// 进行分段处理（如果需要的话），并将数据包发送出去，它不创建或管理任何ip协议头。
+//
+// 数据缓冲到一定程度，为了将由ip_append_data缓冲的数据包发送出去，传输层协议处理函数需调用
+// ip_push_pending_frames，由ip_push_pending_frames函数来维护ip协议头
+//
+// 如传输层协议要求尽快地响应时间，可以在每次调用ip_append_data函数后，立即调用ip_push_pending_frames
+// 函数将数据包发送出去。这两个函数的主要作用是，使传输层协议可以尽可能多的缓存数据（直到pmtu的大小），然后
+// 一次性发送，这样的发送效率更高
+//
+// getfrag: 是传输层协议实例各自实现的函数，用于将传输层协议协议从套接字收到的负载数据复制到缓冲区中
+// getfrag函数中的参数指明负载数据的来源地址、复制到缓冲区的目标地址、数据长度等信息
+// from: 指向传输层要发送递给网络层缓存的数据（payload）起始地址，这个地址可以是一个内核地址空间的指针
+// 也可以是一个用户地址空间的指针
+// transhdrlen: 传输层协议头的大小
+// ipc: 正确传送数据包需要的信息，包括目标地址，输出网络设备和输出数据包的ip选项
+// rt: 与数据包发送相关的路由在路由表高速缓存中的记录入口，ip_queue_xmit自己提取该信息，ip_append_data
+// 依赖其调用函数即ip_route_output_flow收集该信息
+// flags: 该变量中包含MSG_XXX形式的标志，定义在include/linux/socket.h中
+// 主要使用MSG_MORE, MSG_DONTWAIT和MSG_PROBE三个量
+//
+// 在ip_append_data运行结束时，sk_write_queue队列是ip_append_data函数的输出，随后的函数
+// 只需要在其前面加上ip协议头，把它们放入到数据链路层，由dst_output发送出去
 int ip_append_data(struct sock *sk,
 		   int getfrag(void *from, char *to, int offset, int len,
 			       int odd, struct sk_buff *skb),
@@ -821,6 +860,9 @@ int ip_append_data(struct sock *sk,
 
 	if (skb_queue_empty(&sk->sk_write_queue)) {
 		// 如果传输控制块的输出队列为空，则需要为传输控制块设置一些临时信息
+		// 输入参数ipc中包含了发送输出数据包需要的所有信息，如果有ip选项，则将
+		// ip选项复制到struct cork数据结构的ip选项数据域，并设置有ip选项标志
+		// 数据包最终目标地址
 		/*
 		 * setup for corking.
 		 */
@@ -840,7 +882,9 @@ int ip_append_data(struct sock *sk,
 		dst_hold(&rt->u.dst);
 		// 设置IP数据报分片大小
 		inet->cork.fragsize = mtu = dst_mtu(rt->u.dst.path);
-		// 输出路由缓存
+		// 缓存路由信息到struct cork数据结构中，以便提高以后数据包的传送速度
+		// 初始化struct cork的其他数据域，数据段所在页面和在页面的偏移位置
+		// 如果使用IPsec协议，则会加额外协议头，只有第一个ip数据段要加传输层协议头
 		inet->cork.rt = rt;
 		// 初始化当前发送数据报中数据的长度
 		inet->cork.length = 0;
@@ -856,8 +900,13 @@ int ip_append_data(struct sock *sk,
 		if (inet->cork.flags & IPCORK_OPT)
 			opt = inet->cork.opt;
 
-		transhdrlen = 0;
-		exthdrlen = 0;
+		// 因为只有第一个ip数据段才需要加入传输层协议头和额外协议使用的协议头，后续的页面
+		// 不需要加入这些协议头，这时需要将transhdrlen和exthdrlen清零
+		// 随后，transhdrlen的值可以用于帮助ip_append_data判断当前是否正在创建sk_write_queue队列
+		// 的第一个ip数据，transhdrlen != 0表示ip_append_data正在处理sw_write_queue队列的第一个
+		// ip数据段
+		transhdrlen = 0;		// 非第一个缓冲区，将传输层协议头长度变量清零
+		exthdrlen = 0;			// 同上，将额外协议头长度变量清零
 		mtu = inet->cork.fragsize;
 	}
 	// 获取链路层首部的长度
@@ -918,6 +967,11 @@ int ip_append_data(struct sock *sk,
 		if (copy < length)
 			copy = maxfraglen - skb->len;
 		if (copy <= 0) {
+			// 当copy = 0时，这时sk_write_queue队列中最后sk_buff成员的数据缓冲区空间
+			// 已填满，需要分配新的skb，这时if语句块中的代码实现分配一个新的缓冲区skb
+			// 将输入数据复制到缓冲区中，把新缓冲区skb放入sk_write_queue队列
+			// 当copy < 0时，这是前一种情况的特例，当拷贝为负值时，意味着部分数据必须从ip数据段中
+			// 移动到一个新的ip数据段
 			char *data;
 			unsigned int datalen;
 			unsigned int fraglen;
@@ -1091,6 +1145,13 @@ error:
 	return err; 
 }
 
+// 内核还为用户地址空间的应用提供了另一个接口sendfile，它允许应用程序发送并复制数据
+// 这个接口称为"零复制"tcp/udp
+// sendfile接口只有在网络设备支持Scatter/Gather I/O功能时才能使用，这时的ip_append_data
+// 的逻辑实现不需要复制任何数据(即用户要求发送的数据仍然保存在其创建处)，内核只需将frags数组
+// 初始化指向接收数据缓冲区的位置，在必要的时候计算传输层的校验和，这种复制逻辑由ip_append_page
+// 函数实现
+// 目前只有udp使用ip_append_page函数
 ssize_t	ip_append_page(struct sock *sk, struct page *page,
 		       int offset, size_t size, int flags)
 {
@@ -1204,6 +1265,7 @@ ssize_t	ip_append_page(struct sock *sk, struct page *page,
 		i = skb_shinfo(skb)->nr_frags;
 		if (len > size)
 			len = size;
+		// 检查是否可以将新的数据段与页面中已有的数据合并
 		if (skb_can_coalesce(skb, i, page, offset)) {
 			skb_shinfo(skb)->frags[i-1].size += len;
 		} else if (i < MAX_SKB_FRAGS) {
@@ -1260,6 +1322,7 @@ int ip_push_pending_frames(struct sock *sk)
 	// 去除后续SKB中的IP首部后，链接到第一个SKB的fraglist上，组成一个分片
 	// 为后续的分片做准备
 	while ((tmp_skb = __skb_dequeue(&sk->sk_write_queue)) != NULL) {
+		// 将sk_write_queue队列中的缓冲区取出链接成一个新的链表
 		__skb_pull(tmp_skb, skb->h.raw - skb->nh.raw);
 		*tail_skb = tmp_skb;
 		tail_skb = &(tmp_skb->next);

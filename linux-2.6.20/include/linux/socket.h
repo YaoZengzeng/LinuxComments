@@ -235,8 +235,11 @@ struct ucred {
 #define MSG_DONTROUTE	4
 #define MSG_TRYHARD     4       /* Synonym for MSG_DONTROUTE for DECnet */
 #define MSG_CTRUNC	8
+// 用户设置这个标志是为了探测发送路径的信息，如该标志可用在探测给定的ip地址路径上的pmtu
+// 如果设置了这个标志，ip_append_data立即返回成功标志
 #define MSG_PROBE	0x10	/* Do not send. Only probe path f.e. for MTU */
 #define MSG_TRUNC	0x20
+// 当设置了这个标志时，对ip_append_data的调用不能被阻塞
 #define MSG_DONTWAIT	0x40	/* Nonblocking io		 */
 #define MSG_EOR         0x80	/* End of record */
 #define MSG_WAITALL	0x100	/* Wait for a full request */
@@ -246,6 +249,8 @@ struct ucred {
 #define MSG_RST		0x1000
 #define MSG_ERRQUEUE	0x2000	/* Fetch message from error queue */
 #define MSG_NOSIGNAL	0x4000	/* Do not generate SIGPIPE */
+// 由应用程序使用，告诉传输层协议短时间捏还有更多的数据包要发送，这个标志再传给
+// 网络层，在分配内存时会应用到这个值
 #define MSG_MORE	0x8000	/* Sender will send more */
 
 #define MSG_EOF         MSG_FIN
