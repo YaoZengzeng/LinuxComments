@@ -519,16 +519,26 @@ extern u32	__tcp_select_window(struct sock *sk);
  * 40 bytes on 64-bit machines, if this grows please adjust
  * skbuff.h:skbuff->cb[xxx] size appropriately.
  */
+// tcp是完全异步的协议，实际数据段的传送独立于所有来自套接字层的写操作。tcp层分配
+// skb用来存放应用层写入套接字的数据，但应用程序控制管理数据包的信息存放在tcp的控制
+// 缓冲区中，tcp控制缓冲区由struct tcp_skb_cb描述，可以看到tcp控制缓冲区中的信息和
+// tcp协议头的信息有部分重合，当数据从应用程序复制到tcp的skb时，函数需要tcp控制缓冲区
+// 中tcp协议头的信息来设置struct tcphdr数据结构中的相关数据域
 struct tcp_skb_cb {
 	union {
+		// 存放输入数据段的ip选项
 		struct inet_skb_parm	h4;
 #if defined(CONFIG_IPV6) || defined (CONFIG_IPV6_MODULE)
 		struct inet6_skb_parm	h6;
 #endif
 	} header;	/* For incoming frames		*/
+	// 输出数据段的起始序列号
 	__u32		seq;		/* Starting sequence number	*/
 	__u32		end_seq;	/* SEQ + FIN + SYN + datalen	*/
+	// 用于计算rtt的值，用来管理数据段传输计时和数据重传，tcp数据段发送方根据
+	// when的值计算传出数据后要等待多长时间，如果等待一定时间后仍未收到ack，就重传数据
 	__u32		when;		/* used to compute rtt's	*/
+	// 与tcp协议头中的flags数据域定义相同
 	__u8		flags;		/* TCP header flags.		*/
 
 	/* NOTE: These must match up to the flags byte in a
@@ -543,13 +553,20 @@ struct tcp_skb_cb {
 #define TCPCB_FLAG_ECE		0x40
 #define TCPCB_FLAG_CWR		0x80
 
+	// 保存了选择回答(sack)和前送回答(fack)的状态标志，
 	__u8		sacked;		/* State flags for SACK/FACK.	*/
+// sack块已经给出了skb数据缓冲区中的段回答信息
 #define TCPCB_SACKED_ACKED	0x01	/* SKB ACK'd by a SACK block	*/
+// 数据段需要重传
 #define TCPCB_SACKED_RETRANS	0x02	/* SKB retransmitted		*/
+// 数据段丢失
 #define TCPCB_LOST		0x04	/* SKB is lost			*/
+// 结合前面三个标示来标识数据段
 #define TCPCB_TAGBITS		0x07	/* All tag bits			*/
 
+// 指明数据段以前是否重传过
 #define TCPCB_EVER_RETRANS	0x80	/* Ever retransmitted frame	*/
+// 指明数据段是一个重传过的数据段
 #define TCPCB_RETRANS		(TCPCB_SACKED_RETRANS|TCPCB_EVER_RETRANS)
 
 #define TCPCB_URG		0x20	/* Urgent pointer advanced here	*/
@@ -557,6 +574,7 @@ struct tcp_skb_cb {
 #define TCPCB_AT_TAIL		(TCPCB_URG)
 
 	__u16		urg_ptr;	/* Valid w/URG flags is set.	*/
+	// 与tcp协议头中的ack数据域相同
 	__u32		ack_seq;	/* Sequence number ACK'd	*/
 };
 
@@ -821,7 +839,9 @@ static inline int tcp_checksum_complete(struct sk_buff *skb)
 }
 
 /* Prequeue for VJ style copy to user, combined with checksumming. */
-
+// tcp_prequeue_init完成"Fast Path"的初始化，它初始化struct ucopy数据结构中的成员
+// 以及prequeue队列中的skb链表，初始化过程是用户进程在AF_INET地址族上打开任意SOCK_STREAM
+// 类型的套接字时调用的，struct ucopy的初始化是套接字状态信息初始化(由tcp_v4_init_sock函数完成)的一部分
 static inline void tcp_prequeue_init(struct tcp_sock *tp)
 {
 	tp->ucopy.task = NULL;
@@ -844,6 +864,9 @@ static inline void tcp_prequeue_init(struct tcp_sock *tp)
  *
  * NOTE: is this not too big to inline?
  */
+// 由tcp_prequeue函数完成将skb放入prequeue队列的功能，tcp_prequeue函数将skb
+// 放入prequeue队列的条件是，有用户进程在打开的套接字上等待接收数据，这个条件通过
+// struct ucopy数据结构的task数据域非空来验证
 static inline int tcp_prequeue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -851,18 +874,23 @@ static inline int tcp_prequeue(struct sock *sk, struct sk_buff *skb)
 	if (!sysctl_tcp_low_latency && tp->ucopy.task) {
 		__skb_queue_tail(&tp->ucopy.prequeue, skb);
 		tp->ucopy.memory += skb->truesize;
+		// 如果prequeue队列中缓冲区的总长度大于套接字接收缓冲区的长度，则将
+		// 缓冲区放入"Slow Path"路径队列处理
 		if (tp->ucopy.memory > sk->sk_rcvbuf) {
 			struct sk_buff *skb1;
 
 			BUG_ON(sock_owned_by_user(sk));
 
+			// 在prequeue队列不为空时，从prequeue队列上取下skb，交给sk_backlog_rcv函数处理
 			while ((skb1 = __skb_dequeue(&tp->ucopy.prequeue)) != NULL) {
 				sk->sk_backlog_rcv(sk, skb1);
 				NET_INC_STATS_BH(LINUX_MIB_TCPPREQUEUEDROPPED);
 			}
 
+			// 清空prequeue队列
 			tp->ucopy.memory = 0;
 		} else if (skb_queue_len(&tp->ucopy.prequeue) == 1) {
+			// prequeue队列上至少有一个缓冲区，唤醒用户进程接收数据
 			wake_up_interruptible(sk->sk_sleep);
 			if (!inet_csk_ack_scheduled(sk))
 				inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,

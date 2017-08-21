@@ -36,20 +36,32 @@ struct tcp_congestion_ops;
  * Pointers to address related TCP functions
  * (i.e. things that depend on the address family)
  */
+// inet_connection_sock_af_ops数据结构包含了一组AF_INET地址组中tcp协议实例的操作函数
+// 其目的是实现一组ipv4和ipv6都可以共享tcp与网络层之间的接口
 struct inet_connection_sock_af_ops {
+	// ipv4网络层传送函数
 	int	    (*queue_xmit)(struct sk_buff *skb, int ipfragok);
+	// 计算tcp发送数据段校验和函数
 	void	    (*send_check)(struct sock *sk, int len,
 				  struct sk_buff *skb);
+	// 创建tcp协议头
 	int	    (*rebuild_header)(struct sock *sk);
+	// 处理连接请求数据段
 	int	    (*conn_request)(struct sock *sk, struct sk_buff *skb);
+	// 从另一端点收到SYNACK回答后创建新的子套接字的函数
 	struct sock *(*syn_recv_sock)(struct sock *sk, struct sk_buff *skb,
 				      struct request_sock *req,
 				      struct dst_entry *dst);
+	// 用于保存从某个站点收到最后一个数据包的时间戳
 	int	    (*remember_stamp)(struct sock *sk);
+	// 网络层协议头的大小，设置为ipv4协议头长度
 	u16	    net_header_len;
+	// ipv4的sockaddr_in类型地址大小
 	u16	    sockaddr_len;
+	// 设置ipv4在网络层的套接字选项
 	int	    (*setsockopt)(struct sock *sk, int level, int optname, 
 				  char __user *optval, int optlen);
+	// 获取ipv4在网络层的套接字选项
 	int	    (*getsockopt)(struct sock *sk, int level, int optname, 
 				  char __user *optval, int __user *optlen);
 	int	    (*compat_setsockopt)(struct sock *sk,
@@ -58,6 +70,7 @@ struct inet_connection_sock_af_ops {
 	int	    (*compat_getsockopt)(struct sock *sk,
 				int level, int optname,
 				char __user *optval, int __user *optlen);
+	// 为ipv4生成常规sockaddr_in类型地址
 	void	    (*addr2sockaddr)(struct sock *sk, struct sockaddr *);
 };
 

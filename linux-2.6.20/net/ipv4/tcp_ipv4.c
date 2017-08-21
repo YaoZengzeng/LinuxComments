@@ -1553,6 +1553,8 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		goto discard;
 #endif
 
+	// 如果套接字当前状态为连接状态，缓冲区可能可以通过"Fast Path"路径处理，由tcp_rcv_established
+	// 函数完成此功能
 	if (sk->sk_state == TCP_ESTABLISHED) { /* Fast path */
 		TCP_CHECK_TIMER(sk);
 		if (tcp_rcv_established(sk, skb, skb->h.th, skb->len)) {
@@ -1563,14 +1565,22 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		return 0;
 	}
 
+	// 通过查看tcp协议头的长度和数据包校验和的是否正确，以确认接收的数据包为完好的数据包
 	if (skb->len < (skb->h.th->doff << 2) || tcp_checksum_complete(skb))
 		goto csum_err;
 
 	if (sk->sk_state == TCP_LISTEN) {
+		// 查看输入数据包skb是否为一个建立连接请求的syn数据包，如果收到的是一个有效的syn数据段
+		// 则将套接字状态转变为接收状态，这个过程由tcp_v4_hnd_req完成，
+		// 它使连接有效并返回建立连接的套接字数据结构地址struct sock *snk或NULL，返回的套接字
+		// 就处于ESTABLISHED状态
 		struct sock *nsk = tcp_v4_hnd_req(sk, skb);
 		if (!nsk)
 			goto discard;
 
+		// 原套接字sk继续侦听，调用tcp_child_process函数在子套接字nsk上处理接收
+		// 如果接收处理成功，则函数tcp_child_process返回0，此后新的套接字就处于连接
+		// 状态，可以传送和接收数据
 		if (nsk != sk) {
 			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
@@ -1581,6 +1591,8 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 	}
 
 	TCP_CHECK_TIMER(sk);
+	// 如果套接字当前不处于侦听状态，则调用tcp_rcv_state_process函数处理套接字的
+	// 常规状态切换，如果返回0则说明处理成，如果返回非0则说明我们必须复位套接字连接
 	if (tcp_rcv_state_process(sk, skb, skb->h.th, skb->len)) {
 		rsk = sk;
 		goto reset;
@@ -1588,6 +1600,8 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 	TCP_CHECK_TIMER(sk);
 	return 0;
 
+// 函数的3个退出标签：reset, discard和csumm_err分别处理复位套接字连接、扔掉数据包和
+// 更新接收错误统计信息
 reset:
 	tcp_v4_send_reset(rsk, skb);
 discard:
@@ -1614,15 +1628,18 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	struct sock *sk;
 	int ret;
 
+	// 指明数据包的目标地址不是本主机地址时，扔掉数据包，这种情况能发生于网络设备工作在混杂模式状态时
 	if (skb->pkt_type != PACKET_HOST)
 		goto discard_it;
 
 	/* Count it even if it's bad */
 	TCP_INC_STATS_BH(TCP_MIB_INSEGS);
 
+	// 是否能正确获取tcp协议头信息
 	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))
 		goto discard_it;
 
+	// 读取tcp协议头信息，查看协议头中doff数据域的正确性
 	th = skb->h.th;
 
 	if (th->doff < sizeof(struct tcphdr) / 4)
@@ -1634,10 +1651,12 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	 * Packet length and doff are validated by header prediction,
 	 * provided case of th->doff==0 is eliminated.
 	 * So, we defer the checks. */
+	// 查看数据包校验和的正确性
 	if ((skb->ip_summed != CHECKSUM_UNNECESSARY &&
 	     tcp_v4_checksum_init(skb)))
 		goto bad_packet;
 
+	// 将tcp协议头的某些数据域保存在skb的控制缓冲区中，以便于以后访问
 	th = skb->h.th;
 	TCP_SKB_CB(skb)->seq = ntohl(th->seq);
 	TCP_SKB_CB(skb)->end_seq = (TCP_SKB_CB(skb)->seq + th->syn + th->fin +
@@ -1647,6 +1666,8 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->flags	 = skb->nh.iph->tos;
 	TCP_SKB_CB(skb)->sacked	 = 0;
 
+	// 查看接收到的数据包是否属于某个打开的套接字，查看的依据是接收数据包的网络接口
+	// 源端口和目的端口号，
 	sk = __inet_lookup(&tcp_hashinfo, skb->nh.iph->saddr, th->source,
 			   skb->nh.iph->daddr, th->dest,
 			   inet_iif(skb));
@@ -1654,10 +1675,15 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	if (!sk)
 		goto no_tcp_socket;
 
+// 数据段的处理
 process:
+	// 一旦获取数据段所属的套接字，就查看套接字的连接状态，如果连接状态为TIME_WAIT
+	// 则必须以特殊方式立即处理数据包
 	if (sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
 
+	// IPSec策略检查和网络过滤，如果内核配置使用了IPsec协议栈，则对数据包进行IPsec策略检查
+	// 此项检查由网络过滤子系统完成，如果未通过检查，则扔掉数据包
 	if (!xfrm4_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto discard_and_relse;
 	nf_reset(skb);
@@ -1669,7 +1695,9 @@ process:
 
 	bh_lock_sock_nested(sk);
 	ret = 0;
+	// 锁定数据包所属套接字
 	if (!sock_owned_by_user(sk)) {
+	// 如果配置了dma传送，则以dma方式在设备缓冲区与用户缓冲区之间复制数据
 #ifdef CONFIG_NET_DMA
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (!tp->ucopy.dma_chan && tp->ucopy.pinned_list)
@@ -1679,10 +1707,13 @@ process:
 		else
 #endif
 		{
+			// 将数据段放入prequeue队列，数据段按"Fast Path"路径处理，不成功调用tcp_v4_do_rcv
+			// 将数据段按"Slow Path"路径处理
 			if (!tcp_prequeue(sk, skb))
 			ret = tcp_v4_do_rcv(sk, skb);
 		}
 	} else
+		// 如果锁定套接字不成功，则将数据放入backlog queue队列中
 		sk_add_backlog(sk, skb);
 	bh_unlock_sock(sk);
 
@@ -1691,6 +1722,10 @@ process:
 	return ret;
 
 no_tcp_socket:
+	// 如果程序执行到no_tcp_socket标签，则表明接收过程将在当前tcp套接字没有打开的情况下
+	// 结束，这时仍需要完成对数据包校验和的校验，看数据包是否为一个损坏的数据包，如果数据包
+	// 不正确，则更新接收错误消息，如果数据包完好无损，则意味着程序试图发送一个数据段给一个
+	// 未打开的套接字，函数需要对外发送一个复位请求来关闭连接，然后扔掉数据包，释放缓存
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto discard_it;
 
@@ -1721,7 +1756,10 @@ do_time_wait:
 		inet_twsk_put(inet_twsk(sk));
 		goto discard_it;
 	}
+	// 当套接字状态为TIME_WAIT时对数据段的处理，根据tcp_timewait_state_process函数返回的
+	// 数据段类型做相应处理
 	switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
+	// 如果接收到的数据段为同步请求SYN数据段，则打开套接字连接
 	case TCP_TW_SYN: {
 		struct sock *sk2 = inet_lookup_listener(&tcp_hashinfo,
 							skb->nh.iph->daddr,
@@ -1735,6 +1773,7 @@ do_time_wait:
 		}
 		/* Fall through to ACK */
 	}
+	// 收到最后一个数据段为ack数据段
 	case TCP_TW_ACK:
 		tcp_v4_timewait_ack(sk, skb);
 		break;
@@ -1803,6 +1842,8 @@ int tcp_v4_tw_remember_stamp(struct inet_timewait_sock *tw)
 	return 0;
 }
 
+// 定义tcp的struct inet_connection_sock_af_ops数据结构类型的变量实例
+// 并对其数据域赋初值
 struct inet_connection_sock_af_ops ipv4_specific = {
 	.queue_xmit	   = ip_queue_xmit,
 	.send_check	   = tcp_v4_send_check,
@@ -1835,13 +1876,18 @@ static struct tcp_sock_af_ops tcp_sock_ipv4_specific = {
  */
 static int tcp_v4_init_sock(struct sock *sk)
 {
+	// 获取套接字指针
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	// 初始化out_of_order_queue队列：初始化tcp输入队列，该队列只由tcp使用
 	skb_queue_head_init(&tp->out_of_order_queue);
+	// 初始化传送超时时钟
 	tcp_init_xmit_timers(sk);
+	// 初始化prequeue输入队列，该队列用"Fast Path"接收
 	tcp_prequeue_init(tp);
 
+	// 初始化数据包重传时间，rto，介质偏差时间mdev，mdev用于衡量rtt，设置为3秒
 	icsk->icsk_rto = TCP_TIMEOUT_INIT;
 	tp->mdev = TCP_TIMEOUT_INIT;
 
@@ -1850,33 +1896,44 @@ static int tcp_v4_init_sock(struct sock *sk)
 	 * algorithms that we must have the following bandaid to talk
 	 * efficiently to them.  -DaveM
 	 */
+	// 初始化发送拥塞窗口的大小(send congestion window, cwnd) = 2
 	tp->snd_cwnd = 2;
 
 	/* See draft-stevens-tcpca-spec-01 for discussion of the
 	 * initialization of these values.
 	 */
+	// 设置send slow start threshold为最大值
 	tp->snd_ssthresh = 0x7fffffff;	/* Infinity */
+	// 设置发送拥塞窗口声明snd_cwnd_clamp为最大值
 	tp->snd_cwnd_clamp = ~0;
+	// mms_cache是tcp最小段大小为536
 	tp->mss_cache = 536;
 
+	// 按系统配置控制值初始化tcp选项结构的重排序域reordering, 套接字的状态state
+	// 目前保持关闭，初始化inet连接套接字阻塞管理操作的函数为tcp_init_congestion_ops
 	tp->reordering = sysctl_tcp_reordering;
 	icsk->icsk_ca_ops = &tcp_init_congestion_ops;
 
 	sk->sk_state = TCP_CLOSE;
 
+	// 套接字sk->sk_write_space指针，指向套接字的回调函数，当套接字的写缓冲区有效时调用该函数
+	// 它指向sk_stream_write_space
 	sk->sk_write_space = sk_stream_write_space;
 	sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
 
+	// 注册传输层各协议实例的struct inet_connection_sock_af_ops数据结构的变量实例
 	icsk->icsk_af_ops = &ipv4_specific;
 	icsk->icsk_sync_mss = tcp_sync_mss;
 #ifdef CONFIG_TCP_MD5SIG
 	tp->af_specific = &tcp_sock_ipv4_specific;
 #endif
 
+	// 将套接字的发送缓冲区sk_sndbuf和接收缓冲区sk_rcvbuf大小初始化为系统配置控制值
+	// 可以用系统调用setsockopt来改变它们的大小
 	sk->sk_sndbuf = sysctl_tcp_wmem[1];
 	sk->sk_rcvbuf = sysctl_tcp_rmem[1];
 
-	// tcp_sockets_allocated是TCP的一个全局计数器
+	// tcp_sockets_allocated是TCP的一个全局计数器，保存了打开的tcp套接字的数量，这里对该值加1
 	atomic_inc(&tcp_sockets_allocated);
 
 	return 0;
@@ -2415,6 +2472,8 @@ void tcp4_proc_exit(void)
 }
 #endif /* CONFIG_PROC_FS */
 
+// 协议实例通过int proto_register(struct proto *prot, int alloc_slab)函数注册到tcp/ip协议栈中
+// tcp协议实例与套接字之间的接口函数在inet_init中注册并初始化
 struct proto tcp_prot = {
 	.name			= "TCP",
 	.owner			= THIS_MODULE,

@@ -56,12 +56,21 @@ struct linger {
  */
  
 struct msghdr {
+	// msg_name数据域中不是实际的套接字名，它是一个指针，指向struct sockaddr_in数据结构的变量
 	void	*	msg_name;	/* Socket name			*/
+	// 由msg_name指向的地址信息的长度
 	int		msg_namelen;	/* Length of name		*/
+	// 指向缓冲区数组的起始地址，这些缓冲区中包含了要发送或接收到的数据段，我们常把这些缓冲区
+	// 称为分割/收集数组(Scatter/Gather array),但这些缓存区不仅用于DMA操作，也用于不使用DMA
+	// 方式传送数据的操作
 	struct iovec *	msg_iov;	/* Data blocks			*/
+	// msg_iov缓冲区数组中缓冲区的个数
 	__kernel_size_t	msg_iovlen;	/* Number of blocks		*/
+	// 用于支持应用程序的控制消息api功能，向套接字层下的协议传送控制信息
 	void 	*	msg_control;	/* Per protocol magic (eg BSD file descriptor passing) */
+	// 控制信息msg_control的长度
 	__kernel_size_t	msg_controllen;	/* Length of cmsg list */
+	// 套接字从应用层接收到控制的标志
 	unsigned	msg_flags;
 };
 

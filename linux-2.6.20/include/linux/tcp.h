@@ -35,7 +35,9 @@ struct tcphdr {
 		psh:1,
 		ack:1,
 		urg:1,
+		// 用于网络拥塞控制
 		ece:1,
+		// 用于窗口控制
 		cwr:1;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	__u16	doff:4,
@@ -82,17 +84,38 @@ enum {
 }; 
 
 /* TCP socket options */
+// 当设置了该选项后，tcp会立即向外发送数据段，而不会等待数据段中填入更多数据
+// 如果设置了TCP_CORK选项，这个选项就失效
 #define TCP_NODELAY		1	/* Turn off Nagle's algorithm. */
+// 在套接字建立连接之前，该选项指定最大数据段大小的值，送给tcp选项的mss值就是由此选项
+// 决定的，但mss的值不能超过接口的mtu，tcp连接两端的站点可以协商数据段的大小
 #define TCP_MAXSEG		2	/* Limit MSS */
 #define TCP_CORK		3	/* Never send partially complete segments */
+// 在tcp开始传送连接是否保持活动的探测数据段之前，连接处于空闲状态的时间值，以秒为单位
+// 默认值为两个小时，该选项只有在套接字设置了SO_KEEPALIVE选项时才有效
 #define TCP_KEEPIDLE		4	/* Start keeplives after this period */
+// 设定在两次传送探测连接保持活动数据段之前需要等待多少秒，初始值为75秒
 #define TCP_KEEPINTVL		5	/* Interval between keepalives */
+// 使用此选项，应用程序调用者可以设置在断开连接之前通过套接字发送多少个保持连接活动(keepalive)
+// 的探测数据段，如果要使这个选项有效，则还必须设置套接字的SO_KEEPALIVE选项
 #define TCP_KEEPCNT		6	/* Number of keepalives before death */
+// 这个选项用于在尝试建立tcp连接时，如果连接没能建立起来，在重发多少次syn后，才放弃建立连接请求
 #define TCP_SYNCNT		7	/* Number of SYN retransmits */
+// 该选项指定处于FIN_WAIT2状态的孤立套接字还应保持存活多久，如果其值为0，则关闭选项，Linux使用
+// 常规方式处理FIN_WAIT_2和TIME_WAIT状态，如果值小于0，则套接字立即从FIN_WAIT_2状态进入CLOSED状态
+// 不经过TIME_WAIT，
 #define TCP_LINGER2		8	/* Life time of orphaned FIN-WAIT-2 state */
+// 应用程序调用者在数据还没到达套接字之前，可以处于休眠状态，但当数据到达套接字时则应用程序被唤醒、
+// 如果等待超市应用程序也会被唤醒，调用者可以设置一个时间值来描述应用程序等待数据达到超时时间
 #define TCP_DEFER_ACCEPT	9	/* Wake up listener only when data arrive */
+// 指定套接字窗口大小，窗口的最小值是SOCK_MIN_RCVBUF除以2，等于128个字节
 #define TCP_WINDOW_CLAMP	10	/* Bound advertised window */
+// 调用程序使用此选项可以提取大部分套接字的配置信息，在提取配置信息后，返回到struct tcp_info中
 #define TCP_INFO		11	/* Information about this connection. */
+// 当这个选项的值设置为1时，会关闭延迟回答，或为0时允许延迟回答，延迟回答是Linux tcp操作的一个常规
+// 模式，在延迟回答时，ack数据的发送会延迟到可以与一个等待发送到另一端的数据段合并时，才发送出去。如果
+// 这个选项的值为1，则将struct tcp_sock结构中的ack部分的pingpong数据域设为0，就可以禁止延迟发送
+// TCP_QUICKACK选项只会暂时影响tcp协议的操作行为
 #define TCP_QUICKACK		12	/* Block/reenable quick acks */
 #define TCP_CONGESTION		13	/* Congestion control algorithm */
 #define TCP_MD5SIG		14	/* TCP MD5 Signature (RFC2385) */
@@ -118,6 +141,8 @@ enum tcp_ca_state
 
 struct tcp_info
 {
+	// 第一个数据域tcpi_state中包含的是当前tcp的连接状态，其后的数据直到tcpi_fackets
+	// 包含的是连接统计信息
 	__u8	tcpi_state;
 	__u8	tcpi_ca_state;
 	__u8	tcpi_retransmits;
@@ -138,12 +163,14 @@ struct tcp_info
 	__u32	tcpi_fackets;
 
 	/* Times. */
+	// 以下四个数据域是事件的时间戳信息
 	__u32	tcpi_last_data_sent;
 	__u32	tcpi_last_ack_sent;     /* Not remembered, sorry. */
 	__u32	tcpi_last_data_recv;
 	__u32	tcpi_last_ack_recv;
 
 	/* Metrics. */
+	// 最后一部分是tcp协议的度量值，如mtu, 发送门限值，环形传送时间和阻塞窗口
 	__u32	tcpi_pmtu;
 	__u32	tcpi_rcv_ssthresh;
 	__u32	tcpi_rtt;
@@ -226,14 +253,20 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
+	// struct inet_connection_sock中包含struct inet_connection_sock_af_ops *icsk_af_ops
+	// 数据结构，是套接字操作函数指针数据块，各协议实例在初始化时将函数指针初始化为自己的函数实例
+	// struct inet_connection_sock inet_conn数据结构必须为tcp_sock的第一个成员
 	struct inet_connection_sock	inet_conn;
+	// 传送数据单tcp协议头的长度
 	u16	tcp_header_len;	/* Bytes of tcp header to send		*/
+	// 输出数据段的目标
 	u16	xmit_size_goal;	/* Goal for segmenting output packets	*/
 
 /*
  *	Header prediction flags
  *	0x5?10 << 16 + snd_wnd in net byte order
  */
+ 	// tcp协议头预定向完成标志，用该标志确定数据包是否通过"Fast Path"接收
 	__be32	pred_flags;
 
 /*
@@ -241,7 +274,9 @@ struct tcp_sock {
  *	read the code and the spec side by side (and laugh ...)
  *	See RFC793 and RFC1122. The RFC writes these in capitals.
  */
+ 	// 下一个输入数据段的序列号
  	u32	rcv_nxt;	/* What we want to receive next 	*/
+ 	// 下一个发送数据段的序列号
  	u32	snd_nxt;	/* Next sequence we send		*/
 
  	u32	snd_una;	/* First byte we want an ack for	*/
@@ -250,14 +285,22 @@ struct tcp_sock {
 	u32	lsndtime;	/* timestamp of last sent data packet (for restart window) */
 
 	/* Data for direct copy to user */
+ 	// struct ucopy数据结构是实现数据段"Fast Path"接收的关键
 	struct {
+		// 输入队列，其中包含等待由"Fast Path"处理的skb链表
 		struct sk_buff_head	prequeue;
+		// 用户进程，指向prequeue队列中数据段的用户进程
 		struct task_struct	*task;
+		// 指向用户地址空间中存放接收数据的数组
 		struct iovec		*iov;
+		// 在prequeue队列中所有skb中数据长度的总和
 		int			memory;
+		// prequeue队列中skb缓冲区的个数
 		int			len;
 #ifdef CONFIG_NET_DMA
 		/* members for async copy */
+		// 用于数据异步复制，当网络设备支持Scatter/Gather IO功能时，可以利用dma直接内存访问
+		// 将数据异步从网络设备硬件缓冲区中复制到应用程序地址空间的缓冲区
 		struct dma_chan		*dma_chan;
 		int			wakeup;
 		struct dma_pinned_list	*pinned_list;
@@ -276,6 +319,7 @@ struct tcp_sock {
 	u32	frto_highmark;	/* snd_nxt when RTO occurred */
 	u8	reordering;	/* Packet reordering metric.		*/
 	u8	frto_counter;	/* Number of new acks after RTO */
+	// TCP_CORK选项：tcp不立即发送数据段，直到数据段中的数据达到tcp协议数据段的最大长度
 	u8	nonagle;	/* Disable Nagle algorithm?             */
 	u8	keepalive_probes; /* num of allowed keep alive probes	*/
 

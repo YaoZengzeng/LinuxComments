@@ -1116,12 +1116,15 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	TCP_CHECK_TIMER(sk);
 
 	err = -ENOTCONN;
+	// 如果当前套接字处于侦听状态，说明还没有数据等待接收，跳出
 	if (sk->sk_state == TCP_LISTEN)
 		goto out;
 
 	timeo = sock_rcvtimeo(sk, nonblock);
 
 	/* Urgent data needs to be handled specially. */
+	// 如果设置了MSG_OOB标志处理紧急数据（即输入段设置了URG标志），seq初始化为下一个准备读的字节
+	// copied_seq中包含的是已处理的最后一个字节
 	if (flags & MSG_OOB)
 		goto recv_urg;
 
@@ -1131,8 +1134,12 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		seq = &peek_seq;
 	}
 
+	// 将本次读的字节数target，设置为sk->rcvlowat和len中小的值，MSG_WAITALL标志指明
+	// 本次调用是否会阻塞
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
 
+	// 如果网络设备支持Scatter/Gather IO功能，内核配置了dma，则可以通过直接访问复制数据到
+	// 用户地址空间
 #ifdef CONFIG_NET_DMA
 	tp->ucopy.dma_chan = NULL;
 	preempt_disable();
@@ -1144,14 +1151,19 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		preempt_enable_no_resched();
 #endif
 
+	// do循环是tcp_recvmsg的主循环，在该循环中，我们将继续复制字节到用户地址空间，直到达到target
+	// 或对输入数据段检测到了其他异常条件，退出循环
 	do {
 		struct sk_buff *skb;
 		u32 offset;
 
 		/* Are we at urgent data? Stop if we have read anything or have SIGURG pending. */
+		// 如果复制了一些数据后，遇到紧急数据，则停止处理过程
 		if (tp->urg_data && tp->urg_seq == *seq) {
 			if (copied)
 				break;
+			// 这时检测该套接字上是否有信号等待处理，以确保能正确处理SIGUSR信号，接下来查看套接字是否超时
+			// 如果超时则返回错误代码
 			if (signal_pending(current)) {
 				copied = timeo ? sock_intr_errno(timeo) : -EAGAIN;
 				break;
@@ -1159,8 +1171,11 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 		/* Next get a buffer. */
-
+		// 获取接收队列上的第一个缓冲区指针，在do{}while循环内遍历接收队列直到发现第一个数据段，
+		// 发现第一个数据段才知道有多少字节需要复制，跳到found_ok-skb的同时计算应从skb复制的字节数
 		skb = skb_peek(&sk->sk_receive_queue);
+		// 在循环内一直查看直到发现有效数据段，在此过程中查看FIN和SYN。如果发现SYN，则调整要复制的字节数
+		// 从偏移量中减1，如果是FIN，跳出循环
 		do {
 			if (!skb)
 				break;
@@ -1168,6 +1183,9 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			/* Now that we have two receive queues this
 			 * shouldn't happen.
 			 */
+			// 现在查看当前处理字节不在最近处理接收数据段的第一个字节前，这样可以判断当前处理是否
+			// 超出当前队列数据包同步范围，这实际上是一个冗余检查，因为我们锁定了套接字，而且可以
+			// 了解套接字有多少个队列防止数据丢失
 			if (before(*seq, TCP_SKB_CB(skb)->seq)) {
 				printk(KERN_INFO "recvmsg bug: copied %X "
 				       "seq %X\n", *seq, TCP_SKB_CB(skb)->seq);
@@ -1185,10 +1203,11 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		} while (skb != (struct sk_buff *)&sk->sk_receive_queue);
 
 		/* Well, if we have backlog, try to process it now yet. */
-
+		// 程序运行到此说明套接字接收队列中已无数据，如果backlog队列中有数据包，则处理backlog队列中的数据
 		if (copied >= target && !sk->sk_backlog.tail)
 			break;
-
+		// 这里必须做一些相应的检查看是否应停止处理数据包，看套接字是否已关闭或从远端收到断开连接请求
+		// (在接收数据包中有RST标志)
 		if (copied) {
 			if (sk->sk_err ||
 			    sk->sk_state == TCP_CLOSE ||
@@ -1210,6 +1229,9 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				break;
 
 			if (sk->sk_state == TCP_CLOSE) {
+				// 当用户关闭了套接字，会设置SOCK_DONE标志，所以当连接状态是CLOSED时，其值为非零
+				// 如果在CLOSED套接字上，则SOCK_DONE为非零，说明应用程序试图从一个从未建立起连接的
+				// 套接字上读取数据，这是一个错误条件
 				if (!sock_flag(sk, SOCK_DONE)) {
 					/* This occurs when user tries to read
 					 * from never connected socket.
@@ -1232,7 +1254,10 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 		tcp_cleanup_rbuf(sk, copied);
-
+		// 这时在接收队列中已无数据段需要处理，我们将处理prequeue队列上的数据包，在此之前
+		// 协议头预定向指明在连接为ESTABLISHED状态下可能收到有数据段。Prequeue队列是由
+		// 用户进程现场处理而不是bottom half，将Ucopy.task设置为当前进程，current强制复制
+		// prequeue队列中的数据段到用户空间
 		if (!sysctl_tcp_low_latency && tp->ucopy.task == user_recv) {
 			/* Install new reader */
 			if (!user_recv && !(flags & (MSG_TRUNC | MSG_PEEK))) {
@@ -1279,10 +1304,14 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 		if (copied >= target) {
+			// 现在，处理backlog队列，看是否可能从该队列上直接复制数据，这时我们已经处理了prequeue
+			// 队列，release_sock在唤醒等待在套接字上的用户进程前，先遍历backlog队列上的所有数据包
+			// sk->backlog
 			/* Do not sleep, just process backlog. */
 			release_sock(sk);
 			lock_sock(sk);
 		} else
+			// 如果已经没有数据要处理了，则等待新的数据到来，sk_wait_data把套接字放入等待状态
 			sk_wait_data(sk, &timeo);
 
 #ifdef CONFIG_NET_DMA
@@ -1293,7 +1322,7 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			int chunk;
 
 			/* __ Restore normal policy in scheduler __ */
-
+			// 计算在前面的步骤是否从backlog队列中直接复制了任何数据，也将进程调度器返回其正常状态
 			if ((chunk = len - tp->ucopy.len) != 0) {
 				NET_ADD_STATS_USER(LINUX_MIB_TCPDIRECTCOPYFROMBACKLOG, chunk);
 				len -= chunk;
@@ -1303,6 +1332,8 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			if (tp->rcv_nxt == tp->copied_seq &&
 			    !skb_queue_empty(&tp->ucopy.prequeue)) {
 do_prequeue:
+				// 处理prequeue队列处，由tcp_prequeue_process函数完成这项处理，调用此函数后
+				// 调整从prequeue队列中已复制的数据量
 				tcp_prequeue_process(sk);
 
 				if ((chunk = len - tp->ucopy.len) != 0) {
@@ -1320,6 +1351,8 @@ do_prequeue:
 		}
 		continue;
 
+	// 这里是在前面的循环中，我们发现在接收队列中有数据段时，就跳到此处，从skb->len数据域计算有多少数据域要复制
+	// 以及它们的偏移量
 	found_ok_skb:
 		/* Ok so how much can we use? */
 		used = skb->len - offset;
@@ -1327,6 +1360,7 @@ do_prequeue:
 			used = len;
 
 		/* Do we have urgent data here? */
+		// 这时首先必须查看紧急数据，除非设置了套接字选项SO_OOBINLINE，这时我们不处理紧急数据，因为它已单独处理
 		if (tp->urg_data) {
 			u32 urg_offset = tp->urg_seq - *seq;
 			if (urg_offset < used) {
@@ -1343,6 +1377,7 @@ do_prequeue:
 			}
 		}
 
+		// 复制数据到用户地址空间，如果在复制过程中有错，则返回EFAULT
 		if (!(flags & MSG_TRUNC)) {
 #ifdef CONFIG_NET_DMA
 			if (!tp->ucopy.dma_chan && tp->ucopy.pinned_list)
@@ -1389,6 +1424,8 @@ do_prequeue:
 skip_copy:
 		if (tp->urg_data && after(tp->copied_seq, tp->urg_seq)) {
 			tp->urg_data = 0;
+			// 现在处理完了紧急数据，转到Fast Path上，如果输入处理遇到有紧急数据的段
+			// 则Fast Path会关闭
 			tcp_fast_path_check(sk, tp);
 		}
 		if (used + offset < skb->len)
@@ -1402,6 +1439,8 @@ skip_copy:
 		}
 		continue;
 
+	// 如果在接收队列中的数据包有FIN标志，跳入此处，按照rfc793，必须在序列号中计算FIN的一个字节
+	// 并重新计算TCP窗口
 	found_fin_ok:
 		/* Process the FIN. */
 		++*seq;
@@ -1412,6 +1451,8 @@ skip_copy:
 		break;
 	} while (len > 0);
 
+	// 处于while循环体外处理套接字，直到满足应用程序调用要求的数据总量len，如果现在跳出了循环
+	// 但仍在prequeue队列中留下了数据，则现在必须进行处理
 	if (user_recv) {
 		if (!skb_queue_empty(&tp->ucopy.prequeue)) {
 			int chunk;
@@ -1466,17 +1507,20 @@ skip_copy:
 	 */
 
 	/* Clean up data we have read: This will do ACK frames. */
+	// cleanup_rbuf清楚tcp接收缓冲区，如果需要它也会发送ack
 	tcp_cleanup_rbuf(sk, copied);
 
 	TCP_CHECK_TIMER(sk);
 	release_sock(sk);
 	return copied;
 
+	// 处理完成，释放套接字，跳出
 out:
 	TCP_CHECK_TIMER(sk);
 	release_sock(sk);
 	return err;
 
+	// 在处理数据段时遇到紧急数据，跳到此片，tcp_recv_urg复制紧急数据到用户地址空间
 recv_urg:
 	err = tcp_recv_urg(sk, timeo, msg, len, flags, addr_len);
 	goto out;
