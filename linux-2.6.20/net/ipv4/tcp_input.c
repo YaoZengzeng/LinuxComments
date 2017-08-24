@@ -3912,7 +3912,9 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 	 *	 space for instance)
 	 *	PSH flag is ignored.
 	 */
-
+	// 数据包是否满足"Fast Path"条件
+	// a) 预定向标志与输入数据段的标志作比较
+	// b) 数据段接收顺序正确
 	if ((tcp_flag_word(th) & TCP_HP_BITS) == tp->pred_flags &&
 		TCP_SKB_CB(skb)->seq == tp->rcv_nxt) {
 		int tcp_header_len = tp->tcp_header_len;
@@ -3923,6 +3925,8 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 		 */
 
 		/* Check timestamp */
+		// c) 除时间戳选项外没有别的选项，如果有别的选项，则将该数据段送到"Slow Path"处理
+		// tcp的saw_tstamp选项域指明输入数据包有时间戳选项
 		if (tcp_header_len == sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) {
 			__be32 *ptr = (__be32 *)(th + 1);
 
@@ -3938,6 +3942,7 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 			tp->rx_opt.rcv_tsecr = ntohl(*ptr);
 
 			/* If PAWS failed, check it more carefully in slow path */
+			// d) 对数据段做PAWS快速检查，如果检查失败，则将数据包放入"Slow Path"处理
 			if ((s32)(tp->rx_opt.rcv_tsval - tp->rx_opt.ts_recent) < 0)
 				goto slow_path;
 
@@ -3955,6 +3960,7 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 				 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
 				 * Hence, check seq<=rcv_wup reduces to:
 				 */
+				// e) 预期数据包在窗口范围内
 				if (tcp_header_len ==
 				    (sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED) &&
 				    tp->rcv_nxt == tp->rcv_wup)
@@ -3963,6 +3969,8 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 				/* We know that such packets are checksummed
 				 * on entry.
 				 */
+				// f) 查看协议头的长度是否太小，数据包中无任何数据，如果是说明当前正在处理单向数据传送，
+				// 即只发送数据，收到的将是我们发给数据的答复
 				tcp_ack(sk, skb, 0);
 				__kfree_skb(skb); 
 				tcp_data_snd_check(sk, tp);
@@ -3983,6 +3991,7 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 					eaten = 1;
 				}
 #endif
+				// 查看当前套接字是否运行在当前用户进程现场
 				if (tp->ucopy.task == current && sock_owned_by_user(sk) && !copied_early) {
 					__set_current_state(TASK_RUNNING);
 
@@ -3990,6 +3999,7 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 						eaten = 1;
 				}
 				if (eaten) {
+					// 代码块中去掉tcp的协议头，更新下一个将收到的数据包序列号rcv_nxt
 					/* Predicted packet is in window by definition.
 					 * seq == rcv_nxt and rcv_wup <= rcv_nxt.
 					 * Hence, check seq<=rcv_wup reduces to:
@@ -4010,6 +4020,7 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 					tcp_cleanup_rbuf(sk, skb->len);
 			}
 			if (!eaten) {
+				// 复制不成功
 				if (tcp_checksum_complete_user(sk, skb))
 					goto csum_error;
 
@@ -4024,9 +4035,11 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 
 				tcp_rcv_rtt_measure_ts(sk, skb);
 
+				// 如果套接字中没有多余空间，则在"Slow Path"路径中完成处理数据复制
 				if ((int)skb->truesize > sk->sk_forward_alloc)
 					goto step5;
 
+				// 连续大量复制数据
 				NET_INC_STATS_BH(LINUX_MIB_TCPHPHITS);
 
 				/* Bulk data transfer: receiver */
@@ -4036,12 +4049,15 @@ int tcp_rcv_established(struct sock *sk, struct sk_buff *skb,
 				tp->rcv_nxt = TCP_SKB_CB(skb)->end_seq;
 			}
 
+			// 更新延迟回答时钟超时间隔值
 			tcp_event_data_recv(sk, tp, skb);
 
+			// tcp_ack处理输入ACK
 			if (TCP_SKB_CB(skb)->ack_seq != tp->snd_una) {
 				/* Well, only one small jumplet in fast path... */
 				tcp_ack(sk, skb, FLAG_DATA);
 				tcp_data_snd_check(sk, tp);
+				// 如果不需要发送ACK，则跳到no_ack处
 				if (!inet_csk_ack_scheduled(sk))
 					goto no_ack;
 			}
@@ -4054,14 +4070,20 @@ no_ack:
 			else
 #endif
 			if (eaten)
+				// 表示数据已发送，删除skb
 				__kfree_skb(skb);
 			else
+				// 调用data_ready回调函数指明套接字已准备好为下一次应用读
 				sk->sk_data_ready(sk, 0);
 			return 0;
 		}
 	}
 
 slow_path:
+	// 以下代码部分是处理接收数据段的"Slow Path"，这也是函数的结束处理。如果函数是
+	// 由内核内部的"bottom half"调用的则会进入到这里，或者由于某种原因prequeue不能
+	// 处理数据，也会进到这里。之所以会在"Slow Path"路径中处理接收数据包，是因为没有
+	// 符合”Fast Path“条件的数据段，所以我们沿着RFC793规范的要求继续处理
 	if (len < (th->doff<<2) || tcp_checksum_complete_user(sk, skb))
 		goto csum_error;
 
@@ -4113,15 +4135,20 @@ slow_path:
 	}
 
 step5:
+	// 在ESTABLISHED状态查看ACK标志，发送ACK
 	if(th->ack)
 		tcp_ack(sk, skb, FLAG_SLOWPATH);
 
 	tcp_rcv_rtt_measure_ts(sk, skb);
 
 	/* Process urgent data. */
+	// 处理URG标志
 	tcp_urg(sk, skb, th);
 
 	/* step 7: process the segment text */
+	// 处理数据段中的数据
+	// tcp_data_queue把数据放入套接字的常规接收队列中，它把接收顺序不正确的数据段放入out_of_order_queue队列
+	// 对于套接字常规接收队列，当应用程序在打开的套接字上执行读系统调用时处理将继续，这时会调用tcp_recvmsg
 	tcp_data_queue(sk, skb);
 
 	tcp_data_snd_check(sk, tp);
@@ -4136,6 +4163,7 @@ discard:
 	return 0;
 }
 
+// tcp_rcv_synsent_state_process函数完成处理SYN_SENT状态的工作
 static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 					 struct tcphdr *th, unsigned len)
 {
@@ -4241,6 +4269,8 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		 * is initialized. */
 		tp->copied_seq = tp->rcv_nxt;
 		smp_mb();
+		// 如果接收到的数据包合法并且设置了正确的ACK标志，则tcp_rcv_synsent_state_process函数
+		// 将tcp状态切换到ESTABLISHED状态
 		tcp_set_state(sk, TCP_ESTABLISHED);
 
 		security_inet_conn_established(sk, skb);
@@ -4296,11 +4326,14 @@ discard:
 		} else {
 			tcp_send_ack(sk);
 		}
+		// tcp_rcv_synsent_state_process函数可以返回一个负值，即输入数据段中有数据等待处理，除了查看
+		// URG标志外，我们不对数据做任何处理，查看有无pending的数据段，如果有，则发送出去
 		return -1;
 	}
 
 	/* No ACK in the segment */
 
+	// 如果接收到连接复位请求，则复位连接并扔掉数据包
 	if (th->rst) {
 		/* rfc793:
 		 * "If the RST bit is set
@@ -4315,6 +4348,7 @@ discard:
 	if (tp->rx_opt.ts_recent_stamp && tp->rx_opt.saw_tstamp && tcp_paws_check(&tp->rx_opt, 0))
 		goto discard_and_undo;
 
+	// 如果收到SYN，而没有收到服务区序列号，则扔掉数据包
 	if (th->syn) {
 		/* We see SYN without ACK. It is attempt of
 		 * simultaneous connect with crossed SYNs.
@@ -4386,7 +4420,10 @@ reset_and_undo:
  *	It's called from both tcp_v4_rcv and tcp_v6_rcv and should be
  *	address independent.
  */
-	
+// tcp协议连接初始化之后的状态管理和切换由tcp_rcv_state_process函数完成，根据数据包的类型
+// 调用tcp_rcv_state_process函数确定tcp连接状态应如何切换，数据包应如何处理。各状态下的数据包
+// 处理过程大部分都在tcp_rcv_state_process函数中完成，除ESTABLISHED和TIME_WAIT这两个状态以外
+// 如果数据包到达，tcp连接为CLOSED状态，则扔掉数据包
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			  struct tcphdr *th, unsigned len)
 {
@@ -4396,6 +4433,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 
 	tp->rx_opt.saw_tstamp = 0;
 
+	// 从套接字数据结构sk获取当前tcp状态，如果为CLOSED，则扔掉数据包，如果为LISTEN，收到ACK返回1
+	// 收到RST扔掉数据包，收到SYN切换到SYN_RECV
 	switch (sk->sk_state) {
 	case TCP_CLOSE:
 		goto discard;
@@ -4408,6 +4447,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			goto discard;
 
 		if(th->syn) {
+			// 处理连接请求，最终调用tcp_v4_conn_request
 			if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
 				return 1;
 
@@ -4456,13 +4496,17 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	}
 
 	/* step 1: check sequence number */
+	// tcp_sequence查看序列号是否在窗口范围内，如果它超出了当前窗口范围，则tcp_sequence函数返回0
 	if (!tcp_sequence(tp, TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq)) {
+		// 如果收到的是一个错误序列号，则调用tcp_send_dupack函数并扔掉输入数据段
 		if (!th->rst)
 			tcp_send_dupack(sk, skb);
+		// 如果数据段中包含了一个复位标志RST，则直接扔掉数据段并返回
 		goto discard;
 	}
 
 	/* step 2: check RST bit */
+	// 入股数据包中由复位标志RST，则复位连接，并扔掉数据包
 	if(th->rst) {
 		tcp_reset(sk);
 		goto discard;
@@ -4476,6 +4520,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	 *
 	 *	Check for a SYN in window.
 	 */
+	// 如收到的数据包如果是SYN，查看其序列号是否在当前窗口范围内，如果收到的
+	// SYN在当前窗口范围内，这是一个错误条件，连接应复位
 	if (th->syn && !before(TCP_SKB_CB(skb)->seq, tp->rcv_nxt)) {
 		NET_INC_STATS_BH(LINUX_MIB_TCPABORTONSYN);
 		tcp_reset(sk);
@@ -4483,9 +4529,13 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	}
 
 	/* step 5: check the ACK field */
+	// 收到的数据包中有ACK标志，这一步的处理非常复杂，其基本原理是，如果回答是可接收的数据包，则将tcp连接
+	// 状态转换到ESTABLISHED状态
 	if (th->ack) {
 		int acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH);
 
+		// 如果收到的ack的数据正确，则说明连接处于SYN_RECV状态，这时我们最大的可能是处于"被迫打开"的状态
+		// 应将状态切换到ESTABLISH状态
 		switch(sk->sk_state) {
 		case TCP_SYN_RECV:
 			if (acceptable) {
@@ -4500,9 +4550,11 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				 * NULL and sk->sk_socket == NULL.
 				 */
 				if (sk->sk_socket) {
+					// sk_wake_async唤醒套接字，被迫打开的套接字不能被唤醒，因为sk的套接字数据为NULL
 					sk_wake_async(sk,0,POLL_OUT);
 				}
 
+				// 更新SND_UNA，更新SND_WND：窗口向前移动，tcp_init_wl更新snd_wl1存放输入数据包的序列号
 				tp->snd_una = TCP_SKB_CB(skb)->ack_seq;
 				tp->snd_wnd = ntohs(th->window) <<
 					      tp->rx_opt.snd_wscale;
@@ -4515,9 +4567,12 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				 */
 				if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
 				    !tp->srtt)
+				    // 如果接收到的ACK数据包有时间戳选项，rtt就基于时间戳计算
+				    // rtt的值保存在struct tcp_sock数据结构的srtt数据域中
 					tcp_ack_saw_tstamp(sk, 0);
 
 				if (tp->rx_opt.tstamp_ok)
+					// 将mss的值调整为可以容纳下时间戳，重建协议头
 					tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
 
 				/* Make sure socket is routed, for
@@ -4525,6 +4580,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				 */
 				icsk->icsk_af_ops->rebuild_header(sk);
 
+				// 初始化套接字的某些字段并计算
 				tcp_init_metrics(sk);
 
 				tcp_init_congestion_control(sk);
@@ -4535,10 +4591,16 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				tp->lsndtime = tcp_time_stamp;
 
 				tcp_mtup_init(sk);
+				// tcp_initialize_rcv_mss接收到的mss值依据收到的窗口大小RCV.WND初始化
+				// 一个猜测值，套接字上的预留缓冲区的空间基于收到的mss的值和其他因素确定
 				tcp_initialize_rcv_mss(sk);
+				// 为套接字预留缓冲区空间
 				tcp_init_buffer_space(sk);
+				// 计算struct tcp_sock数据结构上的pred_flags数据域，该数据域确定接收到的
+				// 数据包是否应交给"Fast Path"处理，是否使用协议头预定向
 				tcp_fast_path_on(tp);
 			} else {
+				// 收到的是一个不可接受的回答数据包，则返回1，告诉调用者发送复位
 				return 1;
 			}
 			break;
@@ -4546,6 +4608,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		case TCP_FIN_WAIT1:
 			if (tp->snd_una == tp->write_seq) {
 				tcp_set_state(sk, TCP_FIN_WAIT2);
+				// 设置套接字的shutdown数据域的值为SEND_SHUTDOWN，指明随后在
+				// 套接字切换成CLOSED状态时，应想站点发送包含RST的数据包shutdown
 				sk->sk_shutdown |= SEND_SHUTDOWN;
 				dst_confirm(sk->sk_dst_cache);
 
@@ -4555,6 +4619,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				else {
 					int tmo;
 
+					// TCP_LINGER2选项：决定tcp套接字在进入CLOSED状态前，需要在FIN_WAIT_2状态上
+					// 等待多长时间，该值存放在struct tcp_sock tp->linger2数据域中，如果linger2的
+					// 值为负，则套接字立即切换到CLOSED状态，期间不经过FIN_WAIT_2和TIME_WAIT状态
 					if (tp->linger2 < 0 ||
 					    (TCP_SKB_CB(skb)->end_seq != TCP_SKB_CB(skb)->seq &&
 					     after(TCP_SKB_CB(skb)->end_seq - th->fin, tp->rcv_nxt))) {
@@ -4565,6 +4632,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 
 					tmo = tcp_fin_time(sk);
 					if (tmo > TCP_TIMEWAIT_LEN) {
+						// keepalive时钟在超时的情况下被复位
 						inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
 					} else if (th->fin || sock_owned_by_user(sk)) {
 						/* Bad case. We could lose such FIN otherwise.
@@ -4573,6 +4641,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 						 * if it spins in bh_lock_sock(), but it is really
 						 * marginal case.
 						 */
+						// 如果收到的ack数据包是最后一个回答FIN，或该套接字被其他进程锁定
+						// 则复位keepalive时钟，如果不这样做，就可能丢失输入的FIN
 						inet_csk_reset_keepalive_timer(sk, tmo);
 					} else {
 						tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
@@ -4584,12 +4654,15 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 
 		case TCP_CLOSING:
 			if (tp->snd_una == tp->write_seq) {
+				// 收到ACK后套接字直接进入TIME_WAIT状态，说明在连接的发送端没有其他等待向外发送的数据了
 				tcp_time_wait(sk, TCP_TIME_WAIT, 0);
 				goto discard;
 			}
 			break;
 
 		case TCP_LAST_ACK:
+			// 如果套接字被迫关闭，则响应应用程序的close调用，在这个状态上接收到ACK意味着可以关闭套接字
+			// 所以调用tcp_done函数，到此我们已经处理完输入的ACK数据段
 			if (tp->snd_una == tp->write_seq) {
 				tcp_update_metrics(sk);
 				tcp_done(sk);
@@ -4601,6 +4674,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		goto discard;
 
 	/* step 6: check the URG bit */
+	// 处理紧急请求，这时我们查看输入数据段的URG位，这项检测由tcp_urg函数完成
+	// 该函数也会继续处理紧急数据
 	tcp_urg(sk, skb, th);
 
 	/* step 7: process the segment text */
@@ -4616,6 +4691,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		 * RFC 1122 says we MUST send a reset. 
 		 * BSD 4.4 also does reset.
 		 */
+		// 发送一个复位
 		if (sk->sk_shutdown & RCV_SHUTDOWN) {
 			if (TCP_SKB_CB(skb)->end_seq != TCP_SKB_CB(skb)->seq &&
 			    after(TCP_SKB_CB(skb)->end_seq - th->fin, tp->rcv_nxt)) {
@@ -4626,6 +4702,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		}
 		/* Fall through */
 	case TCP_ESTABLISHED: 
+	// 把数据段放入套接字的输入缓冲队列
 		tcp_data_queue(sk, skb);
 		queued = 1;
 		break;
@@ -4633,6 +4710,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 
 	/* tcp_data could move socket to TIME-WAIT */
 	if (sk->sk_state != TCP_CLOSE) {
+		// 确定应向另一站点发送的是包含数据的数据段还是ACK数据段
 		tcp_data_snd_check(sk, tp);
 		tcp_ack_snd_check(sk);
 	}

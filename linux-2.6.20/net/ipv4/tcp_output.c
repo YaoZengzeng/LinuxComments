@@ -386,6 +386,9 @@ static void tcp_syn_build_options(__be32 *ptr, int mss, int ts, int sack,
  * We are working here with either a clone of the original
  * SKB, or a fresh unique copy made by the retransmit engine.
  */
+// tcp_transmit_skb函数是实际实现tcp数据段发送的地方，该函数会在tcp协议实例状态机的各状态
+// 需要发送数据时调用，tcp_transmit_skb函数完成的主要功能包括创建tcp协议头，将数据段传给ip层
+// 向外发送，构造向外发送的tcp数据段需要的重要信息
 static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, gfp_t gfp_mask)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);
@@ -409,6 +412,7 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 	if (icsk->icsk_ca_ops->rtt_sample)
 		__net_timestamp(skb);
 
+	// 如果输入参数clone_it指明当前skb还有其他进程在使用，则需要先克隆套接字缓冲区
 	if (likely(clone_it)) {
 		if (unlikely(skb_cloned(skb)))
 			skb = pskb_copy(skb, gfp_mask);
@@ -428,6 +432,9 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 #define SYSCTL_FLAG_SACK	0x4
 
 	sysctl_flags = 0;
+	// 查看输出数据包是否为一个SYN数据包(TCPB_FLAG_SYN)，如果是，则调用tcp_syn_options
+	// 函数构造SYN数据段的选项数据，这时TCP选项通常包含时间戳信息，窗口大小和选择回答（SACK）
+	// 否则调用tcp_established_options函数构造常规数据段的tcp协议选项，
 	if (unlikely(tcb->flags & TCPCB_FLAG_SYN)) {
 		tcp_header_size = sizeof(struct tcphdr) + TCPOLEN_MSS;
 		if(sysctl_tcp_timestamps) {
@@ -451,7 +458,12 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 				    (tp->rx_opt.eff_sacks *
 				     TCPOLEN_SACK_PERBLOCK));
 	}
-		
+	
+	// 确定网络上有多少数据包最好。在大多数情况下是按保守的状况处理，网络上有多少数据包最好的详细
+	// 信息从接收到的SACK的信息来确定的，这样我们就可以放更多的包在网络上，使用这项功能来做拥塞控制
+	// tcp->packets_out用于确定发送队列中是否为空，拥塞控制的计算方式为：
+	// 在传送队列上的数据包数 - 留在网上的数据包 + 须快速重传的数据包
+	// 如果结果表明不会造成网络拥塞，则设置发送数据事件标志
 	if (tcp_packets_in_flight(tp) == 0)
 		tcp_ca_event(sk, CA_EVENT_TX_START);
 
@@ -467,17 +479,17 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 
 	th = (struct tcphdr *) skb_push(skb, tcp_header_size);
 	skb->h.th = th;
-	skb_set_owner_w(skb, sk);
+	skb_set_owner_w(skb, sk);		// 设置skb所属的套接字
 
 	/* Build TCP header and checksum it. */
 	th->source		= inet->sport;
 	th->dest		= inet->dport;
-	th->seq			= htonl(tcb->seq);
-	th->ack_seq		= htonl(tp->rcv_nxt);
+	th->seq			= htonl(tcb->seq);	// 数据段的初始序列号
+	th->ack_seq		= htonl(tp->rcv_nxt);	// ack序列号
 	*(((__be16 *)th) + 6)	= htons(((tcp_header_size >> 2) << 12) |
 					tcb->flags);
 
-	if (unlikely(tcb->flags & TCPCB_FLAG_SYN)) {
+	if (unlikely(tcb->flags & TCPCB_FLAG_SYN)) {	// 窗口大小
 		/* RFC1323: The window in SYN & SYN/ACK segments
 		 * is never scaled.
 		 */
@@ -532,6 +544,8 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 
 	icsk->icsk_af_ops->send_check(sk, skb->len, skb);
 
+	// 调用实际传送函数将该数据段传送给ip层，首先更新发送的数据包类型的统计数据
+	// 然后发送数据段，该数据段将放入队列等待下一阶段处理
 	if (likely(tcb->flags & TCPCB_FLAG_ACK))
 		tcp_event_ack_sent(sk, tcp_skb_pcount(skb));
 
@@ -541,6 +555,7 @@ static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it, 
 	if (after(tcb->end_seq, tp->snd_nxt) || tcb->seq == tcb->end_seq)
 		TCP_INC_STATS(TCP_MIB_OUTSEGS);
 
+	// 在tcp协议中，queue_xmit函数指针指向的ip_queue_xmit函数
 	err = icsk->icsk_af_ops->queue_xmit(skb, 0);
 	if (likely(err <= 0))
 		return err;

@@ -665,8 +665,10 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
 	int iovlen, flags;
+	// mss_now存放当前打开的套接字最大段的长度，该值通常与MTU有关
 	int mss_now, size_goal;
 	int err, copied;
+	// 存放SO_SENDTIMEO（套接字设定的传送超时的时间）选项，除设置了MSG_DONTWAIT标志外
 	long timeo;
 
 	lock_sock(sk);
@@ -676,6 +678,9 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
 	/* Wait for a connection to finish. */
+	// 在开始传送数据之前，首先应与通信端建立连接，如果当前打开的套接字状态不是TCPF_ESTABLISHED
+	// 或TCPF_CLOSE_WAIT，说明tcp协议实例还没有准备好传送数据，它必须等待连接建立起来。由SO_SENDTIMEO
+	// 套接字选项设定等待连接超时的时间值作为参数，传给等待连接建立函数sk_stream_wait_connect
 	if ((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT))
 		if ((err = sk_stream_wait_connect(sk, &timeo)) != 0)
 			goto out_err;
@@ -683,10 +688,12 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	/* This should be in poll */
 	clear_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
 
+	// mss_now当前套接字可发送的最大tcp数据段的大小，这是根据mtu设定的
 	mss_now = tcp_current_mss(sk, !(flags&MSG_OOB));
 	size_goal = tp->xmit_size_goal;
 
 	/* Ok commence sending. */
+	// 提取发送数据地址和发送数据总数信息
 	iovlen = msg->msg_iovlen;
 	iov = msg->msg_iov;
 	copied = 0;
@@ -695,6 +702,7 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
 		goto do_error;
 
+	// 准备从用户地址空间复制数据，设定与复制相关的参数
 	while (--iovlen >= 0) {
 		int seglen = iov->iov_len;
 		unsigned char __user *from = iov->iov_base;
@@ -704,42 +712,46 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		while (seglen > 0) {
 			int copy;
 
-			skb = sk->sk_write_queue.prev;
+			skb = sk->sk_write_queue.prev;	// 指向队列中最后一个skb
 
 			if (!sk->sk_send_head ||
-			    (copy = size_goal - skb->len) <= 0) {
+			    (copy = size_goal - skb->len) <= 0) {	// 队列中还没有skb或者剩余空间不足
 
 new_segment:
 				/* Allocate new segment. If the interface is SG,
 				 * allocate skb fitting to single page.
 				 */
 				if (!sk_stream_memory_free(sk))
-					goto wait_for_sndbuf;
+					goto wait_for_sndbuf;			// 如果已无内存可供分配，等待新的内存空间释放
 
 				skb = sk_stream_alloc_pskb(sk, select_size(sk, tp),
-							   0, sk->sk_allocation);
+							   0, sk->sk_allocation);	// 分配skb
 				if (!skb)
 					goto wait_for_memory;
 
 				/*
 				 * Check whether we can use HW checksum.
 				 */
+				// 设置skb的某些数据域，如校验和计算方式，看网络硬件设备是否可计算校验和
 				if (sk->sk_route_caps & NETIF_F_ALL_CSUM)
 					skb->ip_summed = CHECKSUM_PARTIAL;
 
+				// 将skb放入队列
 				skb_entail(sk, tp, skb);
 				copy = size_goal;
 			}
 
 			/* Try to append data to the end of skb. */
+			// copy代表了本次复制的数据量
 			if (copy > seglen)
 				copy = seglen;
 
 			/* Where to copy to? */
-			if (skb_tailroom(skb) > 0) {
+			if (skb_tailroom(skb) > 0) {		// skb_tailroom(skb)就是用于判断skb的缓冲区是否还有剩余空间
 				/* We have some space in skb head. Superb! */
 				if (copy > skb_tailroom(skb))
 					copy = skb_tailroom(skb);
+				// skb_add_data完成具体的数据复制操作
 				if ((err = skb_add_data(skb, from, copy)) != 0)
 					goto do_fault;
 			} else {
@@ -748,6 +760,7 @@ new_segment:
 				struct page *page = TCP_PAGE(sk);
 				int off = TCP_OFF(sk);
 
+				// skb_can_coalesce用于计算页面中是否仍有剩余空间接收新的数据
 				if (skb_can_coalesce(skb, i, page, off) &&
 				    off != PAGE_SIZE) {
 					/* We can extend the last page
@@ -760,6 +773,9 @@ new_segment:
 					 * do this because interface is non-SG,
 					 * or because all the page slots are
 					 * busy. */
+					// 如果struct skb_shared_info的页面数组中所有页面已填满，并且nr_frags=MAX_SKB_FRAGS
+					// 即页面数据量已达到最大值，当前tcp段已不能再容纳更多数据，设置当前数据段tcp头的PSH标志
+					// 表明当前数据段已可以发送
 					tcp_mark_push(tp, skb);
 					goto new_segment;
 				} else if (page) {
@@ -779,12 +795,14 @@ new_segment:
 
 				if (!page) {
 					/* Allocate new cache page. */
+					// 由sk_stream_alloc_page完成新页面的分配
 					if (!(page = sk_stream_alloc_page(sk)))
 						goto wait_for_memory;
 				}
 
 				/* Time to copy data. We are close to
 				 * the end! */
+				// skb_copy_to_page完成将数据复制到页面的操作
 				err = skb_copy_to_page(sk, from, skb, page,
 						       off, copy);
 				if (err) {
@@ -800,9 +818,14 @@ new_segment:
 
 				/* Update the skb. */
 				if (merge) {
+					// merge为1，说明数据合并到了struct skb_shared_info数据结构的frags页面数组
+					// 的最后一个页面i中，需要对第i个页面管理数据结构中描述数据量大小的size域更新
 					skb_shinfo(skb)->frags[i - 1].size +=
 									copy;
 				} else {
+					// 将数据复制到frags页面数组的新页面中，应更新struct skb_shared_info数据结构中
+					// frags数组中的页面数量，以及新页面在数组中的偏移量。由skb_fill_page_desc函数
+					// 填写新页面在frags中的描述信息
 					skb_fill_page_desc(skb, i, page, off, copy);
 					if (TCP_PAGE(sk)) {
 						get_page(page);
@@ -831,12 +854,15 @@ new_segment:
 				continue;
 
 			if (forced_push(tp)) {
+				// 立即发送：这时即使只是一个小的tcp数据段也立即向外发送。函数force_push用于查看是否立即
+				// 发送数据段，如果立即发送，则调用tcp_mark_push函数设置tcp协议头中的PSH标志
 				tcp_mark_push(tp, skb);
 				__tcp_push_pending_frames(sk, tp, mss_now, TCP_NAGLE_PUSH);
 			} else if (skb == sk->sk_send_head)
 				tcp_push_one(sk, mss_now);
 			continue;
 
+// 如果队列中还没有足够的缓冲区或页面，则等到有一定量的有效缓冲区后再发送
 wait_for_sndbuf:
 			set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
 wait_for_memory:

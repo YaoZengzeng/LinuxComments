@@ -181,6 +181,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (usin->sin_family != AF_INET)
 		return -EAFNOSUPPORT;
 
+	// 以用户给定的套接字初始化网关地址nexthop和目标地址daddr
 	nexthop = daddr = usin->sin_addr.s_addr;
 	if (inet->opt && inet->opt->srr) {
 		if (!daddr)
@@ -188,6 +189,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		nexthop = inet->opt->faddr;
 	}
 
+	// 在确定了目标地址、网关地址等信息后，调用ip_route_connect函数来寻址目标路由
+	// 寻址目标路由的依据源是：目标IP地址、网络设备接口、源端口号（inet->sport）
+	// 目标端口号（usin->sin_port）等信息，寻址好的路由在路由表中的索引返回到rt变量中
 	tmp = ip_route_connect(&rt, nexthop, inet->saddr,
 			       RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
 			       IPPROTO_TCP,
@@ -195,18 +199,21 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (tmp < 0)
 		return tmp;
 
+	// tcp连接必须建立在唯一主机地址上，所以如果在路由缓冲区中的路由是组传送地址（MULTICAST）
+	// 或广播地址（BROADCAST），则返回错误
 	if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
 		ip_rt_put(rt);
 		return -ENETUNREACH;
 	}
 
-	if (!inet->opt || !inet->opt->srr)
+	if (!inet->opt || !inet->opt->srr)		// 如果没有设置IP选项或IP源路由选项，使用路由表寻址的路由
 		daddr = rt->rt_dst;
 
 	if (!inet->saddr)
 		inet->saddr = rt->rt_src;
 	inet->rcv_saddr = inet->saddr;
 
+	// 如果当前套接字建立连接的目标地址与套接字数据结构中保存的目标地址不一样，则复位原tcp继承的状态
 	if (tp->rx_opt.ts_recent_stamp && inet->daddr != daddr) {
 		/* Reset inherited state */
 		tp->rx_opt.ts_recent	   = 0;
@@ -214,6 +221,10 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		tp->write_seq		   = 0;
 	}
 
+	// 当套接字当前处于TIME_WAIT状态时，套接字最后一次使用时间存放在与路由入口
+	// 相关的struct inet_peer数据结构中，这时如果用户发出了连接请求，最近套接字
+	// 接收信息的时间，需写入struct tcp_sock数据结构的timestamp数据域，其值从
+	// 存放在struct inet_peer数据结构中的值获取，一旦连接建立，这个方法是检测复制段的方法
 	if (tcp_death_row.sysctl_tw_recycle &&
 	    !tp->rx_opt.ts_recent_stamp && rt->rt_dst == daddr) {
 		struct inet_peer *peer = rt_get_peer(rt);
@@ -237,6 +248,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (inet->opt)
 		inet_csk(sk)->icsk_ext_hdr_len = inet->opt->optlen;
 
+	// 初始化mss为tcp允许接收的最大数据段536，虽然我们是在打开的套接字上进行了相应的处理，这时标示套接字
+	// 的信息还不完整，例如套接字源端口好这时就还没有分配
 	tp->rx_opt.mss_clamp = 536;
 
 	/* Socket identity is still unknown (sport may be zero).
@@ -244,11 +257,13 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	 * lock select source port, enter ourselves into the hash tables and
 	 * complete initialization after this.
 	 */
+	// 将套接字状态设置为TCP_SYN_SENT，将套接字sk放入TCP连接管理哈希链表
 	tcp_set_state(sk, TCP_SYN_SENT);
 	err = inet_hash_connect(&tcp_death_row, sk);
 	if (err)
 		goto failure;
 
+	// 为连接分配一个临时端口号，以便于以后在哈希链表中查找套接字sk
 	err = ip_route_newports(&rt, IPPROTO_TCP,
 				inet->sport, inet->dport, sk);
 	if (err)
@@ -259,6 +274,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	sk_setup_caps(sk, &rt->u.dst);
 
 	if (!tp->write_seq)
+		// 初始化tcp数据段序列号
 		tp->write_seq = secure_tcp_sequence_number(inet->saddr,
 							   inet->daddr,
 							   inet->sport,
@@ -266,6 +282,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	inet->id = tp->write_seq ^ jiffies;
 
+	// tcp_connect函数完成实际的连接建立工作
 	err = tcp_connect(sk);
 	rt = NULL;
 	if (err)
@@ -278,6 +295,8 @@ failure:
 	 * This unhashes the socket and releases the local port,
 	 * if necessary.
 	 */
+	// 如果连接建立处理失败，则将套接字从已连接的哈希链表中移除并释放本地端口号
+	// 将tcp状态切换回CLOSED状态，并返回错误信息
 	tcp_set_state(sk, TCP_CLOSE);
 	ip_rt_put(rt);
 	sk->sk_route_caps = 0;
@@ -1246,6 +1265,8 @@ static struct timewait_sock_ops tcp_timewait_sock_ops = {
 	.twsk_destructor= tcp_twsk_destructor,
 };
 
+// tcp_v4_conn_request函数中将初始化序列号，发送一个有SYN和ACK标志的回答数据段
+// 并将tcp连接状态设置为TCP_SYN_RECV
 int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 {
 	struct inet_request_sock *ireq;

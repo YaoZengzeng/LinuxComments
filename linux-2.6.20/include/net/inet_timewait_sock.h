@@ -100,7 +100,11 @@ struct inet_bind_bucket;
  * problems of sockets in such a state on heavily loaded servers, but
  * without violating the protocol specification.
  */
+// 为了降低对内存的消耗，对TIME_WAIT状态处理不使用struct sock数据结构，它使用一个更小的
+// 数据结构，而且在数据结构后不跟接收缓冲区。struct inet_timewait_sock与struct sock
+// 共享前16个数据域，所以它们可以使用同一个链表维护指针和函数
 struct inet_timewait_sock {
+	// 与struct sock数据结构共享的部分
 	/*
 	 * Now struct sock also uses sock_common, so please just
 	 * don't add nothing before this first member (__tw_common) --acme
@@ -115,16 +119,19 @@ struct inet_timewait_sock {
 #define tw_refcnt		__tw_common.skc_refcnt
 #define tw_hash			__tw_common.skc_hash
 #define tw_prot			__tw_common.skc_prot
+	// 子状态substate中存放的是处理被迫关闭过程的状态FIN_WAIT_1、FIN_WAIT_2、CLOSING和TIME_WAIT
 	volatile unsigned char	tw_substate;
 	/* 3 bits hole, try to pack */
 	unsigned char		tw_rcv_wscale;
 	/* Socket demultiplex comparisons on incoming packets. */
 	/* these five are in inet_sock */
+	// 以下数据域用于套接字对输入数据包的多路比较，这五个数据域也在struct inet_sock数据结构中
 	__be16			tw_sport;
 	__be32			tw_daddr __attribute__((aligned(INET_TIMEWAIT_ADDRCMP_ALIGN_BYTES)));
 	__be32			tw_rcv_saddr;
 	__be16			tw_dport;
 	__u16			tw_num;
+	// 以下数据域只用于inet_timewait_sock
 	/* And these are ours. */
 	__u8			tw_ipv6only:1;
 	/* 15 bits hole, try to pack */

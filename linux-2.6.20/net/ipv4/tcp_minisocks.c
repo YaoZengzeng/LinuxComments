@@ -92,6 +92,10 @@ static __inline__ int tcp_in_window(u32 seq, u32 end_seq, u32 s_win, u32 e_win)
  * is ridiculously low and, seems, we could use some mb() tricks
  * to avoid misread sequence numbers, states etc.  --ANK
  */
+// tcp_timewait_state_process函数完成大部分tcp连接在TIME_WAIT状态时对输入包的处理。它也管理连接在
+// FIN_WAIT_2状态时对输入数据包的处理。
+// 仔细分析tcp_timewait_state_process函数，可以看到它重复了tcp_rcv_state_process函数的大部分工作
+// 但在TIME_WAIT中是简略形式
 enum tcp_tw_status
 tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 			   const struct tcphdr *th)
@@ -101,6 +105,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 	int paws_reject = 0;
 
 	tmp_opt.saw_tstamp = 0;
+	// 首先查看输入数据包是否有时间戳，如果有，则对一个接收顺序不正确的数据段做PAWS检查
 	if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
 		tcp_parse_options(skb, &tmp_opt, 0);
 
@@ -111,23 +116,31 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 		}
 	}
 
+	// 与tcp_rcv_state_process类似，查看当前套接字是否在FIN_WAIT2状态，如果是则需查看输入数据段是否
+	// 有FIN、ACK标志或它是一个接收顺序不正确的数据段，如果前面的PAWS检查说明输入段是接收顺序不正确的数据段
+	// 则必须传送一个ACK
 	if (tw->tw_substate == TCP_FIN_WAIT2) {
 		/* Just repeat all the checks of tcp_rcv_state_process() */
 
 		/* Out of window, send ACK */
+		// 在rfc793规范中要求，在TIME_WAIT状态下如果收到一个接收顺序不正确的数据段，函数应向调用者返回
+		// TCPTW_ACK，告诉调用程序发送ACK
 		if (paws_reject ||
 		    !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
 				   tcptw->tw_rcv_nxt,
 				   tcptw->tw_rcv_nxt + tcptw->tw_rcv_wnd))
 			return TCP_TW_ACK;
 
+		// 如果输入段中设置了RST标志，则可以彻底结束该连接
 		if (th->rst)
 			goto kill;
 
+		// 如果收到的是一个SYN数据段，但是一个"旧"数据段或其序列号在窗口范围外，则发送RST关闭连接
 		if (th->syn && !before(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt))
 			goto kill_with_rst;
 
 		/* Dup ACK? */
+		// 查看输入数据段是否为一个ACK段的复制，如果是，则扔掉数据段
 		if (!after(TCP_SKB_CB(skb)->end_seq, tcptw->tw_rcv_nxt) ||
 		    TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq) {
 			inet_twsk_put(tw);
@@ -137,6 +150,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 		/* New data or FIN. If new data arrive after half-duplex close,
 		 * reset.
 		 */
+		// 如果输入的数据段中包含新的数据，必须向远端发送一个复位关闭连接，停止TIME_WAIT时钟
 		if (!th->fin ||
 		    TCP_SKB_CB(skb)->end_seq != tcptw->tw_rcv_nxt + 1) {
 kill_with_rst:
@@ -146,6 +160,8 @@ kill_with_rst:
 		}
 
 		/* FIN arrived, enter true time-wait state. */
+		// 如果输入数据段为FIN段，但连接状态仍为FIN_WAIT_2，则将连接切换到实际TIME_WAIT状态，同时处理
+		// 接收时间戳，将接收时间存放在tw_ts_recent数据域中，它标志数据到达的时间
 		tw->tw_substate	  = TCP_TIME_WAIT;
 		tcptw->tw_rcv_nxt = TCP_SKB_CB(skb)->end_seq;
 		if (tmp_opt.saw_tstamp) {
@@ -158,6 +174,8 @@ kill_with_rst:
 		 * to generalize to IPv6. Taking into account that IPv6
 		 * do not understand recycling in any case, it not
 		 * a big problem in practice. --ANK */
+		// inet_twsk_schedule函数管理时钟，它确定连接还会在TIME_WAIT状态上等多长时间，按照规范该时间值
+		// 应是数据段生命周期的两倍，但如果可能Linux会基于重传超时时间减少在TIME_WAIT状态上的等待时间
 		if (tw->tw_family == AF_INET &&
 		    tcp_death_row.sysctl_tw_recycle && tcptw->tw_ts_recent_stamp &&
 		    tcp_v4_tw_remember_stamp(tw))
@@ -185,17 +203,22 @@ kill_with_rst:
 	 *	(2)  returns to TIME-WAIT state if the SYN turns out 
 	 *	to be an old duplicate".
 	 */
-
+	// 以下进入实际的TIME_WAIT状态，如果连接在TIME_WAIT状态时收到SYN，则重新打开连接，但为新连接
+	// 分配的初始序列号必须大于前一个连接的序列号的最大值，如果收到的SYN是前一个连接旧SYN段的复制
+	// 则连接必须返回TIME_WAIT状态
 	if (!paws_reject &&
 	    (TCP_SKB_CB(skb)->seq == tcptw->tw_rcv_nxt &&
 	     (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq || th->rst))) {
 		/* In window segment, it may be only reset or bare ack. */
 
+		// paws_reject为非零值指明输入数据段在窗口范围内，它是RST或ACK段，但不包含数据
 		if (th->rst) {
 			/* This is TIME_WAIT assassination, in two flavors.
 			 * Oh well... nobody has a sufficient solution to this
 			 * protocol bug yet.
 			 */
+			// 这时输入RST可能导致TIME_WAIT状态被暗中结束，系统调用sysctl_tcp_rfc1337可以阻止TWA
+			// 缺省的Linux TCP不阻止TWA，如果系统调用没有设置防止TWA，则结束所有连接
 			if (sysctl_tcp_rfc1337 == 0) {
 kill:
 				inet_twsk_deschedule(tw, &tcp_death_row);
@@ -203,6 +226,7 @@ kill:
 				return TCP_TW_SUCCESS;
 			}
 		}
+		// 如果输入段是一个复制ACK，则扔掉，调用inet_twsk_schedule函数更新时钟
 		inet_twsk_schedule(tw, &tcp_death_row, TCP_TIMEWAIT_LEN,
 				   TCP_TIMEWAIT_LEN);
 
@@ -232,6 +256,9 @@ kill:
 	   but not fatal yet.
 	 */
 
+	// 如果程序运行到此处，说明PAWS测试失败，所以接收到的是一个窗口范围外的段或新SYN，所有超出窗口范围的段
+	// 都立即给出回答，可接收的SYN不能是旧SYN段的复制，虽然PAWS检查已足够，不需要做序列号检查，但这里仍托管
+	// PAWS做序列号检查
 	if (th->syn && !th->rst && !th->ack && !paws_reject &&
 	    (after(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt) ||
 	     (tmp_opt.saw_tstamp &&
@@ -253,6 +280,7 @@ kill:
 		 * and new good SYN with random sequence number <rcv_nxt.
 		 * Do not reschedule in the last case.
 		 */
+		// 只在输入段是ACK段或不在窗口范围内，复位TIME_WAIT状态时钟
 		if (paws_reject || th->ack)
 			inet_twsk_schedule(tw, &tcp_death_row, TCP_TIMEWAIT_LEN,
 					   TCP_TIMEWAIT_LEN);
@@ -260,8 +288,10 @@ kill:
 		/* Send ACK. Note, we do not put the bucket,
 		 * it will be released by caller.
 		 */
+		// 返回TCP_TW_ACK，告诉函数调用者对接收到不正确的数据段发送回答
 		return TCP_TW_ACK;
 	}
+	// 收到RST，结束连接
 	inet_twsk_put(tw);
 	return TCP_TW_SUCCESS;
 }
