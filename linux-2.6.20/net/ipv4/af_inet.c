@@ -961,10 +961,16 @@ static struct inet_protosw inetsw_array[] =
         {
                 .type =       SOCK_STREAM,
                 .protocol =   IPPROTO_TCP,
+                // 定义套接口传输层接口为tcp_port
                 .prot =       &tcp_prot,
+                // 套接口层借口为inet_stream_ops
                 .ops =        &inet_stream_ops,
+                // 创建STREAM类型接口无需进行capability检验
                 .capability = -1,
+                // 始终需要进行校验和操作
                 .no_check =   0,
+                // 标示tcp模块在系统运行过程中不能被替换或卸载
+                // tcp套接口为面向连接的套接口，用于在创建传输控制块时初始化is_icsk成员
                 .flags =      INET_PROTOSW_PERMANENT |
 			      INET_PROTOSW_ICSK,
         },
@@ -1284,8 +1290,10 @@ static struct net_protocol igmp_protocol = {
 };
 #endif
 
+// 由于tcp支持差错处理以及TSO，因此不仅定义了tcp接收函数，而且还定义了差错处理以及TSO分段处理函数
 static struct net_protocol tcp_protocol = {
 	.handler =	tcp_v4_rcv,
+	// 在icmp模块接收到差错报文后，如果传输层协议是tcp，则该函数会被调用
 	.err_handler =	tcp_v4_err,
 	.gso_send_check = tcp_v4_gso_send_check,
 	.gso_segment =	tcp_tso_segment,

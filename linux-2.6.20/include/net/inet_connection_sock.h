@@ -94,47 +94,92 @@ struct inet_connection_sock_af_ops {
  * @icsk_ack:		   Delayed ACK control data
  * @icsk_mtup;		   MTU probing control data
  */
+// inet_connection_sock结构是所有面向连接传输控制块的表示，在inet_sock结构的基础之上，增加了有关进行连接、
+// 确认和重传等成员
 struct inet_connection_sock {
 	/* inet_sock has to be the first member! */
 	struct inet_sock	  icsk_inet;
+	// 当tcp传输层接收到客户的连接请求后，会创建一个客户端套接口存放到icsk_accept_queue容器中
+	// 等待应用程序调用accept()进行读取
 	struct request_sock_queue icsk_accept_queue;
+	// 指向与之绑定的本地端口信息，在绑定过程中被设置
 	struct inet_bind_bucket	  *icsk_bind_hash;
+	// 如果tcp段在指定时间内没接收到ack，则认为发送失败，而进行重传的时间
 	unsigned long		  icsk_timeout;
+	// 通过标识符icsk_pending来区分重传定时器和持续定时器的实现，在超时时间内没有接收到相应的ack段会发送重传
+	// 在连接对方通告接收窗口为0时会启动持续定时器
  	struct timer_list	  icsk_retransmit_timer;
+ 	// 用于延迟发送ack段的定时器
  	struct timer_list	  icsk_delack_timer;
+ 	// 超时重传的时间，初始值为TCP_TIMEOUT_INIT，当往返时间超过此值时被认为传输失败
+ 	// 需要注意的是，超时重传的时间是根据当前网络的情况动态计算的
 	__u32			  icsk_rto;
+	// 最后一次更新的pmtu
 	__u32			  icsk_pmtu_cookie;
+	// icsk_ca_ops是指向实现某个拥塞控制算法的指针，到目前位置，Linux支持多种拥塞控制算法
+	// 而用户也可以编写自己的拥塞控制算法机制模块加载到内核中，参见TCP_CONGESTION选项
 	const struct tcp_congestion_ops *icsk_ca_ops;
+	// tcp的一个操作接口集，包括向ip层发送的接口、tcp层setsockopt接口等，加载tcp协议模块时，在tcp_v4_init_sock()
+	// 中被初始化为inet_connection_sock_af_ops结构类型常量ipv4_specific
 	const struct inet_connection_sock_af_ops *icsk_af_ops;
+	// 根据pmtu同步本地mss函数指针，加载tcp协议模块时，在tcp_v4_init_sock()中被初始化为tcp_sync_mss()
 	unsigned int		  (*icsk_sync_mss)(struct sock *sk, u32 pmtu);
+	// 拥塞控制状态
 	__u8			  icsk_ca_state;
+	// 记录超时重传的次数
 	__u8			  icsk_retransmits;
+	// 标示预定的定时器事件，实际上，只取ICSK_TIME_RETRANS或ICSK_TIME_PROBE0，因为这两种定时操作使用的是同一个定时器
+	// 因此需要用这个标志来区分正在使用的是哪个定时器。重传和零窗口探测时会调用inet_csk_reset_xmit_timer()设置该字段
 	__u8			  icsk_pending;
+	// 用来计算持续定时器的下一个设定值的指数退避算法指数，在传送超时时会递增
 	__u8			  icsk_backoff;
+	// 在建立tcp连接时最多允许重试发送syn或syn+ack段的次数，参见TCP_SYNCNT选项和tcp_synack_retries系统参数
 	__u8			  icsk_syn_retries;
+	// 持续定时器或保活定时器周期性发送出去但未被确认的tcp段数目，在收到ack之后清零
 	__u8			  icsk_probes_out;
+	// IP首部中选项部分长度
 	__u16			  icsk_ext_hdr_len;
+	// 延时确认控制数据块
 	struct {
+		// 标识当前需发送确认的紧急程度和状态。在数据从内核空间复制到用户空间时会检测该状态，如果需要则立即发送确认
+		// 在计算rcv_mss时，会根据情况调整此状态
 		__u8		  pending;	 /* ACK is pending			   */
+		// 标识在快速发送确认模式下，可以快速发送ack段的数量，与pingpong一同作为判断是否在快速发送
+		// 确认模式的条件下，如果要延时发送确认，则必须在延时发送确认模式下
 		__u8		  quick;	 /* Scheduled number of quick acks	   */
+		// 标识启用或经用快速确认模式，0标识快速发送，1标识延时发送
+		// 需要注意的是，这个标志并不是永久性的
 		__u8		  pingpong;	 /* The session is interactive		   */
+		// blocked标志为1，表示"套接口被用户进程锁定了，现不能发送ack，如果有机会立即发送ack"
 		__u8		  blocked;	 /* Delayed ACK was blocked by socket lock */
+		// 用来计算延时确认的估值，在接收到tcp段时会根据本次与上次接收的时间间隔来调整该值
+		// 而在设置延时确认定时器时也会根据条件调整该值
 		__u32		  ato;		 /* Predicted tick of soft clock	   */
+		// 当前的延时确认时间，超时后会发送ack
 		unsigned long	  timeout;	 /* Currently scheduled timeout		   */
+		// 标识最近一次接收到数据包的时间
 		__u32		  lrcvtime;	 /* timestamp of last received data packet */
+		// 最后一个接收到的段的长度，用来计算rcv_mss
 		__u16		  last_seg_size; /* Size of last incoming segment	   */
+		// 由最近接收到段计算出的mss，主要用来确认是否需要执行延时确认
 		__u16		  rcv_mss;	 /* MSS used for delayed ACK decisions	   */ 
 	} icsk_ack;
+	// 有关路径mtu发现的控制数据块，在tcp_mtup_init()中被初始化
 	struct {
+		// 标识是否启用路径mtu发现功能
 		int		  enabled;
 
 		/* Range of MTUs to search */
+		// 用于标识路径mtu发现的区间的上下限
 		int		  search_high;
 		int		  search_low;
 
 		/* Information on the current probe. */
+		// 当前mtu探测段的长度，也用于判断路径mtu探测是否完成，无论成功还是失败，路径mtu探测完成后此值都将
+		// 初始化为0
 		int		  probe_size;
 	} icsk_mtup;
+	// 存储各种有关tcp拥塞控制算法的私有参数，虽然这里定义的是16个无符号整数，但在实际存储时的类型因拥塞控制算法而异
 	u32			  icsk_ca_priv[16];
 #define ICSK_CA_PRIV_SIZE	(16 * sizeof(u32))
 };
