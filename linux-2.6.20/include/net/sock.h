@@ -1398,6 +1398,7 @@ static inline void sk_stream_moderate_sndbuf(struct sock *sk)
 	}
 }
 
+// sk_stream_alloc_pskb()用来分配待发送的skb
 static inline struct sk_buff *sk_stream_alloc_pskb(struct sock *sk,
 						   int size, int mem,
 						   gfp_t gfp)
@@ -1406,8 +1407,11 @@ static inline struct sk_buff *sk_stream_alloc_pskb(struct sock *sk,
 	int hdr_len;
 
 	hdr_len = SKB_DATA_ALIGN(sk->sk_prot->max_header);
+	// 调用alloc_skb_fclone()分配指定长度的skb
 	skb = alloc_skb_fclone(size + hdr_len, gfp);
 	if (skb) {
+		// 如果分配成功，则需要sk_stream_wmem_schedule()确认发送缓存是否可用
+		// 可用则返回已分配的skb，否则释放分配的缓存并返回NULL
 		skb->truesize += mem;
 		if (sk_stream_wmem_schedule(sk, skb->truesize)) {
 			skb_reserve(skb, hdr_len);
@@ -1415,6 +1419,8 @@ static inline struct sk_buff *sk_stream_alloc_pskb(struct sock *sk,
 		}
 		__kfree_skb(skb);
 	} else {
+		// 若分配失败，则使tcp缓存管理进入警告状态，同时如果没有通过SO_SNDBUF选项进行手工设定发送缓存大小的上限
+		// 则需重新调整发送缓存大小的上限，最后返回NULL
 		sk->sk_prot->enter_memory_pressure();
 		sk_stream_moderate_sndbuf(sk);
 	}

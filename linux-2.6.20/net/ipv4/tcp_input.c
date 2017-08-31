@@ -3809,6 +3809,8 @@ static __sum16 __tcp_checksum_complete_user(struct sock *sk, struct sk_buff *skb
 	return result;
 }
 
+// tcp_checksum_complete_user()基于伪首部累加和完成包校验和的检测
+// 用于校验在ESTABLISHED状态下接收到的段，在ESTABLISHED状态下涉及传输控制块是否被进程锁定
 static inline int tcp_checksum_complete_user(struct sock *sk, struct sk_buff *skb)
 {
 	return skb->ip_summed != CHECKSUM_UNNECESSARY &&

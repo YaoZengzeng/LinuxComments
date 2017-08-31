@@ -524,6 +524,10 @@ extern u32	__tcp_select_window(struct sock *sk);
 // 缓冲区中，tcp控制缓冲区由struct tcp_skb_cb描述，可以看到tcp控制缓冲区中的信息和
 // tcp协议头的信息有部分重合，当数据从应用程序复制到tcp的skb时，函数需要tcp控制缓冲区
 // 中tcp协议头的信息来设置struct tcphdr数据结构中的相关数据域
+//
+// 对这个私有信息控制块的赋值一般在本层接收到段或发送段之前进行
+// 例如，tcp_v4_rcv()是tcp层接收入口函数，当接收到tcp段并对其进行必要的校验之后，就会对此段的tcp_skb_cb进行设置
+// 而发送过程，大多数是在生成tcp段时，或是在对tcp段进行分段时设置
 struct tcp_skb_cb {
 	union {
 		// 存放输入数据段的ip选项
@@ -554,6 +558,7 @@ struct tcp_skb_cb {
 #define TCPCB_FLAG_CWR		0x80
 
 	// 保存了选择回答(sack)和前送回答(fack)的状态标志，
+	// 主要描述段的重传状态，同时标志包是否包含紧急数据
 	__u8		sacked;		/* State flags for SACK/FACK.	*/
 // sack块已经给出了skb数据缓冲区中的段回答信息
 #define TCPCB_SACKED_ACKED	0x01	/* SKB ACK'd by a SACK block	*/
@@ -573,6 +578,7 @@ struct tcp_skb_cb {
 
 #define TCPCB_AT_TAIL		(TCPCB_URG)
 
+	// 如果存在TCPCB_FLAG_URG标志，则说明tcp段中有紧急数据，而urg_ptr则用来保存tcp首部中紧急指针值
 	__u16		urg_ptr;	/* Valid w/URG flags is set.	*/
 	// 与tcp协议头中的ack数据域相同
 	__u32		ack_seq;	/* Sequence number ACK'd	*/
@@ -832,6 +838,8 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
 	return __skb_checksum_complete(skb);
 }
 
+// tcp_checksum_complete()是基于伪首部累加和完成包校验和的检测
+// 且用于校验没有负载的tcp段
 static inline int tcp_checksum_complete(struct sk_buff *skb)
 {
 	return skb->ip_summed != CHECKSUM_UNNECESSARY &&

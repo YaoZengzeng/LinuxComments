@@ -112,6 +112,8 @@ EXPORT_SYMBOL(sk_stream_wait_close);
  * @sk: socket to wait for memory
  * @timeo_p: for how long
  */
+// 在发送数据时，如果分配缓冲区失败，则会调用sk_stream_wait_memory()等待
+// 该函数返回0，表示等待成功，返回非0，则为具体出错的错误码
 int sk_stream_wait_memory(struct sock *sk, long *timeo_p)
 {
 	int err = 0;
@@ -194,11 +196,16 @@ int sk_stream_error(struct sock *sk, int flags, int err)
 
 EXPORT_SYMBOL(sk_stream_error);
 
+// 在多数情况下会调用sk_stream_mem_reclaim()来回收缓存，如，在断开连接，释放传输控制块，关闭tcp套接口时
+// 释放发送或接收队列中的skb
+// sk_stream_mem_reclaim()只在预分配量大于一个页面时，才调用__sk_stream_mem_reclaim()进行真正的缓存回收
 void __sk_stream_mem_reclaim(struct sock *sk)
 {
+	// 调整memory_allocated和sk_forward_alloc
 	atomic_sub(sk->sk_forward_alloc / SK_STREAM_MEM_QUANTUM,
 		   sk->sk_prot->memory_allocated);
 	sk->sk_forward_alloc &= SK_STREAM_MEM_QUANTUM - 1;
+	// 如果处于告警状态且已分配内存低于低水平线，则将状态恢复到正常状态
 	if (*sk->sk_prot->memory_pressure &&
 	    (atomic_read(sk->sk_prot->memory_allocated) <
 	     sk->sk_prot->sysctl_mem[0]))
@@ -207,14 +214,22 @@ void __sk_stream_mem_reclaim(struct sock *sk)
 
 EXPORT_SYMBOL(__sk_stream_mem_reclaim);
 
+// 无论是为发送而分配skb，还是将报文接收到tcp传输层，都需要对新进入传输控制块的缓存进行确认
+// 确认时如果套接缓存中的数据长度大于预分配量，则需要进行全面的确认，这个过程由sk_stream_mem_schedule()实现
+// size：要确认的缓存长度
+// kind：类型，0为发送缓存，1为接收缓存
 int sk_stream_mem_schedule(struct sock *sk, int size, int kind)
 {
+	// 根据待确认的缓存长度，向上取整获得所占用的页面数
 	int amt = sk_stream_pages(size);
 
+	// 在确认之前需预先调整预分配量，加上之前计算得到的页面字节数，调整整个tcp传输层已分配内存
+	// 加上之前计算得到的页面数
 	sk->sk_forward_alloc += amt * SK_STREAM_MEM_QUANTUM;
 	atomic_add(amt, sk->sk_prot->memory_allocated);
 
 	/* Under limit. */
+	// 如果已分配内存低于低水平线，则将原先的告警状态恢复到正常状态，返回1，表示确认成功
 	if (atomic_read(sk->sk_prot->memory_allocated) < sk->sk_prot->sysctl_mem[0]) {
 		if (*sk->sk_prot->memory_pressure)
 			*sk->sk_prot->memory_pressure = 0;
@@ -222,21 +237,28 @@ int sk_stream_mem_schedule(struct sock *sk, int size, int kind)
 	}
 
 	/* Over hard limit. */
+	// 如果已分配内存高于警戒线但低于硬性限制线，则进入告警状态
 	if (atomic_read(sk->sk_prot->memory_allocated) > sk->sk_prot->sysctl_mem[2]) {
 		sk->sk_prot->enter_memory_pressure();
 		goto suppress_allocation;
 	}
 
 	/* Under pressure. */
+	// 如果已分配内存高于警戒线但低于硬性限制线，则进入告警状态
 	if (atomic_read(sk->sk_prot->memory_allocated) > sk->sk_prot->sysctl_mem[1])
 		sk->sk_prot->enter_memory_pressure();
 
+	// 对于已分配的内存高于警戒线但低于硬性限制线情况的处理
 	if (kind) {
+		// 如果待确认的是接收缓存，且接收队列中段的数据总长度小于接收缓冲区的长度，则确认成功，否则还需要进一步确认
 		if (atomic_read(&sk->sk_rmem_alloc) < sk->sk_prot->sysctl_rmem[0])
 			return 1;
 	} else if (sk->sk_wmem_queued < sk->sk_prot->sysctl_wmem[0])
+		// 如果待确认的是发送缓存，且发送队列中段的数据总长度小于发送缓冲区的长度上限，则确认成功，否则还需要进一步确认
 		return 1;
 
+	// 如果没有进入告警状态，或者当前套接口发送队列中所有段数据总长度，接收队列中所有段数据总长度
+	// 预分配缓存总长度的当前系统中套接口数量的倍数这三者之和还小于硬性限制线，则确认成功
 	if (!*sk->sk_prot->memory_pressure ||
 	    sk->sk_prot->sysctl_mem[2] > atomic_read(sk->sk_prot->sockets_allocated) *
 				sk_stream_pages(sk->sk_wmem_queued +
@@ -244,19 +266,24 @@ int sk_stream_mem_schedule(struct sock *sk, int size, int kind)
 						sk->sk_forward_alloc))
 		return 1;
 
+// 处理已分配的内存高于硬性限制线的情况
 suppress_allocation:
 
 	if (!kind) {
+		// 若待确认的是发送缓存，则将传输控制块发送缓冲区的预设大小减小为已分配缓冲队列大小的一半
 		sk_stream_moderate_sndbuf(sk);
 
 		/* Fail only if socket is _under_ its sndbuf.
 		 * In this case we cannot block, so that we have to fail.
 		 */
+		// 如果已分配缓冲队列大小与待确认长度之和大于sk_sndbuf，则可通过确认
+		// 如果待确认的是接收缓存，当已分配的内存高于硬性限制线时，确认必然失败
 		if (sk->sk_wmem_queued + size >= sk->sk_sndbuf)
 			return 1;
 	}
 
 	/* Alas. Undo changes. */
+	// 如果确认失败，则恢复sk_forward_alloc和memory_allocated
 	sk->sk_forward_alloc -= amt * SK_STREAM_MEM_QUANTUM;
 	atomic_sub(amt, sk->sk_prot->memory_allocated);
 	return 0;

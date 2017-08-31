@@ -117,6 +117,8 @@ enum {
 // 这个选项的值为1，则将struct tcp_sock结构中的ack部分的pingpong数据域设为0，就可以禁止延迟发送
 // TCP_QUICKACK选项只会暂时影响tcp协议的操作行为
 #define TCP_QUICKACK		12	/* Block/reenable quick acks */
+// 选择并启用指定的拥塞控制算法，设置过程是，首先从用户空间取得拥塞控制算法名，然后调用tcp_set_congestion_control()
+// 修改传输控制块当前拥塞控制算法
 #define TCP_CONGESTION		13	/* Congestion control algorithm */
 #define TCP_MD5SIG		14	/* TCP MD5 Signature (RFC2385) */
 

@@ -2029,6 +2029,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 	return err;
 }
 
+// tcp_setsockopt()会根据选项的级别来选择不同的函数处理
 int tcp_setsockopt(struct sock *sk, int level, int optname, char __user *optval,
 		   int optlen)
 {
@@ -2461,10 +2462,12 @@ void __init tcp_init(void)
 	unsigned long limit;
 	int order, i, max_share;
 
+	// skb中cb数组必须大于tcp_skb_cb结构的大小，因为tcp层会在cb中存储一个tcp_skb_cb结构
 	if (sizeof(struct tcp_skb_cb) > sizeof(skb->cb))
 		__skb_cb_too_small_for_tcp(sizeof(struct tcp_skb_cb),
 					   sizeof(skb->cb));
 
+	// 创建用于分配inet_bind_hashbucket结构的后备高速缓存，该结构主要用来存储管理已绑定端口的信息
 	tcp_hashinfo.bind_bucket_cachep =
 		kmem_cache_create("tcp_bind_bucket",
 				  sizeof(struct inet_bind_bucket), 0,
@@ -2475,6 +2478,7 @@ void __init tcp_init(void)
 	 *
 	 * The methodology is similar to that of the buffer cache.
 	 */
+	// 分配用于存储tcp状态为TCP_ESTABLISHED的传输控制块的散列表
 	tcp_hashinfo.ehash =
 		alloc_large_system_hash("TCP established",
 					sizeof(struct inet_ehash_bucket),
@@ -2485,12 +2489,17 @@ void __init tcp_init(void)
 					&tcp_hashinfo.ehash_size,
 					NULL,
 					0);
+	// 根据thash得到散列表的大小ehash_size，thash_entries作为内核参数，是TCP_ESTABLISHED状态
+	// tcp套接口散列表允许使用的大小
 	tcp_hashinfo.ehash_size = (1 << tcp_hashinfo.ehash_size) >> 1;
+	// 初始化ehash散列表
 	for (i = 0; i < (tcp_hashinfo.ehash_size << 1); i++) {
 		rwlock_init(&tcp_hashinfo.ehash[i].lock);
 		INIT_HLIST_HEAD(&tcp_hashinfo.ehash[i].chain);
 	}
 
+	// 分配用于存储已绑定端口信息的散列表，并根据ehash_size（在创建ehash散列表时得到）
+	// 得到散列表的大小bhash_size
 	tcp_hashinfo.bhash =
 		alloc_large_system_hash("TCP bind",
 					sizeof(struct inet_bind_hashbucket),
@@ -2502,6 +2511,7 @@ void __init tcp_init(void)
 					NULL,
 					64 * 1024);
 	tcp_hashinfo.bhash_size = 1 << tcp_hashinfo.bhash_size;
+	// 初始化bhash散列表
 	for (i = 0; i < tcp_hashinfo.bhash_size; i++) {
 		spin_lock_init(&tcp_hashinfo.bhash[i].lock);
 		INIT_HLIST_HEAD(&tcp_hashinfo.bhash[i].chain);
@@ -2510,10 +2520,17 @@ void __init tcp_init(void)
 	/* Try to be a bit smarter and adjust defaults depending
 	 * on available memory.
 	 */
+	// 根据bhash_size来计算order的值，order用来确定如何设置可分配端口的区间
+	// bhash_size的值最终由系统参数thash_entries确定，这是各应用策略问题，如果用作网络服务器
+	// 则thash_entries参数应设置得大一些，而如果作为一般桌面系统或嵌入式系统，则thash_entries参数
+	// 应设置地小一些，当然该区间在系统运行期也是可以修改的
 	for (order = 0; ((1 << order) << PAGE_SHIFT) <
 			(tcp_hashinfo.bhash_size * sizeof(struct inet_bind_hashbucket));
 			order++)
 		;
+	// 由于order表示系统能提供资源的多少，因此需根据order的大小来设置可绑定端口的区间，保持在TIME_WAIT状态
+	// 下的套接口的最大数max_tw_buckets、系统所能处理不属于任何进程的孤儿套接口的最大数tcp_max_orphans
+	// 以及系统可以同时存在未完成三次握手的SYN请求的最大数max_syn_backlog
 	if (order >= 4) {
 		sysctl_local_port_range[0] = 32768;
 		sysctl_local_port_range[1] = 61000;
@@ -2528,6 +2545,7 @@ void __init tcp_init(void)
 	}
 
 	/* Allow no more than 3/4 kernel memory (usually less) allocated to TCP */
+	// 初始化系统控制参数tcp_mem，是一组用于控制tcp栈缓存使用的阈值，参见tcp_mem系统参数
 	sysctl_tcp_mem[0] = (1536 / sizeof (struct inet_bind_hashbucket)) << order;
 	sysctl_tcp_mem[1] = sysctl_tcp_mem[0] * 4 / 3;
 	sysctl_tcp_mem[2] = sysctl_tcp_mem[0] * 2;
@@ -2535,6 +2553,7 @@ void __init tcp_init(void)
 	limit = ((unsigned long)sysctl_tcp_mem[1]) << (PAGE_SHIFT - 7);
 	max_share = min(4UL*1024*1024, limit);
 
+	// 初始化系统参数tcp_wmem和tcp_rmem
 	sysctl_tcp_wmem[0] = SK_STREAM_MEM_QUANTUM;
 	sysctl_tcp_wmem[1] = 16*1024;
 	sysctl_tcp_wmem[2] = max(64*1024, max_share);
@@ -2547,6 +2566,7 @@ void __init tcp_init(void)
 	       "(established %d bind %d)\n",
 	       tcp_hashinfo.ehash_size << 1, tcp_hashinfo.bhash_size);
 
+	// 向tcp传输控制块中注册reno拥塞控制算法，这是系统默认的拥塞控制算法
 	tcp_register_congestion_control(&tcp_reno);
 }
 

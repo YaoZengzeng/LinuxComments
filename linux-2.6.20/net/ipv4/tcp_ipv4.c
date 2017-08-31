@@ -366,7 +366,10 @@ static void do_pmtu_discovery(struct sock *sk, struct iphdr *iph, u32 mtu)
  * is probably better.
  *
  */
-
+// tcp_v4_err是tcp的差错处理函数，在icmp模块接收到差错报文后，如果传输层协议是tcp，就调用该函数
+// 如果错误码小于零，则先关闭连接然后将错误返回给用户进程，大于零，则根据ICMP报文的类型及编码作相应处理
+// skb：接收到的icmp差错报文
+// info：辅助信息，因类型，代码而异，例如，对于目的不可达需要分片的差错报文，info为下一跳的mtu
 void tcp_v4_err(struct sk_buff *skb, u32 info)
 {
 	struct iphdr *iph = (struct iphdr *)skb->data;
@@ -379,17 +382,21 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 	__u32 seq;
 	int err;
 
+	// 检测icmp报文长度是否包含了原始ip首部和原始ip数据报中前8字节数据，如果不完整则返回
 	if (skb->len < (iph->ihl << 2) + 8) {
 		ICMP_INC_STATS_BH(ICMP_MIB_INERRORS);
 		return;
 	}
 
+	// 通过从icmp报文数据中获取的原始tcp首部中源端口号和ip首部中源地址，得到发送该tcp报文的传输控制块
 	sk = inet_lookup(&tcp_hashinfo, iph->daddr, th->dest, iph->saddr,
 			 th->source, inet_iif(skb));
+	// 如果获取失败，则说明icmp报文有误或该套接口已关闭
 	if (!sk) {
 		ICMP_INC_STATS_BH(ICMP_MIB_INERRORS);
 		return;
 	}
+	// 如果获取传输控制块的tcp状态为TIME_WAIT，则说明套接口即将关闭，这两种情况都无需进一步处理
 	if (sk->sk_state == TCP_TIME_WAIT) {
 		inet_twsk_put(inet_twsk(sk));
 		return;
@@ -399,20 +406,24 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 	/* If too many ICMPs get dropped on busy
 	 * servers this needs to be solved differently.
 	 */
+	// 如果此时该传输控制块被用户进程锁定（如果用户进程正在调用send等系统调用），则需累计相关SNMP的统计量
 	if (sock_owned_by_user(sk))
 		NET_INC_STATS_BH(LINUX_MIB_LOCKDROPPEDICMPS);
 
+	// 如果传输控制块的tcp状态为CLOSE，则说明该套接口已经关闭，无需进一步处理
 	if (sk->sk_state == TCP_CLOSE)
 		goto out;
 
 	tp = tcp_sk(sk);
 	seq = ntohl(th->seq);
+	// 如果传输控制块不在侦听状态，且序号不在已发送未确认的区间内，则icmp报文异常，无需进一步处理
 	if (sk->sk_state != TCP_LISTEN &&
 	    !between(seq, tp->snd_una, tp->snd_nxt)) {
 		NET_INC_STATS_BH(LINUX_MIB_OUTOFWINDOWICMPS);
 		goto out;
 	}
 
+	// 根据icmp类型进行相应处理
 	switch (type) {
 	case ICMP_SOURCE_QUENCH:
 		/* Just silently ignore these. */
@@ -425,6 +436,7 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 			goto out;
 
 		if (code == ICMP_FRAG_NEEDED) { /* PMTU discovery (RFC1191) */
+			// 如果需要分片而设置了不分片位，则调用do_pmtu_discovery()探测路径MTU
 			if (!sock_owned_by_user(sk))
 				do_pmtu_discovery(sk, iph, info);
 			goto out;
@@ -442,9 +454,12 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 	switch (sk->sk_state) {
 		struct request_sock *req, **prev;
 	case TCP_LISTEN:
+		// 如果传输控制块被用户进程锁定，则不作进一步处理
 		if (sock_owned_by_user(sk))
 			goto out;
 
+		// 由于处于侦听状态，因此根据目的端口号，源地址和目的地址查找正在连接的对端套接口
+		// 如果查找失败则不作进一步处理
 		req = inet_csk_search_req(sk, &prev, th->dest,
 					  iph->daddr, iph->saddr);
 		if (!req)
@@ -455,6 +470,7 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 		 */
 		BUG_TRAP(!req->sk);
 
+		// 如果发送出去tcp段的序号不等于对端套接口的发送序号，则说明序号有误，不作进一步处理
 		if (seq != tcp_rsk(req)->snt_isn) {
 			NET_INC_STATS_BH(LINUX_MIB_OUTOFWINDOWICMPS);
 			goto out;
@@ -466,6 +482,7 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 		 * created socket, and POSIX does not want network
 		 * errors returned from accept().
 		 */
+		// 删除并释放连接过程中的传输块
 		inet_csk_reqsk_queue_drop(sk, req, prev);
 		goto out;
 
@@ -474,12 +491,15 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 			       It can f.e. if SYNs crossed.
 			     */
 		if (!sock_owned_by_user(sk)) {
+			// 如果传输控制块没有被用户进程锁定，则将错误码设置到sk_err，调用该套接口的错误报告接口函数
+			// 关闭套接口
 			sk->sk_err = err;
 
 			sk->sk_error_report(sk);
 
 			tcp_done(sk);
 		} else {
+			// 否则将错误码设置到sk_err_soft，在这种情况下用户进程可使用SO_ERROR套接口选项获取错误码
 			sk->sk_err_soft = err;
 		}
 		goto out;
@@ -501,6 +521,8 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 	 *							--ANK (980905)
 	 */
 
+	// 到这一步，则传输控制块一定不在LISTEN、SYN_SENT或SYN_RECV状态，此时如果控制块没有被用户进程锁定
+	// 并且允许接收扩展的可靠错误消息，则设置得到的错误码，然后通知错误，否则将错误码设置到sk_err_soft
 	inet = inet_sk(sk);
 	if (!sock_owned_by_user(sk) && inet->recverr) {
 		sk->sk_err = err;
@@ -515,16 +537,19 @@ out:
 }
 
 /* This routine computes an IPv4 TCP checksum. */
+// tcp_v4_send_check基于tcp用户数据的中间累加和（如果存在数据），生成tcp包的校验和
 void tcp_v4_send_check(struct sock *sk, int len, struct sk_buff *skb)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct tcphdr *th = skb->h.th;
 
+	// 如果tcp包本身的校验由硬件来完成，则只执行伪首部校验和
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		th->check = ~tcp_v4_check(th, len,
 					  inet->saddr, inet->daddr, 0);
 		skb->csum_offset = offsetof(struct tcphdr, check);
 	} else {
+		// 对于用软件完成校验和的操作，则基于tcp用户数据的中间累加和，生成tcp包的校验和
 		th->check = tcp_v4_check(th, len, inet->saddr, inet->daddr,
 					 csum_partial((char *)th,
 						      th->doff << 2,
@@ -1532,8 +1557,12 @@ static struct sock *tcp_v4_hnd_req(struct sock *sk, struct sk_buff *skb)
 	return sk;
 }
 
+// tcp_v4_checksum_init()用于tcp段接收校验的初始化，主要是对伪首部进行校验和的计算
+// 当然也有例外，如果校验和由硬件完成，则只对伪首部进行校验检测，对于全长不超过76B的tcp包
+// 则直接进行伪首部和全包校验
 static __sum16 tcp_v4_checksum_init(struct sk_buff *skb)
 {
+	// 如果tcp包本身的校验和已经由硬件完成，则只对伪首部进行校验
 	if (skb->ip_summed == CHECKSUM_COMPLETE) {
 		if (!tcp_v4_check(skb->h.th, skb->len, skb->nh.iph->saddr,
 				  skb->nh.iph->daddr, skb->csum)) {
@@ -1542,9 +1571,11 @@ static __sum16 tcp_v4_checksum_init(struct sk_buff *skb)
 		}
 	}
 
+	// 对于用软件完成校验和的操作，首先生成伪首部的部分累加和
 	skb->csum = csum_tcpudp_nofold(skb->nh.iph->saddr, skb->nh.iph->daddr,
 				       skb->len, IPPROTO_TCP, 0);
 
+	// 对于全长不超过76B的tcp包直接进行全包校验，其他的包，在后续操作中完成全包校验和检测
 	if (skb->len <= 76) {
 		return __skb_checksum_complete(skb);
 	}

@@ -73,10 +73,15 @@ struct inet_ehash_bucket {
  * users logged onto your box, isn't it nice to know that new data
  * ports are created in O(1) time?  I thought so. ;-)	-DaveM
  */
+// 端口绑定信息块
 struct inet_bind_bucket {
+	// 已绑定的端口
 	unsigned short		port;
+	// 标识端口是否能重用
 	signed short		fastreuse;
+	// 用来存储bhash散列表的节点
 	struct hlist_node	node;
+	// 绑定在该端口上的传输控制块链表
 	struct hlist_head	owners;
 };
 
@@ -91,6 +96,8 @@ struct inet_bind_hashbucket {
 /* This is for listening sockets, thus all sockets which possess wildcards. */
 #define INET_LHTABLE_SIZE	32	/* Yes, really, this is all you need. */
 
+// tcp传输层中用一个inet_hashinfo结构类型的全局变量tcp_hashinfo对所有的散列表进行集中管理
+// hashinfo在tcp模块初始化时被初始化
 struct inet_hashinfo {
 	/* This is for sockets with full identity only.  Sockets here will
 	 * always be without wildcards and will have the following invariant:
@@ -100,11 +107,14 @@ struct inet_hashinfo {
 	 * First half of the table is for sockets not in TIME_WAIT, second half
 	 * is for TIME_WAIT sockets only.
 	 */
+	// ehash指向一个大小为ehash_size的inet_ehash_bucket结构类型的散列表，用来管理tcp状态
+	// 除LISTEN之外的传输控制块的散列表
 	struct inet_ehash_bucket	*ehash;
 
 	/* Ok, let's try this, I give up, we do need a local binding
 	 * TCP hash as well as the others for fast bind/connect.
 	 */
+	// 大小为bhash_size的bhash散列表主要用于存储已绑定端口的信息，其微信为inet_bind_hashbucket结构
 	struct inet_bind_hashbucket	*bhash;
 
 	int				bhash_size;
@@ -114,6 +124,7 @@ struct inet_hashinfo {
 	 * table where wildcard'd TCP sockets can exist.  Hash function here
 	 * is just local port number.
 	 */
+	// 用来存储管理LISTEN状态的传输控制块散列表
 	struct hlist_head		listening_hash[INET_LHTABLE_SIZE];
 
 	/* All the above members are written once at bootup and
@@ -122,9 +133,14 @@ struct inet_hashinfo {
 	 * Now align to a new cache line as all the following members
 	 * are often dirty.
 	 */
+	// 用来同步访问lhash_users和lhash_wait的读写锁
 	rwlock_t			lhash_lock ____cacheline_aligned;
+	// 引用计数器
 	atomic_t			lhash_users;
+	// 在对hashinfo进行写锁时，如果引用计数器lhash_users大于0，则会睡眠等待直到该字段值为0
+	// 睡眠进程的描述符会加入到lhash_wait中
 	wait_queue_head_t		lhash_wait;
+	// 用来分配inet_bind_hashbucket结构的后备高速缓存
 	struct kmem_cache			*bind_bucket_cachep;
 };
 
