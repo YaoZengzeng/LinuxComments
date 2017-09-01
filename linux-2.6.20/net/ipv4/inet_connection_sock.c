@@ -264,6 +264,8 @@ EXPORT_SYMBOL(inet_csk_accept);
  * We may wish use just one timer maintaining a list of expire jiffies 
  * to optimize.
  */
+// inet_csk_init_xmit_timers进行具体的初始化，主要是初始化inet_connection_sock
+// 结构中的icsk_retransmit_timer和icsk_delack_timer，以及sock结构中的sk_timer定时器
 void inet_csk_init_xmit_timers(struct sock *sk,
 			       void (*retransmit_handler)(unsigned long),
 			       void (*delack_handler)(unsigned long),
@@ -271,10 +273,12 @@ void inet_csk_init_xmit_timers(struct sock *sk,
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 
+	// 初始化icsk_retransmit_timer、icsk_delack_timer以及sk_timer三个定时器
 	init_timer(&icsk->icsk_retransmit_timer);
 	init_timer(&icsk->icsk_delack_timer);
 	init_timer(&sk->sk_timer);
 
+	// 设置以上三个定时器的处理例程以及例程参数
 	icsk->icsk_retransmit_timer.function = retransmit_handler;
 	icsk->icsk_delack_timer.function     = delack_handler;
 	sk->sk_timer.function		     = keepalive_handler;
@@ -283,6 +287,7 @@ void inet_csk_init_xmit_timers(struct sock *sk,
 		icsk->icsk_delack_timer.data =
 			sk->sk_timer.data  = (unsigned long)sk;
 
+	// 初始化延时确认模式
 	icsk->icsk_pending = icsk->icsk_ack.pending = 0;
 }
 
@@ -390,6 +395,8 @@ struct request_sock *inet_csk_search_req(const struct sock *sk,
 
 EXPORT_SYMBOL_GPL(inet_csk_search_req);
 
+// 在服务端，当侦听的套接口接收了一个新的连接请求后，会为该连接创建一个请求块，并将其添加到“父”传输控制块的连接
+// 请求散列表中，最后启动连接建立定时器
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 				   unsigned long timeout)
 {
@@ -407,6 +414,13 @@ extern int sysctl_tcp_synack_retries;
 
 EXPORT_SYMBOL_GPL(inet_csk_reqsk_queue_hash_add);
 
+// inet_csk_reqsk_queue_prune()用于扫描半连接散列表，当半连接队列的连接请求块个数超过最大个数的一半时
+// 需要为接受没有重传过的连接保留一半的空间。半连接队列里面要尽量保持没有重传过的连接，并删除一些长时间空闲
+// 或者没有接收的连接
+// parent：进行侦听的传输控制块
+// Interval：建立连接定时器的超时时间
+// Timeout：往返超时的初始值，每超时一次，加倍上次的超时时间
+// max_rto：往返时间的最大值
 void inet_csk_reqsk_queue_prune(struct sock *parent,
 				const unsigned long interval,
 				const unsigned long timeout,
@@ -415,12 +429,16 @@ void inet_csk_reqsk_queue_prune(struct sock *parent,
 	struct inet_connection_sock *icsk = inet_csk(parent);
 	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
 	struct listen_sock *lopt = queue->listen_opt;
+	// 获取建立tcp连接时最多允许重传syn+ack段的次数
 	int max_retries = icsk->icsk_syn_retries ? : sysctl_tcp_synack_retries;
+	// 局部变量thresh用于控制重传次数，在计算thresh时，年轻连接越多则可容忍的重传次数也越多
 	int thresh = max_retries;
 	unsigned long now = jiffies;
 	struct request_sock **reqp, *req;
 	int i, budget;
 
+	// 如果该套接口中保存连接请求块的散列表还没有建立，或者还没有处于连接过程中的连接请求块
+	// 则直接返回
 	if (lopt == NULL || lopt->qlen == 0)
 		return;
 
@@ -441,6 +459,9 @@ void inet_csk_reqsk_queue_prune(struct sock *parent,
 	 * embrions; and abort old ones without pity, if old
 	 * ones are about to clog our table.
 	 */
+	// 如果qlen已经超过了最大连接数的一半，并且尝试次数大于2，则需要调整重试次数的阈值thresh
+	// 如果没有重传过syn+ack段的连接请求块不足所有连接请求块数的四分之一，则将阈值thresh减1
+	// 如果在没有重传过syn+ack段中的连接请求块数的八分之一，则再将阈值thresh减1，直至2为止
 	if (lopt->qlen>>(lopt->max_qlen_log-1)) {
 		int young = (lopt->qlen_young<<1);
 
@@ -452,16 +473,29 @@ void inet_csk_reqsk_queue_prune(struct sock *parent,
 		}
 	}
 
+	// 获取在启用加速连接情况下最多允许重传syn段的次数
 	if (queue->rskq_defer_accept)
 		max_retries = queue->rskq_defer_accept;
 
+	// 计算需要检测的半连接队列的个数，得到预计值，由于半连接队列是一个链表，并且数量可能比较大
+	// 因此为了提高效率，每次只是遍历几个链表
 	budget = 2 * (lopt->nr_table_entries / (timeout / interval));
+	// clock_hand的初始值为0，每次遍历完半连接队列，会把最后的i保存到clock_hand中，从而下一次遍历
+	// 会从上次的clock_hand开始
 	i = lopt->clock_hand;
 
+	// 处理连接请求散列表中指定budget个入口的连接请求块
 	do {
+		// 获取当前处理入口的链表头，循环遍历该链表，处理其上的连接请求块
 		reqp=&lopt->syn_table[i];
 		while ((req = *reqp) != NULL) {
+			// 如果当前连接请求块的连接已经超时，则将根据已重传的次数来决定是再次重传还是放弃该连接建立
 			if (time_after_eq(now, req->expires)) {
+				// 在以下两种情况下需要累计重传syn+ack段的次数，并因重传而递减qlen_young，然后重新计算
+				// 下次的超时时间（加倍上次的超时时间），设置到该连接请求块上，最后获取下一个连接请求块进行
+				// 处理
+				// syn+ack段重传次数未达到上限
+				// 已经接收到第三次握手的ack段后，由于繁忙或其他原因导致未能建立起连接
 				if ((req->retrans < thresh ||
 				     (inet_rsk(req)->acked && req->retrans < max_retries))
 				    && !req->rsk_ops->rtx_syn_ack(parent, req, NULL)) {
@@ -476,20 +510,26 @@ void inet_csk_reqsk_queue_prune(struct sock *parent,
 				}
 
 				/* Drop this request */
+				// 如果syn+ack段重传次数超过指定值，则需要取消该连接请求，并将当前连接请求块从连接请求散列表中删除
+				// 并释放
 				inet_csk_reqsk_queue_unlink(parent, req, reqp);
 				reqsk_queue_removed(queue, req);
 				reqsk_free(req);
 				continue;
 			}
+			// 取链表下一个连接请求块进行处理
 			reqp = &req->dl_next;
 		}
 
+		// 当前入口链表上的连接请求块处理完后，处理下一入口链表上的连接请求块
 		i = (i + 1) & (lopt->nr_table_entries - 1);
 
 	} while (--budget > 0);
 
+	// 保存当前处理的入口，下次超时时从保存的入口开始处理
 	lopt->clock_hand = i;
 
+	// 如果连接请求散列表中还有未完成连接的连接请求块，则再次启动定时器
 	if (lopt->qlen)
 		inet_csk_reset_keepalive_timer(parent, interval);
 }

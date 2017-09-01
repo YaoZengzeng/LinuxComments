@@ -2578,12 +2578,16 @@ static int tcp_ack(struct sock *sk, struct sk_buff *skb, int flag)
 	return 1;
 
 no_queue:
+	// 由于接收到了对端的ack，因此将tcp保活探测段为确认数清零，说明此时tcp连接是正常的
 	icsk->icsk_probes_out = 0;
 
 	/* If this ack opens up a zero window, clear backoff.  It was
 	 * being used to time the probes, and is probably far higher than
 	 * it needs to be for normal retransmission.
 	 */
+	// 如果还有待发送的数据，则根据情况确认是否进行零窗口的探测，这是由tcp_ack_probe()来实现的
+	// 接收到ack，如果对方接收窗口未关闭，则需清除持续定时器中指数回退算法指数，停止持续定时器
+	// 否则开启持续定时器
 	if (sk->sk_send_head)
 		tcp_ack_probe(sk);
 	return 1;

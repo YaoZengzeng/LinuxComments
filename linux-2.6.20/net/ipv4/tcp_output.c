@@ -2445,18 +2445,23 @@ static int tcp_xmit_probe_skb(struct sock *sk, int urgent)
 	return tcp_transmit_skb(sk, skb, 0, GFP_ATOMIC);
 }
 
+// tcp_write_wakeup()用来输出持续探测段，如果传输控制块处于关闭状态，则直接返回失败，否则传输持续探测段
 int tcp_write_wakeup(struct sock *sk)
 {
 	if (sk->sk_state != TCP_CLOSE) {
 		struct tcp_sock *tp = tcp_sk(sk);
 		struct sk_buff *skb;
 
+		// 发送队列不为空时的持续探测段输出
 		if ((skb = sk->sk_send_head) != NULL &&
 		    before(TCP_SKB_CB(skb)->seq, tp->snd_una+tp->snd_wnd)) {
 			int err;
+			// 获取当前的mss以及待分段的段长，分段得到的新段必须在对方接收窗口内
 			unsigned int mss = tcp_current_mss(sk, 0);
 			unsigned int seg_size = tp->snd_una+tp->snd_wnd-TCP_SKB_CB(skb)->seq;
 
+			// 如果发送队列中有段需要发送，并且最先待发送的段至少有一部分在对端接收窗口内
+			// 那么可以直接利用该待发送的段来发送持续探测段
 			if (before(tp->pushed_seq, TCP_SKB_CB(skb)->end_seq))
 				tp->pushed_seq = TCP_SKB_CB(skb)->end_seq;
 
@@ -2464,6 +2469,8 @@ int tcp_write_wakeup(struct sock *sk)
 			 * but the window size is != 0
 			 * must have been a result SWS avoidance ( sender )
 			 */
+			// 如果待分段段长大于剩余等待发送数据，或者段长度大于当前mss，则对该段进行分段
+			// 分段段长取待分段段长与当前mss两者中的最小值，以保证只发送出一个段到对方
 			if (seg_size < TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq ||
 			    skb->len > mss) {
 				seg_size = min(seg_size, mss);
@@ -2473,6 +2480,7 @@ int tcp_write_wakeup(struct sock *sk)
 			} else if (!tcp_skb_pcount(skb))
 				tcp_set_skb_tso_segs(sk, skb, mss);
 
+			// 将探测段发送出去，如果发送成功，则更新发送队首等标志
 			TCP_SKB_CB(skb)->flags |= TCPCB_FLAG_PSH;
 			TCP_SKB_CB(skb)->when = tcp_time_stamp;
 			err = tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
@@ -2481,6 +2489,8 @@ int tcp_write_wakeup(struct sock *sk)
 			}
 			return err;
 		} else {
+			// 如果发送队列为空，则构造并发送一个序号已确认、长度为零的段给对端
+			// 如果处于紧急模式，则多发送一个序号为SND.UNA的段给对端
 			if (tp->urg_mode &&
 			    between(tp->snd_up, tp->snd_una+1, tp->snd_una+0xFFFF))
 				tcp_xmit_probe_skb(sk, TCPCB_URG);
@@ -2493,14 +2503,18 @@ int tcp_write_wakeup(struct sock *sk)
 /* A window probe timeout has occurred.  If window is not closed send
  * a partial packet else a zero probe.
  */
+// 当持续定时器超时后，会调用tcp_send_probe0进行探测
 void tcp_send_probe0(struct sock *sk)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	int err;
 
+	// 输出持续探测段
 	err = tcp_write_wakeup(sk);
 
+	// 如果有已发送但未确认的段，或者发送队列为空，这两种情况都无需再发送持续探测段了
+	// 因此需将icsk_probes_out和icsk_backoff清零，然后返回
 	if (tp->packets_out || !sk->sk_send_head) {
 		/* Cancel probe timer, if it is not required. */
 		icsk->icsk_probes_out = 0;
@@ -2509,6 +2523,8 @@ void tcp_send_probe0(struct sock *sk)
 	}
 
 	if (err <= 0) {
+		// 如果重传成功或并非由于本地拥塞而发送失败，则更新icsk_backoff和icks_probes_out
+		// 然后复位持续定时器
 		if (icsk->icsk_backoff < sysctl_tcp_retries2)
 			icsk->icsk_backoff++;
 		icsk->icsk_probes_out++;
@@ -2522,6 +2538,8 @@ void tcp_send_probe0(struct sock *sk)
 		 *
 		 * Use accumulated backoff yet.
 		 */
+		// 如果由于本地拥塞而导致发送失败，则不需要累计icsk_probes_out，同时复位持续定时器
+		// 缩短超时时间，尽可能争取资源
 		if (!icsk->icsk_probes_out)
 			icsk->icsk_probes_out = 1;
 		inet_csk_reset_xmit_timer(sk, ICSK_TIME_PROBE0, 
