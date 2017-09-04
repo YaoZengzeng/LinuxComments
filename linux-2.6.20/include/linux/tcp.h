@@ -238,13 +238,17 @@ struct tcp_options_received {
 	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
 };
 
+// tcp_request_sock结构作为tcp连接请求块，用来保存双方的初始序号，双方的端口以及ip地址
+// tcp选项，如是否支持窗口扩大因子，是否支持sack等，并控制连接的建立
 struct tcp_request_sock {
 	struct inet_request_sock 	req;
 #ifdef CONFIG_TCP_MD5SIG
 	/* Only used by TCP MD5 Signature so far. */
 	struct tcp_request_sock_ops	*af_specific;
 #endif
+	// 客户端的初始序列号，接收到客户端连接请求syn段的序号
 	u32			 	rcv_isn;
+	// 服务端的初始序列号，服务端发送syn+ack段的序号
 	u32			 	snt_isn;
 };
 

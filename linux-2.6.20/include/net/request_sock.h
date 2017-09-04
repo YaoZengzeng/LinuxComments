@@ -26,17 +26,27 @@ struct sk_buff;
 struct dst_entry;
 struct proto;
 
+// request_sock_ops结构为处理连接请求的函数指针表，其中包含用于发送syn+ack段，ack段，rst段的函数
+// 该结构作为request_sock结构的一个成员，可以很方便地通过连接请求块索引到这些结构，tcp中，指向的实例
+// 为tcp_request_sock_ops
 struct request_sock_ops {
+	// 所属协议族
 	int		family;
+	// obj_size是tcp_request_sock结构长度，用于创建分配连接请求块的高速缓存slab，该缓存在注册传输层
+	// 协议时建立，参见proto_register()
 	int		obj_size;
 	struct kmem_cache	*slab;
+	// 发送syn+ack段的函数指针，tcp中为tcp_v4_send_synack()
 	int		(*rtx_syn_ack)(struct sock *sk,
 				       struct request_sock *req,
 				       struct dst_entry *dst);
+	// 发送ack段的函数指针，tcp中为tcp_v4_reqsk_send_ack()
 	void		(*send_ack)(struct sk_buff *skb,
 				    struct request_sock *req);
+	// 发送rst段的函数指针，tcp中为tcp_v4_send_reset()
 	void		(*send_reset)(struct sock *sk,
 				      struct sk_buff *skb);
+	// 析构函数，在释放连接请求块时被调用，用来清理释放资源，tcp中为tcp_v4_reqsk_destructor()
 	void		(*destructor)(struct request_sock *req);
 };
 
@@ -44,15 +54,27 @@ struct request_sock_ops {
  */
 struct request_sock {
 	struct request_sock		*dl_next; /* Must be first member! */
+	// 客户端连接请求段中通知的mss，如果无通告，则为初始值，即rfc中建议的536
 	u16				mss;
+	// 发送syn+ack段的次数，在达到系统设定的上限时，取消连接操作
 	u8				retrans;
+	// 未使用
 	u8				__pad;
 	/* The following two fields can be easily recomputed I think -AK */
+	// 标识本端的最大通告窗口，在生成syn+ack段时计算该值
 	u32				window_clamp; /* window clamp at creation time */
+	// 标识在连接建立时本端接收窗口大小，初始化为0，在生成syn+ack段时计算该值
 	u32				rcv_wnd;	  /* rcv_wnd offered first time */
+	// 下一个将要发送的ack中的时间戳值，当一个包含最后发送ack确认序号的段到达时，该段中的时间戳
+	// 被保存在ts_recent中
 	u32				ts_recent;
+	// 服务端接收到连接请求，并发送syn+ack段作为应答后，等待客户端确认的超时时间，一旦超时，会重新发送
+	// syn+ack段，直到连接建立或重发次数达到上限
 	unsigned long			expires;
+	// 处理连接请求的函数指针表，tcp中指向tcp_request_sock_ops
 	const struct request_sock_ops	*rsk_ops;
+	// 指向对应状态的传输控制块，在连接建立之前无效，三次握手后会创建对应的传输控制块
+	// 而此时连接请求块也完成了历史使命，调用accept()将该连接请求块取走并释放
 	struct sock			*sk;
 	u32				secid;
 	u32				peer_secid;
@@ -85,14 +107,25 @@ extern int sysctl_max_syn_backlog;
  *
  * @max_qlen_log - log_2 of maximal queued SYNs/REQUESTs
  */
+// listen_sock结构用来存储连接请求块，该结构的实例在listen系统调用之后才会被创建
+// request_sock_queue结构的listen_opt成员指向该实例
 struct listen_sock {
+	// 实际分配用来保存syn请求连接的request_sock结构数组的长度，其值为nr_table_entries以2为底的对数
 	u8			max_qlen_log;
 	/* 3 bytes hole, try to use */
+	// 当前连接请求块的数目
 	int			qlen;
+	// 当前未重传过syn+ack段的请求块数目，如果每次建立连接都很顺利，三次握手的段没有重传
+	// 则qlen_young和qlen是一致的，有syn+ack段重传时会递减
 	int			qlen_young;
+	// 用来记录连接建立定时器处理函数下次被激活时需处理的连接请求块散列表入口。在本次处理结束时
+	// 将当前的入口保存到该字段中，在下次处理时就从该入口开始处理
 	int			clock_hand;
+	// 用来计算syn请求块散列表键值的随机数，该值在reqsk_queue_alloc()中随机生成
 	u32			hash_rnd;
+	// 实际分配用来保存syn请求连接的request_sock结构数组的长度
 	u32			nr_table_entries;
+	// 指向request_sock结构散列表，在listen系统调用中生成
 	struct request_sock	*syn_table[0];
 };
 
@@ -112,12 +145,18 @@ struct listen_sock {
  * don't need to grab this lock in read mode too as rskq_accept_head. writes
  * are always protected from the main sock lock.
  */
+// 由于tcp连接的建立要经过三次握手，因此需要在服务端保存待建立连接的相关信息并控制连接，request_sock_queue等结构就是用来
+// 存储这些信息的
+// 在request_sock_queue结构中，rskq_accept_head和rskq_accept_tail只保存已连接但未被accept的传输控制块
+// SYN_RECV状态传输控制块存放在listen_opt指向的listen_sock结构实例中，而该实例在listen系统调用后被创建
 struct request_sock_queue {
 	struct request_sock	*rskq_accept_head;
 	struct request_sock	*rskq_accept_tail;
 	rwlock_t		syn_wait_lock;
+	// 保存相关套接口tcp层的选项TCP_DEFER_ACCEPT的值
 	u8			rskq_defer_accept;
 	/* 3 bytes hole, try to pack */
+	// 指向一个listen_sock结构实例，该实例在侦听时建立
 	struct listen_sock	*listen_opt;
 };
 
@@ -196,6 +235,8 @@ static inline struct request_sock *reqsk_queue_remove(struct request_sock_queue 
 	return req;
 }
 
+// reqsk_queue_get_child()从已连接队列上取走第一个连接请求块，然后由该连接请求块获得已创建的子传输控制块
+// 接着释放已完成建立连接的连接请求块，同时更新父传输控制块上已建立连接的数目，最后返回子传输控制块
 static inline struct sock *reqsk_queue_get_child(struct request_sock_queue *queue,
 						 struct sock *parent)
 {

@@ -101,6 +101,7 @@ struct inet_connection_sock {
 	struct inet_sock	  icsk_inet;
 	// 当tcp传输层接收到客户的连接请求后，会创建一个客户端套接口存放到icsk_accept_queue容器中
 	// 等待应用程序调用accept()进行读取
+	// icsk_accept_queue，用来保存正在建立连接和已建立连接但未被accept的传输控制块
 	struct request_sock_queue icsk_accept_queue;
 	// 指向与之绑定的本地端口信息，在绑定过程中被设置
 	struct inet_bind_bucket	  *icsk_bind_hash;

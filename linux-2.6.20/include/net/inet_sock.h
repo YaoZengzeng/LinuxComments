@@ -78,22 +78,38 @@ struct ip_options {
 
 #define optlength(opt) (sizeof(struct ip_options) + opt->optlen)
 
+// inet_request_sock结构作为连接请求块的一部分，用来构成tcp_request_sock结构
+// 该结构主要描述双方的地址、所支持的tcp选项等
 struct inet_request_sock {
 	struct request_sock	req;
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 	u16			inet6_rsk_offset;
 	/* 2 bytes hole, try to pack */
 #endif
+	// 本地ip地址
 	__be32			loc_addr;
+	// 对端ip地址
 	__be32			rmt_addr;
+	// 对端端口
 	__be16			rmt_port;
+	// 发送窗口扩大因子，即要把tcp首部中指定的滑动窗口大小左移snd_wscale位后，作为真正的滑动窗口大小
+	// 在tcp首部中，滑动窗口大小是16位的，而snd_wscale的值最大只能为14，所以滑动窗口最大可被扩展为30位
 	u16			snd_wscale : 4, 
+				// 接收窗口扩大因子
 				rcv_wscale : 4, 
+				// 标识tcp段是否存在tcp时间戳选项
 				tstamp_ok  : 1,
+				// 标识是否支持sack，支持则该选项能出现在syn段中
 				sack_ok	   : 1,
+				// 标识是否支持窗口扩大因子，如果支持该选项也只能出现在syn段中
 				wscale_ok  : 1,
+				// 标识是否启用了显示拥塞控制
 				ecn_ok	   : 1,
+				// 标识已接收到第三次握手的ack段，但是由于服务器繁忙或其他原因导致未能建立起连接
+				// 此时可根据该标志重新给客户端发送syn+ack段，再次进行连接的建立，该标志的设置同时
+				// 受tcp_abort_on_overflow的控制
 				acked	   : 1;
+	// 指向ip选项数据结构实例
 	struct ip_options	*opt;
 };
 

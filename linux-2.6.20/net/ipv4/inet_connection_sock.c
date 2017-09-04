@@ -67,6 +67,14 @@ EXPORT_SYMBOL_GPL(inet_csk_bind_conflict);
 /* Obtain a reference to a local port for the given sock,
  * if snum is zero it means select any available local port.
  */
+// bind系统调用通过套接口层的inet_bind()之后，便会调用传输层的函数，tcp中的传输层接口函数为
+// tcp_v4_get_port，它只是起了承上启下的作用，实现了接口并调用功能实现函数inet_csk_get_port()
+// 如果待绑定的本地端口为0，则自动为套接口分配一个可用的端口
+// hashinfo：tcp散列表管理结构实例tcp_hashinfo
+// sk：当前进行绑定操作的传输控制块
+// snum：进行绑定的端口号
+// bind_conflict：一个函数指针，用来在指定端口信息块的传输控制块链表上查找是否存在与待绑定传输控制块相冲突
+// 的传输控制块，tcp中使用的比较函数为inet_csk_bind_conflict()
 int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 		      struct sock *sk, unsigned short snum,
 		      int (*bind_conflict)(const struct sock *sk,
@@ -84,7 +92,9 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 		// int sysctl_local_port_range[2] = {32768, 61000}
 		int low = sysctl_local_port_range[0];
 		int high = sysctl_local_port_range[1];
+		// 重试分配次数remaining
 		int remaining = (high - low) + 1;
+		// 随机生成一个在分配区间内的起始端口号rover
 		int rover = net_random() % (high - low) + low;
 
 		do {
@@ -108,6 +118,8 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 		 * the top level, not from the 'break;' statement.
 		 */
 		ret = 1;
+		// 到此为止，获取空闲端口已完成，但成功与否尚不清楚，因此先初始化返回值为1，如果所有尝试
+		// 次数都已用完，则说明获取端口失败，跳转到fail处直接返回失败退出，否则说明获取端口成功
 		if (remaining <= 0)
 			goto fail;
 
@@ -127,33 +139,46 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 	tb = NULL;
 	goto tb_not_found;
 tb_found:
+	// 确定此端口号是否有对应的传输控制块，也就是是否有应用程序在使用该端口号
+	// 如果没有，则直接跳转到tb_not_found处处理
 	if (!hlist_empty(&tb->owners)) {	// 检查sock队列是否为空
+		// 如果传输控制块可以强制复用端口，则不必检测端口能否被复用，跳转到success处进行绑定处理
 		if (sk->sk_reuse > 1)
 			goto success;
+		// 如果端口可以被复用，传输控制块可复用端口且不处于侦听状态，则表示可使用该端口，跳转到success处作处理
 		if (tb->fastreuse > 0 &&
 		    sk->sk_reuse && sk->sk_state != TCP_LISTEN) {
 			goto success;
 		} else {
 			ret = 1;	// 桶结构中的sock队列是否存在冲突
+			// 其他情况，则调用bind_conflict()检测复用端口是否冲突，如有冲突则跳转到fail_unlock处作处理
+			// 否则跳转到tb_not_found处作处理
 			if (bind_conflict(sk, tb))
 				goto fail_unlock;
 		}
 	}
 tb_not_found:	// 如果桶结构不存在就创建
 	ret = 1;
+	// 处理没有找到的情况，创建新的绑定端口信息，然后根据条件确定是否能复用它
 	if (!tb && (tb = inet_bind_bucket_create(hashinfo->bind_bucket_cachep, head, snum)) == NULL)
 		goto fail_unlock;
 	if (hlist_empty(&tb->owners)) {	// 如果sock队列为空
+		// 如果此端口还没有被绑定，待绑定的传输控制块允许端口复用，且不处在侦听状态
+		// 则端口可以被复用，否则不能复用
 		if (sk->sk_reuse && sk->sk_state != TCP_LISTEN)
 			tb->fastreuse = 1;	// 设置桶结构可以复用
 		else
 			tb->fastreuse = 0;
+		// 如果此端口已经被绑定，即使该端口可以被复用，但传输控制块不可复用端口或处于侦听状态
+		// 则此端口也不能被复用
 	} else if (tb->fastreuse &&
 		   (!sk->sk_reuse || sk->sk_state == TCP_LISTEN))
 		tb->fastreuse = 0;
 success:	// 如果还没有绑定桶结构
 	if (!inet_csk(sk)->icsk_bind_hash)
+		// 设置传输控制块的端口，将传输控制块加入到端口信息块的传输控制块链表中
 		inet_bind_hash(sk, tb, snum);	// 绑定桶结构
+	// 设置传输控制块的端口信息
 	BUG_TRAP(inet_csk(sk)->icsk_bind_hash == tb);
  	ret = 0;
 
@@ -170,6 +195,8 @@ EXPORT_SYMBOL_GPL(inet_csk_get_port);
  * Wait for an incoming connection, avoid race conditions. This must be called
  * with the socket locked.
  */
+// inet_csk_wait_for_connect()中用于侦听的传输控制块在指定的时间内等待新的连接
+// 直至建立新的连接，或等到超时，或者收到某个信号等其他请求
 static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
@@ -217,6 +244,9 @@ static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
 /*
  * This will accept the next outstanding connection.
  */
+// inet_csk_accept()函数是accept系统调用传输层接口的实现，如果有完成连接的传输控制块
+// 则将其从连接请求容器中取出，如果没有，则根据是否阻塞来决定返回或等待新连接
+// flags：操作文件的标志，如O_NONBLOCK是最常用的
 struct sock *inet_csk_accept(struct sock *sk, int flags, int *err)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
@@ -229,11 +259,15 @@ struct sock *inet_csk_accept(struct sock *sk, int flags, int *err)
 	 * and that it has something pending.
 	 */
 	error = -EINVAL;
+	// accept调用只针对处于侦听状态的套接口，如果该套接口的状态不是LISTEN，则不能进行accept操作
 	if (sk->sk_state != TCP_LISTEN)
 		goto out_err;
 
 	/* Find already established connection */
+	// 如果该侦听套接口的已完成建立连接队列为空，则说明还没有收到新连接
 	if (reqsk_queue_empty(&icsk->icsk_accept_queue)) {
+		// 如果该套接口是非阻塞的，则直接返回而无需睡眠等待，否则在该套接口的超时时间内等待新连接
+		// 如果超时时间到还没有等到新连接，则返回EAGAIN错误码
 		long timeo = sock_rcvtimeo(sk, flags & O_NONBLOCK);
 
 		/* If this is a non blocking socket don't sleep */
@@ -246,6 +280,7 @@ struct sock *inet_csk_accept(struct sock *sk, int flags, int *err)
 			goto out_err;
 	}
 
+	// 执行到此处，则肯定已接收了新的连接，因此需要从连接队列上将新的子传输控制块取出
 	newsk = reqsk_queue_get_child(&icsk->icsk_accept_queue, sk);
 	BUG_TRAP(newsk->sk_state != TCP_SYN_RECV);
 out:
@@ -595,17 +630,25 @@ void inet_csk_destroy_sock(struct sock *sk)
 
 EXPORT_SYMBOL(inet_csk_destroy_sock);
 
+// inet_csk_listen_start()函数使tcp传输控制块进入侦听状态，实现侦听的过程，为管理连接
+// 请求块的散列表分配存储空间，接着使tcp传输控制块的状态迁移到LISTEN状态，然后将传输控制块
+// 添加到侦听散列表中
+// sock：进行侦听的传输控制块
+// nr_table_entries：允许连接的队列长度上限，通过此值合理计算出存储连接请求块的散列表大小
 int inet_csk_listen_start(struct sock *sk, const int nr_table_entries)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct inet_connection_sock *icsk = inet_csk(sk);
+	// 为管理连接请求块的散列表分配存储空间，如果失败则返回相应错误码
 	int rc = reqsk_queue_alloc(&icsk->icsk_accept_queue, nr_table_entries);
 
 	if (rc != 0)
 		return rc;
 
+	// 初始化连接队列长度上限，清除当前已建立连接数
 	sk->sk_max_ack_backlog = 0;
 	sk->sk_ack_backlog = 0;
+	// 初始化传输控制块中与延时发送ack段有关的控制数据结构icsk_ack
 	inet_csk_delack_init(sk);
 
 	/* There is race window here: we announce ourselves listening,
@@ -613,7 +656,13 @@ int inet_csk_listen_start(struct sock *sk, const int nr_table_entries)
 	 * It is OK, because this socket enters to hash table only
 	 * after validation is complete.
 	 */
+	// 设置传输控制块状态为侦听状态（LISTEN）
 	sk->sk_state = TCP_LISTEN;
+	// 调用get_port接口tcp_v4_get_port()，如果没有绑定端口，则进行绑定端口操作
+	// 如果已经绑定了端口，则对绑定的端口进行校验，绑定或校验端口成功后，根据端口号
+	// 在传输控制块中设置网络字节序的端口号成员，然后再清楚缓存在传输控制块中的目的路由
+	// 缓存，最后调用hash接口tcp_v4_hash()将该传输控制块添加到侦听散列表listening_hash中
+	// 完成侦听
 	if (!sk->sk_prot->get_port(sk, inet->num)) {
 		inet->sport = htons(inet->num);
 
@@ -623,7 +672,9 @@ int inet_csk_listen_start(struct sock *sk, const int nr_table_entries)
 		return 0;
 	}
 
+	// 绑定或校验端口失败，则说明侦听失败，设置传输控制块状态为TCP_CLOSE状态
 	sk->sk_state = TCP_CLOSE;
+	// 释放之前分配的inet_bind_bucket实例
 	__reqsk_queue_destroy(&icsk->icsk_accept_queue);
 	return -EADDRINUSE;
 }

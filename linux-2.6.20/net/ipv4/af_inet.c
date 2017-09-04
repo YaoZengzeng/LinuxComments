@@ -187,6 +187,7 @@ static int inet_autobind(struct sock *sk)
 /*
  *	Move a socket into listening state.
  */
+// inet_listen()函数为listen系统调用套接口层的实现
 int inet_listen(struct socket *sock, int backlog)
 {
 	struct sock *sk = sock->sk;
@@ -196,21 +197,27 @@ int inet_listen(struct socket *sock, int backlog)
 	lock_sock(sk);
 
 	err = -EINVAL;
+	// 检测调用listen的套接口的当前状态和类型，如果套接口状态不是SS_UNCONNECTED或
+	// 套接口类型不是SOCK_STREAM，则不允许进行侦听操作，返回相应错误码
 	if (sock->state != SS_UNCONNECTED || sock->type != SOCK_STREAM)
 		goto out;
 
 	old_state = sk->sk_state;
+	// 进行listen调用的传输控制块的状态，如果该传输控制块在TCP_CLOSE或TCP_LISTEN
+	// 状态，则不能进行侦听操作，返回相应错误码
 	if (!((1 << old_state) & (TCPF_CLOSE | TCPF_LISTEN)))
 		goto out;
 
 	/* Really, if the socket is already in listen state
 	 * we can only allow the backlog to be adjusted.
 	 */
+	// 如果传输控制块不在LISTEN状态，则调用inet_csk_listen_start()进行侦听操作
 	if (old_state != TCP_LISTEN) {
 		err = inet_csk_listen_start(sk, backlog);
 		if (err)
 			goto out;
 	}
+	// 最后，无论是否在LISTEN状态都需设置传输控制块的连接队列长度上限
 	sk->sk_max_ack_backlog = backlog;
 	err = 0;
 
@@ -667,11 +674,14 @@ sock_error:
 /*
  *	Accept a pending connection. The TCP layer now gives BSD semantics.
  */
-
+// inet_accept()为accept系统调用的套接口层接口的实现
 int inet_accept(struct socket *sock, struct socket *newsock, int flags)
 {
+	// 根据套接口获取相应的传输控制块
 	struct sock *sk1 = sock->sk;
 	int err = -EINVAL;
+	// 调用accept的传输接口实现函数inet_csk_accept()获取已完成连接（被接收）的传输控制块
+	// 称之为子传输控制块
 	struct sock *sk2 = sk1->sk_prot->accept(sk1, flags, &err);
 
 	if (!sk2)
@@ -682,8 +692,10 @@ int inet_accept(struct socket *sock, struct socket *newsock, int flags)
 	BUG_TRAP((1 << sk2->sk_state) &
 		 (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT | TCPF_CLOSE));
 
+	// 如果accept成功，则调用sock_graft()把子套接口和传输控制块关联起来以便这两者之间相互索引
 	sock_graft(sk2, newsock);
 
+	// 设置子套接口状态为SS_CONNECTED
 	newsock->state = SS_CONNECTED;
 	err = 0;
 	release_sock(sk2);
