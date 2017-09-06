@@ -587,7 +587,10 @@ int tcp_v4_gso_send_check(struct sk_buff *skb)
  *		arrived with segment.
  *	Exception: precedence violation. We do not implement it in any case.
  */
-
+// tcp_v4_send_reset()用来发送rst段
+// 首先设置tcp首部中各字段，包括目的地址、源地址、tcp首部长度、rst标志、序号、确认序号
+// 然后计算tcp校验和，为ip数据报的发送作准备
+// 最后调用网络层函数ip_send_reply()发送该rst段
 static void tcp_v4_send_reset(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcphdr *th = skb->h.th;
@@ -661,12 +664,14 @@ static void tcp_v4_send_reset(struct sock *sk, struct sk_buff *skb)
 /* The code following below sending ACKs in SYN-RECV and TIME-WAIT states
    outside socket context is ugly, certainly. What can I do?
  */
-
+// 在SYN_RECV状态下，如果接收到的第三次握手段序号无效或者序号不在接收窗口内，且非rst段
+// 则需向对端发送ack段
 static void tcp_v4_send_ack(struct tcp_timewait_sock *twsk,
 			    struct sk_buff *skb, u32 seq, u32 ack,
 			    u32 win, u32 ts)
 {
 	struct tcphdr *th = skb->h.th;
+	// 定义ack段的tcp首部，包括时间戳选项
 	struct {
 		struct tcphdr th;
 		__be32 opt[(TCPOLEN_TSTAMP_ALIGNED >> 2)
@@ -686,6 +691,7 @@ static void tcp_v4_send_ack(struct tcp_timewait_sock *twsk,
 
 	arg.iov[0].iov_base = (unsigned char *)&rep;
 	arg.iov[0].iov_len  = sizeof(rep.th);
+	// 设置ack段时间戳选项
 	if (ts) {
 		rep.opt[0] = htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
 				   (TCPOPT_TIMESTAMP << 8) |
@@ -696,6 +702,8 @@ static void tcp_v4_send_ack(struct tcp_timewait_sock *twsk,
 	}
 
 	/* Swap the send and the receive. */
+	// 设置tcp首部中各字段，包括目的地址、源地址、tcp首部长度、序号、确认序号、ack标志
+	// 接收窗口大小等
 	rep.th.dest    = th->source;
 	rep.th.source  = th->dest;
 	rep.th.doff    = arg.iov[0].iov_len / 4;
@@ -740,11 +748,13 @@ static void tcp_v4_send_ack(struct tcp_timewait_sock *twsk,
 					arg.iov[0].iov_len);
 	}
 #endif
+	// 计算tcp段的伪首部校验和，存放到ip_reply_arg结构中，为ip数据报的发送做准备
 	arg.csum = csum_tcpudp_nofold(skb->nh.iph->daddr,
 				      skb->nh.iph->saddr, /* XXX */
 				      arg.iov[0].iov_len, IPPROTO_TCP, 0);
 	arg.csumoffset = offsetof(struct tcphdr, check) / 2;
 
+	// 调用网络层函数ip_send_reply()，发送此ack段
 	ip_send_reply(tcp_socket->sk, skb, &arg, arg.iov[0].iov_len);
 
 	TCP_INC_STATS_BH(TCP_MIB_OUTSEGS);
@@ -775,6 +785,8 @@ static void tcp_v4_reqsk_send_ack(struct sk_buff *skb,
  *	This still operates on a request_sock only, not on a big
  *	socket.
  */
+// tcp_v4_send_synack()用来为服务端构造回应客户端连接请求syn段的syn+ack段
+// 并将其封装在ip数据包中发送给客户端
 static int tcp_v4_send_synack(struct sock *sk, struct request_sock *req,
 			      struct dst_entry *dst)
 {
@@ -783,12 +795,16 @@ static int tcp_v4_send_synack(struct sock *sk, struct request_sock *req,
 	struct sk_buff * skb;
 
 	/* First, grab a route. */
+	// 根据连接请求块中的信息查询路由，如果失败，则直接退出，不再发送syn+ack段
 	if (!dst && (dst = inet_csk_route_req(sk, req)) == NULL)
 		goto out;
 
+	// 根据当前的传输控制块、查询到的路由以及连接请求块中的相关信息构建syn+ack段
 	skb = tcp_make_synack(sk, dst, req);
 
 	if (skb) {
+		// 如果构建syn+ack段成功，则生成tcp校验码，并调用ip_build_and_send_pkt()生成
+		// ip数据报并将其发送出去
 		struct tcphdr *th = skb->h.th;
 
 		th->check = tcp_v4_check(th, skb->len,
@@ -803,6 +819,8 @@ static int tcp_v4_send_synack(struct sock *sk, struct request_sock *req,
 		err = net_xmit_eval(err);
 	}
 
+	// 无论查询路由表是否成功，构建syn+ack段是否成功，发送段是否成功，最终都要从这返回，当然返回去需先更新
+	// 路由表项的计数器
 out:
 	dst_release(dst);
 	return err;
@@ -833,6 +851,8 @@ static void syn_flood_warning(struct sk_buff *skb)
 /*
  * Save and compile IPv4 options into the request_sock if needed.
  */
+// tcp_v4_save_options()根据IP选项的长度分配ip_options结构的实例，然后调用ip_options_echo()
+// 从skb的控制块中获取ip选项到该实例中
 static struct ip_options *tcp_v4_save_options(struct sock *sk,
 					      struct sk_buff *skb)
 {
@@ -1308,6 +1328,7 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 #endif
 
 	/* Never answer to SYNs send to broadcast or multicast */
+	// 如果SYN段发送到广播地址或组播地址，则直接返回不作处理
 	if (((struct rtable *)skb->dst)->rt_flags &
 	    (RTCF_BROADCAST | RTCF_MULTICAST))
 		goto drop;
@@ -1316,12 +1337,16 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 	 * limitations, they conserve resources and peer is
 	 * evidently real one.
 	 */
+	// 如果syn请求连接队列已满且isn为零，则需作特别处理，这里的isn就是TCP_SKB_CB(skb)->when
+	// 而TCP_SKB_CB(skb)->when在tcp接收处理一开始就被清零，因此这里isn为零总成立
 	if (inet_csk_reqsk_queue_is_full(sk) && !isn) {
 #ifdef CONFIG_SYN_COOKIES
+		// 如果启用了syncookie，则设置启用syncookies标志，以便在后续的处理中使用syncookies规则来处理
 		if (sysctl_tcp_syncookies) {
 			want_cookie = 1;
 		} else
 #endif
+		// 如果没有启用syncookies，则此时不能再接收新的syn连接请求，只能丢弃
 		goto drop;
 	}
 
@@ -1330,28 +1355,36 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 	 * clogging syn queue with openreqs with exponentially increasing
 	 * timeout.
 	 */
+	// 如果连接队列长度已达到上限且SYN请求队列中至少有一个握手过程中没有重传过段
+	// 则丢弃当前连接请求
 	if (sk_acceptq_is_full(sk) && inet_csk_reqsk_queue_young(sk) > 1)
 		goto drop;
 
+	// 可以接收并处理连接请求，调用reqsk_alloc()分配一个连接请求块，用于保存连接请求信息，同时初始化
+	// 在建立连接过程中用来发送ACK,RST段的操作集合，以便在建立连接过程中能方便地调用这些接口
 	req = reqsk_alloc(&tcp_request_sock_ops);
 	if (!req)
 		goto drop;
 
 #ifdef CONFIG_TCP_MD5SIG
+	// 通过tcp md5签名来保护bgp会话操作，本书不作讨论
 	tcp_rsk(req)->af_specific = &tcp_request_sock_ipv4_ops;
 #endif
-
+	// 清除tcp选项后初始化mss_clamp和user_mss
 	tcp_clear_options(&tmp_opt);
 	tmp_opt.mss_clamp = 536;
 	tmp_opt.user_mss  = tcp_sk(sk)->rx_opt.user_mss;
 
+	// 调用tcp_parse_options()解析syn段中的tcp选项
 	tcp_parse_options(skb, &tmp_opt, 0);
 
+	// 如果启动了syncookie，则清除已解析的tcp选项
 	if (want_cookie) {
 		tcp_clear_options(&tmp_opt);
 		tmp_opt.saw_tstamp = 0;
 	}
 
+	// 如果tcp段存在时间戳选项，而时间戳又为空，则将有关标识清零
 	if (tmp_opt.saw_tstamp && !tmp_opt.rcv_tsval) {
 		/* Some OSes (unknown ones, but I see them on web server, which
 		 * contains information interesting only for windows'
@@ -1363,11 +1396,15 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 	}
 	tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;
 
+	// 根据接收到syn段中的选项和序号来初始化连接请求块信息
 	tcp_openreq_init(req, &tmp_opt, skb);
 
+	// 如果安全检测失败，则丢弃该syn段
 	if (security_inet_conn_request(sk, skb, req))
 		goto drop_and_free;
 
+	// 初始化tcp层次的连接请求信息块，包括目的地址、源地址，并调用tcp_v4_save_options()
+	// 从IP层私有控制块中获取IP选项保存到传输控制块的opt中，包括mss、窗口扩大因子，显示拥塞控制通知等
 	ireq = inet_rsk(req);
 	ireq->loc_addr = daddr;
 	ireq->rmt_addr = saddr;
@@ -1376,6 +1413,9 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 		TCP_ECN_create_request(req, skb->h.th);
 
 	if (want_cookie) {
+		// 如果启动了syncookie，则每60s告警一次可能受到synflood攻击，同时由客户端ip地址
+		// 客户端端口、服务端ip地址、服务端端口、客户端序列号等要素经hash运算后加密得到服务端
+		// 初始序列号
 #ifdef CONFIG_SYN_COOKIES
 		syn_flood_warning(skb);
 #endif
@@ -1392,6 +1432,7 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 		 * timewait bucket, so that all the necessary checks
 		 * are made in the function processing timewait state.
 		 */
+		// 进入TIMEWAIT状态时，从对端信息块中获取时间戳，在新的连接请求之前检测PAWS
 		if (tmp_opt.saw_tstamp &&
 		    tcp_death_row.sysctl_tw_recycle &&
 		    (dst = inet_csk_route_req(sk, req)) != NULL &&
@@ -1406,6 +1447,7 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 			}
 		}
 		/* Kill the following clause, if you dislike this way. */
+		// 在未启动syncookies的情况下受到synflood攻击，则丢弃接收到的段
 		else if (!sysctl_tcp_syncookies &&
 			 (sysctl_max_syn_backlog - inet_csk_reqsk_queue_len(sk) <
 			  (sysctl_max_syn_backlog >> 2)) &&
@@ -1426,16 +1468,20 @@ int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 			goto drop_and_free;
 		}
 
+		// 由源地址、源端口、目的地址以及目的端口计算出服务端初始序列号
 		isn = tcp_v4_init_sequence(skb);
 	}
 	tcp_rsk(req)->snt_isn = isn;
 
+	// 调用tcp_v4_send_synack()组织并发送syn+ack段给客户端
 	if (tcp_v4_send_synack(sk, req, dst))
 		goto drop_and_free;
 
 	if (want_cookie) {
+		// 如果启用了syncookies，则是根据序号来判断三次握手的，因此无需保存连接请求，直接将其释放
 	   	reqsk_free(req);
 	} else {
+		// 如果未启用syncookies，则需要将连接请求块保存到其父传输控制块中的散列表中
 		inet_csk_reqsk_queue_hash_add(sk, req, TCP_TIMEOUT_INIT);
 	}
 	return 0;
@@ -1451,6 +1497,9 @@ drop:
  * The three way handshake has completed - we got a valid synack -
  * now create the new socket.
  */
+// 完成三次握手后，为新连接创建一个传输控制块，并将其初始化。在创建传输控制块之前
+// 需检测已经建立但未被accept的"子"传输控制块数量是否已经达到上限，并为"子"传输
+// 控制块获取路由入口
 struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 				  struct request_sock *req,
 				  struct dst_entry *dst)
@@ -1463,19 +1512,27 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	struct tcp_md5sig_key *key;
 #endif
 
+	// 如果已经建立但未被accept的"子"传输控制块数量已经达到上限，则不能再创建新的传输控制块
+	// 跳转到exit_overflow处统计后直接返回NULL
 	if (sk_acceptq_is_full(sk))
 		goto exit_overflow;
 
+	// 在创建"子"传输控制块前，需根据目的地址、源地址、TOS等获取其目的路由缓存
 	if (!dst && (dst = inet_csk_route_req(sk, req)) == NULL)
 		goto exit;
 
+	// 为对方创建"子"传输控制块，并进行一定的初始化
 	newsk = tcp_create_openreq_child(sk, req, skb);
 	if (!newsk)
 		goto exit;
 
+	// 设置"子"传输控制块的GSO类型、路由缓存项，同时确定输出网络接口的特性，包括是否支持GSO
+	// 是否支持分散聚合IO，是否支持硬件执行校验和，需要说明的是，在决定发送是否进行GSO时
+	// 不但需根据网络设备特性，还需根据传输控制块是否支持或支持何种GSO方式
 	newsk->sk_gso_type = SKB_GSO_TCPV4;
 	sk_setup_caps(newsk, dst);
 
+	// 初始化传输控制块中的一些成员，包括目的地址、发送地址、ip选项、组播的网络接口、ttl、ip选项长度等
 	newtp		      = tcp_sk(newsk);
 	newinet		      = inet_sk(newsk);
 	ireq		      = inet_rsk(req);
@@ -1491,9 +1548,13 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 		inet_csk(newsk)->icsk_ext_hdr_len = newinet->opt->optlen;
 	newinet->id = newtp->write_seq ^ jiffies;
 
+	// 初始化有关路径mtu发现的信息，如是否启用路径mtu发现，路径mtu发现探测数据包的大小
 	tcp_mtup_init(newsk);
+	// 根据存储在路由项中的路径mtu来设置"子"传输控制块当前的mss
 	tcp_sync_mss(newsk, dst_mtu(dst));
+	// 根据存储在路由项中的mss来设置"子"传输控制块最大段长度
 	newtp->advmss = dst_metric(dst, RTAX_ADVMSS);
+	// 初始化用于延时发送ack段控制数据块中的rcv_mss
 	tcp_initialize_rcv_mss(newsk);
 
 #ifdef CONFIG_TCP_MD5SIG
@@ -1512,7 +1573,10 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	}
 #endif
 
+	// 将"子"传输控制块加入到ehash散列表中，这样就可以正常接收tcp段了
 	__inet_hash(&tcp_hashinfo, newsk, 0);
+	// 虽然"子"传输控制块没有显示与本地端口绑定，事实上已经进行了绑定，因此
+	// 该"子"传输控制块需和本地端口信息作相应的绑定
 	__inet_inherit_port(&tcp_hashinfo, sk, newsk);
 
 	return newsk;
@@ -1525,6 +1589,7 @@ exit:
 	return NULL;
 }
 
+// tcp_v4_hnd_req()用来处理作为建立连接三次握手中最后一次握手的ack段
 static struct sock *tcp_v4_hnd_req(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcphdr *th = skb->h.th;
@@ -1532,15 +1597,20 @@ static struct sock *tcp_v4_hnd_req(struct sock *sk, struct sk_buff *skb)
 	struct sock *nsk;
 	struct request_sock **prev;
 	/* Find possible connection requests. */
+	// 如果根据源端口、源地址、目的地址在"父"传输控制块的连接请求散列表中查找相应的连接请求块成功
+	// 则说明三次握手中的前两次已经完成，接下来进行第三次握手的确认
 	struct request_sock *req = inet_csk_search_req(sk, &prev, th->source,
 						       iph->saddr, iph->daddr);
 	if (req)
 		return tcp_check_req(sk, skb, req, prev);
 
+	// 如果传输控制块不在连接请求散列表中，则有可能在ehash散列表中，因此在ehash散列表中查找
 	nsk = inet_lookup_established(&tcp_hashinfo, skb->nh.iph->saddr,
 				      th->source, skb->nh.iph->daddr,
 				      th->dest, inet_iif(skb));
 
+	// 在ehash散列表中查找成功的情况下，如果该传输控制块不处于TIME_WAIT状态，返回该传输控制块
+	// 否则说明接收到的段无效，返回NULL表示丢弃该段
 	if (nsk) {
 		if (nsk->sk_state != TCP_TIME_WAIT) {
 			bh_lock_sock(nsk);
@@ -1551,6 +1621,10 @@ static struct sock *tcp_v4_hnd_req(struct sock *sk, struct sk_buff *skb)
 	}
 
 #ifdef CONFIG_SYN_COOKIES
+	// 如果在编译时启用了SYN cookie，且接收到的段只有ack标志，则调用cookie_v4_check()进行第三次握手的检测
+	// 服务器将客户端的ack序列号减去1，得到cookie比较值，并将客户端ip地址，客户端端口、服务器ip地址和服务器端口
+	// 接收到的ip序列号以及其他一些安全数值等要素进行hash运算后，与该cookie比较值比较，如果相等，则直接完成三次握手
+	// 此时不必查看该连接是否属于请求连接队列
 	if (!th->rst && !th->syn && th->ack)
 		sk = cookie_v4_check(sk, skb, &(IPCB(skb)->opt));
 #endif
@@ -1591,6 +1665,9 @@ static __sum16 tcp_v4_checksum_init(struct sk_buff *skb)
  * This is because we cannot sleep with the original spinlock
  * held.
  */
+// 传输控制块接收处理的段都由tcp_v4_do_rcv()处理，在该函数中再根据不同的状态由不同的函数处理：
+// ESTABLISHED状态的处理函数为tcp_rcv_established()，LISTEN状态且已建立半连接的处理函数为
+// tcp_v4_hnd_req()，其他状态的处理函数均为tcp_rcv_state_process()
 int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
 	struct sock *rsk;
@@ -1626,6 +1703,8 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		// 则将套接字状态转变为接收状态，这个过程由tcp_v4_hnd_req完成，
 		// 它使连接有效并返回建立连接的套接字数据结构地址struct sock *snk或NULL，返回的套接字
 		// 就处于ESTABLISHED状态
+		// tcp_v4_hnd_req()通常处理建立连接三次握手中最后一次握手的ack段，
+		// 其他多数情况由tcp_rcv_state_process()处理
 		struct sock *nsk = tcp_v4_hnd_req(sk, skb);
 		if (!nsk)
 			goto discard;
@@ -1633,7 +1712,9 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		// 原套接字sk继续侦听，调用tcp_child_process函数在子套接字nsk上处理接收
 		// 如果接收处理成功，则函数tcp_child_process返回0，此后新的套接字就处于连接
 		// 状态，可以传送和接收数据
+		// 如果返回的传输控制块不是输入的侦听传输控制块，则说明建立连接成功，返回已建立连接的“子”控制块
 		if (nsk != sk) {
+			// 调用tcp_child_process()，初始化"子"传输控制块，如果初始化失败，则给客户端发送RST段进行复位
 			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
 				goto reset;

@@ -4446,6 +4446,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		goto discard;
 
 	case TCP_LISTEN:
+		// 在半连接的LISTEN状态下，只处理syn段，如果是ack段，此时连接尚未建立，因此返回1
+		// 在调用tcp_rcv_state_process()函数中会给对方发送rst段，如果接收的是rst段，则丢弃
 		if(th->ack)
 			return 1;
 
@@ -4453,7 +4455,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			goto discard;
 
 		if(th->syn) {
-			// 处理连接请求，最终调用tcp_v4_conn_request
+			// 处理连接请求，最终调用tcp_v4_conn_request()
 			if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
 				return 1;
 
@@ -4491,6 +4493,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		return 0;
 	}
 
+	// 通过tcp_fast_parse_options()解析tcp选项，同时检查时间戳选项，如果首部中存在时间戳选项
+	// 则paws检验失败，则丢弃该数据包，如果不是rst段，则还需发送dack给对端，说明接收到的tcp段
+	// 已确认过
 	if (tcp_fast_parse_options(skb, th, tp) && tp->rx_opt.saw_tstamp &&
 	    tcp_paws_discard(sk, skb)) {
 		if (!th->rst) {
@@ -4512,12 +4517,13 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	}
 
 	/* step 2: check RST bit */
-	// 入股数据包中由复位标志RST，则复位连接，并扔掉数据包
+	// 如果数据包中由复位标志RST，则复位连接，并扔掉数据包
 	if(th->rst) {
 		tcp_reset(sk);
 		goto discard;
 	}
 
+	// 调用tcp_replace_ts_recent()，如果可以则更新时间戳
 	tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);
 
 	/* step 3: check security and precedence [ignored] */
@@ -4538,6 +4544,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 	// 收到的数据包中有ACK标志，这一步的处理非常复杂，其基本原理是，如果回答是可接收的数据包，则将tcp连接
 	// 状态转换到ESTABLISHED状态
 	if (th->ack) {
+		// 处理tcp段ack标志，tcp_ack()返回非零值表示处理ack段成功，是正常的第三次握手tcp段
 		int acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH);
 
 		// 如果收到的ack的数据正确，则说明连接处于SYN_RECV状态，这时我们最大的可能是处于"被迫打开"的状态
@@ -4547,6 +4554,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			if (acceptable) {
 				tp->copied_seq = tp->rcv_nxt;
 				smp_mb();
+				// 设置子传输控制块为ESTABLISHED状态
 				tcp_set_state(sk, TCP_ESTABLISHED);
 				sk->sk_state_change(sk);
 
@@ -4584,6 +4592,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				/* Make sure socket is routed, for
 				 * correct metrics.
 				 */
+				// 为套接口建立路由，初始化拥塞控制模块
 				icsk->icsk_af_ops->rebuild_header(sk);
 
 				// 初始化套接字的某些字段并计算
@@ -4594,8 +4603,10 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				/* Prevent spurious tcp_cwnd_restart() on
 				 * first data packet.
 				 */
+				// 更新最近一次发送数据包的时间
 				tp->lsndtime = tcp_time_stamp;
 
+				// 初始化与路径mtu有关的成员
 				tcp_mtup_init(sk);
 				// tcp_initialize_rcv_mss接收到的mss值依据收到的窗口大小RCV.WND初始化
 				// 一个猜测值，套接字上的预留缓冲区的空间基于收到的mss的值和其他因素确定
@@ -4721,6 +4732,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		tcp_ack_snd_check(sk);
 	}
 
+	// 根据queued标志来确定是否释放接收到的tcp段，如果接收到的tcp段已经添加到接收队列中，则不释放
 	if (!queued) { 
 discard:
 		__kfree_skb(skb);

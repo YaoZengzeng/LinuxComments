@@ -355,12 +355,15 @@ void inet_csk_reset_keepalive_timer(struct sock *sk, unsigned long len)
 
 EXPORT_SYMBOL(inet_csk_reset_keepalive_timer);
 
+// inet_csk_route_req()用来根据连接请求块和服务端传输控制块中的信息---输出网络设备
+// 源地址、源端口、目的地址、目的端口等，为发送到客户端的syn+ack段查询路由入口
 struct dst_entry* inet_csk_route_req(struct sock *sk,
 				     const struct request_sock *req)
 {
 	struct rtable *rt;
 	const struct inet_request_sock *ireq = inet_rsk(req);
 	struct ip_options *opt = inet_rsk(req)->opt;
+	// 定义并初始化用于路由查询的条件组合，包含了输出网络设备、三层和四层协议首部的参数等
 	struct flowi fl = { .oif = sk->sk_bound_dev_if,
 			    .nl_u = { .ip4_u =
 				      { .daddr = ((opt && opt->srr) ?
@@ -378,6 +381,7 @@ struct dst_entry* inet_csk_route_req(struct sock *sk,
 		IP_INC_STATS_BH(IPSTATS_MIB_OUTNOROUTES);
 		return NULL;
 	}
+	// 在ip首部中包含了严格路由选项的请求下，如果从选项中获取的下一跳与路由找到的不匹配，则路由失败，统计后返回
 	if (opt && opt->is_strictroute && rt->rt_dst != rt->rt_gateway) {
 		ip_rt_put(rt);
 		IP_INC_STATS_BH(IPSTATS_MIB_OUTNOROUTES);
@@ -437,10 +441,13 @@ void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct listen_sock *lopt = icsk->icsk_accept_queue.listen_opt;
+	// 计算散列表键值
 	const u32 h = inet_synq_hash(inet_rsk(req)->rmt_addr, inet_rsk(req)->rmt_port,
 				     lopt->hash_rnd, lopt->nr_table_entries);
 
+	// 将连接请求块保存到“父”传输控制块的散列表中，并设置连接建立定时器超时时间
 	reqsk_queue_hash_req(&icsk->icsk_accept_queue, h, req, timeout);
+	// 最后更新已存在连接请求块数，并启动连接建立定时器
 	inet_csk_reqsk_queue_added(sk, timeout);
 }
 

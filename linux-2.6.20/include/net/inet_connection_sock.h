@@ -329,6 +329,8 @@ static inline void inet_csk_reqsk_queue_removed(struct sock *sk,
 		inet_csk_delete_keepalive_timer(sk);
 }
 
+// inet_csk_reqsk_queue_added()用来更新传输控制块中请求连接块计数。如果是首次接收请求连接
+// 则需复位并启动保活定时器sk_timer
 static inline void inet_csk_reqsk_queue_added(struct sock *sk,
 					      const unsigned long timeout)
 {

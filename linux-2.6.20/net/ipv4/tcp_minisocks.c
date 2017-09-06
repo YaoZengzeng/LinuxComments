@@ -515,21 +515,25 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
  *	Process an incoming packet for SYN_RECV sockets represented
  *	as a request_sock.
  */
-
+// 在SYN_RECV状态下的传输控制块（连接请求块）用tcp_check_req()来处理接收到的tcp段
 struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 			   struct request_sock *req,
 			   struct request_sock **prev)
 {
 	struct tcphdr *th = skb->h.th;
+	// 获取接收段的tcp首部中rst,syn以及ack的标志位值
 	__be32 flg = tcp_flag_word(th) & (TCP_FLAG_RST|TCP_FLAG_SYN|TCP_FLAG_ACK);
 	int paws_reject = 0;
 	struct tcp_options_received tmp_opt;
 	struct sock *child;
 
 	tmp_opt.saw_tstamp = 0;
+	// 如果接收段的tcp首部长度大于不带tcp选项的首部长度，则说明该段中带有tcp选项，需解析并获取段中国的tcp选项
 	if (th->doff > (sizeof(struct tcphdr)>>2)) {
 		tcp_parse_options(skb, &tmp_opt, 0);
 
+		// 如果tcp选项中带有时间戳，则记录该时间戳及其有效时间，最后调用tcp_paws_check()校验
+		// tcp序号是否有效
 		if (tmp_opt.saw_tstamp) {
 			tmp_opt.ts_recent = req->ts_recent;
 			/* We do not store true stamp, but it is not required,
@@ -542,6 +546,9 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 	}
 
 	/* Check for pure retransmitted SYN. */
+	// 如果接收到的是客户端重发的syn段，则作为syn段处理，调用连接请求接口处理中rtx_syn_ack
+	// 即tcp_v4_send_synack()，向客户端发送syn+ack段，然后返回NULL，表示此次对段的处理完毕
+	// 无需继续处理了
 	if (TCP_SKB_CB(skb)->seq == tcp_rsk(req)->rcv_isn &&
 	    flg == TCP_FLAG_SYN &&
 	    !paws_reject) {
@@ -620,6 +627,8 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 	 *
 	 * Invalid ACK: reset will be sent by listening socket
 	 */
+	// 如果接收到的ack段无效，即ack段的序号与syn+ack段的序号不匹配，则此处不作处理
+	// 返回"父"传输控制块，在tcp_rcv_state_process()中再处理
 	if ((flg & TCP_FLAG_ACK) &&
 	    (TCP_SKB_CB(skb)->ack_seq != tcp_rsk(req)->snt_isn + 1))
 		return sk;
@@ -630,7 +639,8 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 	 */
 
 	/* RFC793: "first check sequence number". */
-
+	// 如果ack段序号无效或者序号不在接收窗口内，则返回NULL，直接丢弃接收的段
+	// 但在返回之前，需确认是不是rst段，如果不是，则需要给对端发送ack段
 	if (paws_reject || !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
 					  tcp_rsk(req)->rcv_isn + 1, tcp_rsk(req)->rcv_isn + 1 + req->rcv_wnd)) {
 		/* Out of window: send ACK and drop. */
@@ -642,10 +652,11 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 	}
 
 	/* In sequence, PAWS is OK. */
-
+	// 如果ack段的序号正常，则需保存tcp段中的时间戳
 	if (tmp_opt.saw_tstamp && !after(TCP_SKB_CB(skb)->seq, tcp_rsk(req)->rcv_isn + 1))
 			req->ts_recent = tmp_opt.rcv_tsval;
 
+		// 如果ack段的序号在接收窗口之外，则说明这是一个无效的syn段，去掉syn标志
 		if (TCP_SKB_CB(skb)->seq == tcp_rsk(req)->rcv_isn) {
 			/* Truncate SYN, it is out of window starting
 			   at tcp_rsk(req)->rcv_isn + 1. */
@@ -655,6 +666,7 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		/* RFC793: "second check the RST bit" and
 		 *	   "fourth, check the SYN bit"
 		 */
+		// 如果段中有rst标志，则表示需要复位未连接完成的连接，统计然后跳转到embryonic_reset处处理
 		if (flg & (TCP_FLAG_RST|TCP_FLAG_SYN)) {
 			TCP_INC_STATS_BH(TCP_MIB_ATTEMPTFAILS);
 			goto embryonic_reset;
@@ -663,10 +675,13 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		/* ACK sequence verified above, just make sure ACK is
 		 * set.  If ACK not set, just silently drop the packet.
 		 */
+		// 按照正常流程，该段中应该有ack标志，如果没有，则直接返回NULL，丢弃该段
 		if (!(flg & TCP_FLAG_ACK))
 			return NULL;
 
 		/* If TCP_DEFER_ACCEPT is set, drop bare ACK. */
+		// 如果设置了TCP_DEFER_ACCEPT，则无需接收ack段，两次握手后直接等待存在有效负荷的数据包
+		// 再建立连接，因此接收到ack段则直接将其丢弃。参见TCP_DEFER_ACCEPT选项
 		if (inet_csk(sk)->icsk_accept_queue.rskq_defer_accept &&
 		    TCP_SKB_CB(skb)->end_seq == tcp_rsk(req)->rcv_isn + 1) {
 			inet_rsk(req)->acked = 1;
@@ -679,6 +694,8 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		 * ESTABLISHED STATE. If it will be dropped after
 		 * socket is created, wait for troubles.
 		 */
+		// 到此为止作为第三次握手的ack段是有效的，因此调用tcp_v4_syn_recv_sock()创建
+		// 相应的"子"传输控制块
 		child = inet_csk(sk)->icsk_af_ops->syn_recv_sock(sk, skb,
 								 req, NULL);
 		if (child == NULL)
@@ -708,19 +725,27 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
 		}
 #endif
 
+		// 将刚建立连接的连接请求块插入到已完成连接的队列中，同时如果连接请求队列为空，
+		// 还需停止建立连接定时器
 		inet_csk_reqsk_queue_unlink(sk, req, prev);
 		inet_csk_reqsk_queue_removed(sk, req);
 
 		inet_csk_reqsk_queue_add(sk, req, child);
+		// 返回已经建立的"子"传输控制块
 		return child;
 
 	listen_overflow:
+		// 如果是由于服务器繁忙或其他原因导致连接建立失败，且未启用tcp_abort_on_flow，则设置
+		// 连接请求块中的acked标志，表示已接收到作为第三次握手的ack段，连接定时器可根据该标志
+		// 重新给客户端发送syn+ack段，再次尝试建立连接
 		if (!sysctl_tcp_abort_on_overflow) {
 			inet_rsk(req)->acked = 1;
 			return NULL;
 		}
 
 	embryonic_reset:
+		// 在建立连接过程中，SYN_RECV标志的传输控制块接收到SYN段，则根据rfc规定需给对端发送rst段
+		// 然后从连接请求块散列表中删除对应的连接请求块
 		NET_INC_STATS_BH(LINUX_MIB_EMBRYONICRSTS);
 		if (!(flg & TCP_FLAG_RST))
 			req->rsk_ops->send_reset(sk, skb);
@@ -734,7 +759,9 @@ struct sock *tcp_check_req(struct sock *sk,struct sk_buff *skb,
  * otherwise we just shortcircuit this and continue with
  * the new socket.
  */
-
+// 新的"子"传输控制块已建立并激活，则该"子"传输控制块需处理tcp段，同时也需唤醒等待
+// 侦听套接口的进程，如accept系统调用等。如果此时，"子"传输控制块被用户进程锁定，则将
+// 该tcp段添加到"子"传输控制块的后背接收队列中
 int tcp_child_process(struct sock *parent, struct sock *child,
 		      struct sk_buff *skb)
 {
@@ -742,6 +769,8 @@ int tcp_child_process(struct sock *parent, struct sock *child,
 	int state = child->sk_state;
 
 	if (!sock_owned_by_user(child)) {
+		// 如果此时刚创建的"子"传输控制块没有被用户进程占用，则根据作为第三次握手的ack段
+		// 调用tcp_rcv_state_process()继续对"子"传输控制块作初始化
 		ret = tcp_rcv_state_process(child, skb, skb->h.th, skb->len);
 
 		/* Wakeup parent, send SIGIO */
@@ -752,6 +781,8 @@ int tcp_child_process(struct sock *parent, struct sock *child,
 		 * in main socket hash table and lock on listening
 		 * socket does not protect us more.
 		 */
+		// 否则只能将段添加到后备队列中，等空闲时再处理。虽然这种情况出现的概率比较小
+		// 但还是有可能发生的
 		sk_add_backlog(child, skb);
 	}
 

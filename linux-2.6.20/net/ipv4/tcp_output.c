@@ -2109,6 +2109,8 @@ int tcp_send_synack(struct sock *sk)
 /*
  * Prepare a SYN-ACK.
  */
+// tcp_make_synack()用来构造一个syn+ack段，并初始化tcp首部以及skb中的各字段，填入相应的选项
+// 如MSS，SACK，窗口扩大因子、时间戳等
 struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 				 struct request_sock *req)
 {
@@ -2122,15 +2124,20 @@ struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	__u8 *md5_hash_location;
 #endif
 
+	// 强制为要发送的syn+ack段分配skb，这里所谓的强制是指无论已分配发送缓存长度是否达到上限
+	// 都调用alloc_skb()分配skb，sock_wmalloc()的第三个参数为1标识强制分配
 	skb = sock_wmalloc(sk, MAX_TCP_HEADER + 15, 1, GFP_ATOMIC);
 	if (skb == NULL)
 		return NULL;
 
 	/* Reserve space for headers. */
+	// 为mac层，ip层，tcp层首部预留必要的空间
 	skb_reserve(skb, MAX_TCP_HEADER);
 
 	skb->dst = dst_clone(dst);
 
+	// 根据接收到的syn段中的选项计算syn+ack段的tcp首部长度，包括通知本端mss、时间戳选项（一般都存在
+	// 用于序列号回卷保护及RTT的计算）、是否启用窗口扩大因子，SACK等
 	tcp_header_size = (sizeof(struct tcphdr) + TCPOLEN_MSS +
 			   (ireq->tstamp_ok ? TCPOLEN_TSTAMP_ALIGNED : 0) +
 			   (ireq->wscale_ok ? TCPOLEN_WSCALE_ALIGNED : 0) +
@@ -2143,6 +2150,7 @@ struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	if (md5)
 		tcp_header_size += TCPOLEN_MD5SIG_ALIGNED;
 #endif
+	// 初始化tcp首部中的各字段和skb中的各项
 	skb->h.th = th = (struct tcphdr *) skb_push(skb, tcp_header_size);
 
 	memset(th, 0, sizeof(struct tcphdr));
@@ -2154,11 +2162,16 @@ struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	TCP_SKB_CB(skb)->seq = tcp_rsk(req)->snt_isn;
 	TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + 1;
 	TCP_SKB_CB(skb)->sacked = 0;
+	// 设置有关tcp控制块中的控制字段，包括有关序号、SACK、TSO等
 	skb_shinfo(skb)->gso_segs = 1;
 	skb_shinfo(skb)->gso_size = 0;
 	skb_shinfo(skb)->gso_type = 0;
+	// 设置tcp首部中的序号和确认序号
 	th->seq = htonl(TCP_SKB_CB(skb)->seq);
 	th->ack_seq = htonl(tcp_rsk(req)->rcv_isn + 1);
+	// 如果请求块中rcv_wnd字段值为零，表示本端接收窗口被初始化为0，则需在此初始化成合理的值
+	// 首先根据对应路由项中获取的最大通告窗口初始化请求块中的最大通告窗口
+	// 然后调用tcp_select_initial_window()对其接收窗口、最大通告窗口、窗口扩大因子进行合理的设置
 	if (req->rcv_wnd == 0) { /* ignored for retransmitted syns */
 		__u8 rcv_wscale; 
 		/* Set this up on the first call only */
@@ -2174,9 +2187,12 @@ struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	}
 
 	/* RFC1323: The window in SYN & SYN/ACK segments is never scaled. */
+	// 设置syn+ack段中的窗口大小
 	th->window = htons(req->rcv_wnd);
 
+	// 设置skb中tcp控制块的发送时间
 	TCP_SKB_CB(skb)->when = tcp_time_stamp;
+	// 根据syn段中的选项，生成syn+ack段中的选项，包括mss，sack，窗口扩大因子，时间戳等
 	tcp_syn_build_options((__be32 *)(th + 1), dst_metric(dst, RTAX_ADVMSS), ireq->tstamp_ok,
 			      ireq->sack_ok, ireq->wscale_ok, ireq->rcv_wscale,
 			      TCP_SKB_CB(skb)->when,
@@ -2188,12 +2204,14 @@ struct sk_buff * tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 			       NULL)
 			      );
 
+	// 初始化tcp首部的校验值
 	skb->csum = 0;
 	th->doff = (tcp_header_size >> 2);
 	TCP_INC_STATS(TCP_MIB_OUTSEGS);
 
 #ifdef CONFIG_TCP_MD5SIG
 	/* Okay, we have all we need - do the md5 hash if needed */
+	// 通过tcp md5签名来保护bgp会话
 	if (md5) {
 		tp->af_specific->calc_md5_hash(md5_hash_location,
 					       md5,
