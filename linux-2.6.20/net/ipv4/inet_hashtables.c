@@ -269,9 +269,11 @@ static inline u32 inet_sk_port_offset(const struct sock *sk)
 /*
  * Bind a port for a connect operation and hash it.
  */
+// inet_hash_connect()主要用于在主动连接时动态绑定一个端口
 int inet_hash_connect(struct inet_timewait_death_row *death_row,
 		      struct sock *sk)
 {
+	// 通过tcp_death_row中的成员hashinfo，获取指向tcp中散列表管理器hashinfo
 	struct inet_hashinfo *hinfo = death_row->hashinfo;
 	const unsigned short snum = inet_sk(sk)->num;
  	struct inet_bind_hashbucket *head;
@@ -279,6 +281,8 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
 	int ret;
 
  	if (!snum) {
+ 		// 如果该传输控制块还未绑定端口，则自动选择端口进行绑定
+ 		// 获取动态端口范围
  		int low = sysctl_local_port_range[0];
  		int high = sysctl_local_port_range[1];
 		int range = high - low;
@@ -290,7 +294,9 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
  		struct inet_timewait_sock *tw = NULL;
 
  		local_bh_disable();
+ 		// 在动态选择端口的范围内遍历，选取可用的端口
 		for (i = 1; i <= range; i++) {
+			// 在动态端口范围内，把通过源地址、目的地址和目的端口计算得到的值作为端口号初始值
 			port = low + (i + offset) % range;
  			head = &hinfo->bhash[inet_bhashfn(port, hinfo->bhash_size)];
  			spin_lock(&head->lock);
@@ -299,11 +305,17 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
  			 * because the established check is already
  			 * unique enough.
  			 */
+ 			// 在inet_bind_hashbucket散列表中查找该端口是否已被使用，如果已被使用，则需要检测内否被复用
+ 			// 在动态选择端口不允许复用通过bind系统调用绑定的端口，无论该端口能否被复用，都不能被复用，需
+ 			// 重新选择
 			inet_bind_bucket_for_each(tb, node, &head->chain) {
  				if (tb->port == port) {
  					BUG_TRAP(!hlist_empty(&tb->owners));
  					if (tb->fastreuse >= 0)
  						goto next_port;
+ 					// 通过__inet_check_established()来检测该端口是否被复用，动态绑定的端口只能复用在
+ 					// TIME_WAIT状态下绑定的端口，当然还需要启用tcp_tw_reuse。若通过检测，则跳转到ok处
+ 					// 进行绑定，否则递增端口号，继续下一轮确认
  					if (!__inet_check_established(death_row,
 								      sk, port,
 								      &tw))
@@ -312,6 +324,8 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
  				}
  			}
 
+ 			// 如果该端口号未使用，则可使用该端口，为该端口创建信息块并将其添加到bhash散列表中
+ 			// 创建信息块失败，返回EADDRNOTAVAIL错误号
  			tb = inet_bind_bucket_create(hinfo->bind_bucket_cachep, head, port);
  			if (!tb) {
  				spin_unlock(&head->lock);
@@ -331,13 +345,16 @@ ok:
 		hint += i;
 
  		/* Head lock still held and bh's disabled */
+ 		// 将传输控制块与绑定端口信息关联，完成绑定
  		inet_bind_hash(sk, tb, port);
+ 		// 如果该传输控制块未添加或已脱离ehash散列表，则需添加到该散列表中
 		if (sk_unhashed(sk)) {
  			inet_sk(sk)->sport = htons(port);
  			__inet_hash(hinfo, sk, 0);
  		}
  		spin_unlock(&head->lock);
 
+ 		// 如果与一个TIME_WAIT状态的套接口复用该端口，则需删除释放该TIMEWAIT状态的套接口
  		if (tw) {
  			inet_twsk_deschedule(tw, death_row);
  			inet_twsk_put(tw);
@@ -347,6 +364,9 @@ ok:
 		goto out;
  	}
 
+ 	// 对于已绑定端口的传输控制块和绑定信息块需要相应确认。确认绑定端口信息快与之相绑定的
+ 	// 传输控制块是不是该传输控制块，该传输控制块指向绑定信息块的指针是否有效
+ 	// 不然需要重新通过__inet_check_established()来检测该端口能否被使用
  	head = &hinfo->bhash[inet_bhashfn(snum, hinfo->bhash_size)];
  	tb  = inet_csk(sk)->icsk_bind_hash;
 	spin_lock_bh(&head->lock);

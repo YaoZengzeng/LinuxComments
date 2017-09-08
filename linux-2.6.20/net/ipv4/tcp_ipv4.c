@@ -165,6 +165,9 @@ int tcp_twsk_unique(struct sock *sk, struct sock *sktw, void *twp)
 EXPORT_SYMBOL_GPL(tcp_twsk_unique);
 
 /* This will initiate an outgoing connection. */
+// 在套接口层检验完必要条件，如套接口的状态等之后，传输接口层中还需对传输控制块进行更详细的校验
+// 如地址族的类型，是否获取到有效的路由入口，通过检测后，设置传输控制块各字段值，如初始化时间戳
+// 保存目的地址和目的端口号，最后构造并发送SYN
 int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
 	struct inet_sock *inet = inet_sk(sk);
@@ -183,6 +186,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	// 以用户给定的套接字初始化网关地址nexthop和目标地址daddr
 	nexthop = daddr = usin->sin_addr.s_addr;
+	// 如果使用源地址路由，则将下一跳地址设置为ip选项中的faddr
 	if (inet->opt && inet->opt->srr) {
 		if (!daddr)
 			return -EINVAL;
@@ -209,11 +213,14 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (!inet->opt || !inet->opt->srr)		// 如果没有设置IP选项或IP源路由选项，使用路由表寻址的路由
 		daddr = rt->rt_dst;
 
+	// 如果还未设置传输控制块中的源地址，则使用路由缓存项中的源地址对其进行设置
 	if (!inet->saddr)
 		inet->saddr = rt->rt_src;
 	inet->rcv_saddr = inet->saddr;
 
 	// 如果当前套接字建立连接的目标地址与套接字数据结构中保存的目标地址不一样，则复位原tcp继承的状态
+	// 如果传输控制块中的时间戳和目的地址已被使用过，则说明该传输控制块之前已建立连接并进行过通信
+	// 需重新初始化相关成员
 	if (tp->rx_opt.ts_recent_stamp && inet->daddr != daddr) {
 		/* Reset inherited state */
 		tp->rx_opt.ts_recent	   = 0;
@@ -241,6 +248,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		}
 	}
 
+	// 将目的地址及目标端口设置到传输控制块中，设置ip首部选项部分长度，初始化对端mss的上限值
 	inet->dport = usin->sin_port;
 	inet->daddr = daddr;
 
@@ -249,7 +257,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		inet_csk(sk)->icsk_ext_hdr_len = inet->opt->optlen;
 
 	// 初始化mss为tcp允许接收的最大数据段536，虽然我们是在打开的套接字上进行了相应的处理，这时标示套接字
-	// 的信息还不完整，例如套接字源端口好这时就还没有分配
+	// 的信息还不完整，例如套接字源端口号这时就还没有分配
 	tp->rx_opt.mss_clamp = 536;
 
 	/* Socket identity is still unknown (sport may be zero).
@@ -259,22 +267,29 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	 */
 	// 将套接字状态设置为TCP_SYN_SENT，将套接字sk放入TCP连接管理哈希链表
 	tcp_set_state(sk, TCP_SYN_SENT);
+	// 为连接分配一个临时端口号，以便于以后在哈希链表中查找套接字sk
+	// 并将传输控制块添加到ehash散列表中，由于在动态分配端口时，如果找到的
+	// 是已使用的端口，则需要在TIME_WAIT状态队列中进行相应的确认
 	err = inet_hash_connect(&tcp_death_row, sk);
 	if (err)
 		goto failure;
 
-	// 为连接分配一个临时端口号，以便于以后在哈希链表中查找套接字sk
+	// 如果源端口或目的端口发生改变，则需重新查找路由，并用新的路由缓存项更新sk中保存的路由缓存项
 	err = ip_route_newports(&rt, IPPROTO_TCP,
 				inet->sport, inet->dport, sk);
 	if (err)
 		goto failure;
 
 	/* OK, now commit destination to socket.  */
+	// 设置GSO类型为SKB_GSO_TCPV4，并根据该传输控制块的路由输出设备特性设置传输控制块中目的路由网络
+	// 设备的特性
 	sk->sk_gso_type = SKB_GSO_TCPV4;
 	sk_setup_caps(sk, &rt->u.dst);
 
 	if (!tp->write_seq)
 		// 初始化tcp数据段序列号
+		// 如果write_seq字段值为零，则说明该传输控制块还未设置初始序号，因此需调用secure_tcp_sequence_number()
+		// 根据双方的地址、端口计算初始序号，同时根据发送序号和当前时间得到用于设置ip首部ID域的值
 		tp->write_seq = secure_tcp_sequence_number(inet->saddr,
 							   inet->daddr,
 							   inet->sport,

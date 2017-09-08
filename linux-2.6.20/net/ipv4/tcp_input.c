@@ -4177,6 +4177,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	int saved_clamp = tp->rx_opt.mss_clamp;
 
+	// 解析段中的tcp选项，并保存到传输控制块中
 	tcp_parse_options(skb, &tp->rx_opt, 0);
 
 	if (th->ack) {
@@ -4208,7 +4209,8 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		 *    connection reset", drop the segment, enter CLOSED state,
 		 *    delete TCB, and return."
 		 */
-
+		// 在SYN_SENT状态下接收到了ack+rst段，需调用tcp_reset()设置ECONNREFUSED错误码
+		// 同时通知等待该套接口的进程，然后关闭该套接口
 		if (th->rst) {
 			tcp_reset(sk);
 			goto discard;
@@ -4221,6 +4223,8 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		 *    See note below!
 		 *                                        --ANK(990513)
 		 */
+		// 在SYN_SENT状态下接收到的段必须存在SYN标志，否则说明收到的段无效，需跳转到discard_and_undo
+		// 处执行，清除得到的tcp选项，然后丢弃该段
 		if (!th->syn)
 			goto discard_and_undo;
 
@@ -4230,9 +4234,11 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		 *    (our SYN has been ACKed), change the connection
 		 *    state to ESTABLISHED..."
 		 */
-
+		// 从tcp首部标志中获取支持显示拥塞通知的特性，对于支持ECN的tcp段来说，syn的ack只设置ece标志
+		// 如果收到的段与之不符，表示对端不支持显示拥塞通知
 		TCP_ECN_rcv_synack(tp, th);
 
+		// 初始化与窗口有关的成员变量
 		tp->snd_wl1 = TCP_SKB_CB(skb)->seq;
 		tcp_ack(sk, skb, FLAG_SLOWPATH);
 
@@ -4253,6 +4259,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 			tp->window_clamp = min(tp->window_clamp, 65535U);
 		}
 
+		// 根据是否支持时间戳选项来设置传输控制块的相关字段
 		if (tp->rx_opt.saw_tstamp) {
 			tp->rx_opt.tstamp_ok	   = 1;
 			tp->tcp_header_len =
@@ -4266,6 +4273,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 		if (tp->rx_opt.sack_ok && sysctl_tcp_fack)
 			tp->rx_opt.sack_ok |= 2;
 
+		// 初始化pmtu,mss等成员变量
 		tcp_mtup_init(sk);
 		tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
 		tcp_initialize_rcv_mss(sk);
@@ -4295,19 +4303,24 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 
 		tcp_init_buffer_space(sk);
 
+		// 如果启用了连接保活，则启用连接保活定时器
 		if (sock_flag(sk, SOCK_KEEPOPEN))
 			inet_csk_reset_keepalive_timer(sk, keepalive_time_when(tp));
 
+		// 设置首部预测标志
 		if (!tp->rx_opt.snd_wscale)
 			__tcp_fast_path_on(tp, tp->snd_wnd);
 		else
 			tp->pred_flags = 0;
 
+		// 如果套接口不处于SOCK_DEAD状态，则唤醒等待套接口的进程，同时向
+		// 套接口的异步等待列表上的进程发送信号，通知他们该套接口可以输出数据了
 		if (!sock_flag(sk, SOCK_DEAD)) {
 			sk->sk_state_change(sk);
 			sk_wake_async(sk, 0, POLL_OUT);
 		}
 
+		// 连接建立完成，根据情况进入延时确认模式
 		if (sk->sk_write_pending ||
 		    icsk->icsk_accept_queue.rskq_defer_accept ||
 		    icsk->icsk_ack.pingpong) {
@@ -4351,17 +4364,21 @@ discard:
 	}
 
 	/* PAWS check. */
+	// 如果PAWS检测无效，则跳转到discard_and_undo处，清除解析得到的tcp选项，并传输控制块丢弃
 	if (tp->rx_opt.ts_recent_stamp && tp->rx_opt.saw_tstamp && tcp_paws_check(&tp->rx_opt, 0))
 		goto discard_and_undo;
 
 	// 如果收到SYN，而没有收到服务区序列号，则扔掉数据包
 	if (th->syn) {
+		// 处理接收没有ack标志的syn段，处理同时打开的情况
 		/* We see SYN without ACK. It is attempt of
 		 * simultaneous connect with crossed SYNs.
 		 * Particularly, it can be connect to self.
 		 */
+		// 在SYN_SENT状态下接收到SYN段，则将其状态设置为SYN_RECV
 		tcp_set_state(sk, TCP_SYN_RECV);
 
+		// 根据是否支持时间戳选项，设置tcp传输控制块相应的字段
 		if (tp->rx_opt.saw_tstamp) {
 			tp->rx_opt.tstamp_ok = 1;
 			tcp_store_ts_recent(tp);
@@ -4377,17 +4394,21 @@ discard:
 		/* RFC1323: The window in SYN & SYN/ACK segments is
 		 * never scaled.
 		 */
+		// 初始化窗口相关的成员变量
 		tp->snd_wnd    = ntohs(th->window);
 		tp->snd_wl1    = TCP_SKB_CB(skb)->seq;
 		tp->max_window = tp->snd_wnd;
 
+		// 从tcp首部标志中获取支持显式拥塞通知的特性，对于支持ECN的tcp端口来说，syn段tcp首部
+		// 中有设置ece及cwr标志，接收到的段中有任何一个标志未设置，都表示对端不支持显式拥塞通知
 		TCP_ECN_rcv_syn(tp, th);
 
+		// 初始化pmtu，mss等成员变量
 		tcp_mtup_init(sk);
 		tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
 		tcp_initialize_rcv_mss(sk);
 
-
+		// 最后发送syn+ack段给对端，并丢弃接收到的syn段
 		tcp_send_synack(sk);
 #if 0
 		/* Note, we could accept data and URG from this segment.

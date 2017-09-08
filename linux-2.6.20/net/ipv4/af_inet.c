@@ -589,6 +589,9 @@ static long inet_wait_for_connect(struct sock *sk, long timeo)
  *	Connect to a remote host. There is regrettably still a little
  *	TCP 'magic' in here.
  */
+// inet_stream_connect()是connect系统调用的套接口实现，首先校验设置的地址族，然后校验套接口的状态
+// 套接口状态为SS_UNCONNECTED时调用传输层接口，tcp中为tcp_v4_connect()，最后等待连接的完成或失败
+// flags：连接标志，通常为O_NONBLOCK
 int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 			int addr_len, int flags)
 {
@@ -598,6 +601,8 @@ int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 
 	lock_sock(sk);
 
+	// 如果参数uaddr未设置地址族，则不能进行connect操作而退出，在这之前需要调用disconnect接口断开连接
+	// tcp的disconnect接口参见tcp_disconnect()
 	if (uaddr->sa_family == AF_UNSPEC) {
 		err = sk->sk_prot->disconnect(sk, flags);
 		sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
@@ -615,27 +620,37 @@ int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 		err = -EALREADY;
 		/* Fall out of switch with err, set for this state */
 		break;
+	// 只有套接口状态为SS_UNCONNECTED时才能进行connect操作
 	case SS_UNCONNECTED:
 		err = -EISCONN;
+		// 如果tcp不在CLOSE状态，则说明连接已建立，因此无需再进行connect操作
 		if (sk->sk_state != TCP_CLOSE)
 			goto out;
 
+		// connect接口只是完成发送syn段，后续的两次握手由协议栈完成
 		err = sk->sk_prot->connect(sk, uaddr, addr_len);
 		if (err < 0)
 			goto out;
 
+		// syn段发出去后设置为套接口状态为SS_CONNECTING，即正在连接
   		sock->state = SS_CONNECTING;
 
 		/* Just entered SS_CONNECTING state; the only
 		 * difference is that return value in non-blocking
 		 * case is EINPROGRESS, rather than EALREADY.
 		 */
+		// 初始化错误码为EINPROGRESS，如果是以非阻塞方式进行连接，则返回该错误，标识正在连接
 		err = -EINPROGRESS;
 		break;
 	}
 
+	// 获取连接超时时间，当然如果设置了非阻塞方式，则没有超时时间
 	timeo = sock_sndtimeo(sk, flags & O_NONBLOCK);
 
+	// 发送完syn段之后，一般情况下tcp状态会变为TCPF_SYN_SENT，而TCPF_SYN_SENT和TCPF_SYN_RECV
+	// 都表示半连接状态，tcp为这两种状态时，阻塞方式下，需等待直到连接完成或超时；非阻塞方式下，则无需等待
+	// 连接完成，等待过程中某些条件可能执行不到，例如假设tcp连接的建立非常快，还没到下面这行连接就已经建立了，
+	// 这时tcp状态为ESTABLISHED，直接跳过这一步，而实际上tcp连接的建立不会这么快
 	if ((1 << sk->sk_state) & (TCPF_SYN_SENT | TCPF_SYN_RECV)) {
 		/* Error code is set above */
 		if (!timeo || !inet_wait_for_connect(sk, timeo))
@@ -649,6 +664,8 @@ int inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 	/* Connection was closed by RST, timeout, ICMP error
 	 * or another process disconnected us.
 	 */
+	// 执行到这儿，说明只有连接建立成功或失败两种情况，如果tcp状态为CLOSE，则说明连接建立失败
+	// 跳转到sock_error处，获取相应的错误码后退出
 	if (sk->sk_state == TCP_CLOSE)
 		goto sock_error;
 

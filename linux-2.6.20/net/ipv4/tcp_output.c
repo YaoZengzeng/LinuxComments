@@ -2284,13 +2284,16 @@ static void tcp_connect_init(struct sock *sk)
 /*
  * Build a SYN and send it off.
  */ 
+// tcp_connect()用来构造并发送一个syn段
 int tcp_connect(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *buff;
 
+	// 初始化传输控制块中与连接相关的成员
 	tcp_connect_init(sk);
 
+	// 为构造syn段分配skb并设置相关字段
 	buff = alloc_skb_fclone(MAX_TCP_HEADER + 15, sk->sk_allocation);
 	if (unlikely(buff == NULL))
 		return -ENOBUFS;
@@ -2316,6 +2319,7 @@ int tcp_connect(struct sock *sk)
 	__skb_queue_tail(&sk->sk_write_queue, buff);
 	sk_charge_skb(sk, buff);
 	tp->packets_out += tcp_skb_pcount(buff);
+	// 将该syn段添加到发送队列上，并调用tcp_transmit_skb()发送该段
 	tcp_transmit_skb(sk, buff, 1, GFP_KERNEL);
 
 	/* We change tp->snd_nxt after the tcp_transmit_skb() call
@@ -2326,6 +2330,7 @@ int tcp_connect(struct sock *sk)
 	TCP_INC_STATS(TCP_MIB_ACTIVEOPENS);
 
 	/* Timer for repeating the SYN until an answer. */
+	// 最后启动重传定时器，为重传该syn段做准备
 	inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,
 				  inet_csk(sk)->icsk_rto, TCP_RTO_MAX);
 	return 0;
@@ -2387,6 +2392,11 @@ void tcp_send_delayed_ack(struct sock *sk)
 }
 
 /* This routine sends an ack and also updates the window. */
+// tcp_send_ack()用来发送一个ack段，同时更新窗口
+// 发送ack段时，tcp必须不在CLOSE状态
+// 为ack段分配一个skb，如果分配失败则在启动延时确认定时器后返回
+// 如果分配skb成功，则设置skb中相关的参数，如标志和gso属性等
+// 最后设置tcp序号和发送时间，调用tcp_transmit_skb()将该ack段发送出去
 void tcp_send_ack(struct sock *sk)
 {
 	/* If we have been reset, we may not send again. */
