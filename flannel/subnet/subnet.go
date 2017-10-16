@@ -69,6 +69,7 @@ type LeaseWatchResult struct {
 	// Either Events or Snapshot will be set.  If Events is empty, it means
 	// the cursor was out of range and Snapshot contains the current list
 	// of items, even if empty.
+	// Events或Snapshot会被设置
 	Events   []Event     `json:"events"`
 	// Snapshot是当前的所有leases
 	Snapshot []Lease     `json:"snapshot"`

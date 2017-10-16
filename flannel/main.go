@@ -265,6 +265,8 @@ func main() {
 	}
 
 	// Fetch the network config (i.e. what backend to use etc..).
+	// 从etcd中获取network配置信息，必须指定的是集群的子网大小，例如："172.16.0.0/16"
+	// 其余信息，包括SubnetMin,SubnetMax,SubnetLen以及backend type都有默认值
 	config, err := getConfig(ctx, sm)
 	if err == errCanceled {
 		wg.Wait()
@@ -307,6 +309,8 @@ func main() {
 	log.Info("Running backend.")
 	wg.Add(1)
 	go func() {
+		// 调用相应的backend监听etcd中发生的event，例如增加新的subnet，从而需要相应的
+		// backend进行相应的配置，使其包能够路由到该subnet所在的node
 		bn.Run(ctx)
 		wg.Done()
 	}()

@@ -163,6 +163,7 @@ func (esr *etcdSubnetRegistry) getSubnet(ctx context.Context, sn ip.IP4Net) (*Le
 	return l, resp.Index, err
 }
 
+// 返回的exp是从etcd返回的resp.Node.Expiration
 func (esr *etcdSubnetRegistry) createSubnet(ctx context.Context, sn ip.IP4Net, attrs *LeaseAttrs, ttl time.Duration) (time.Time, error) {
 	// 每个subnet lease的文件名为例如："etcdCfg.Prefix"/subnets/10-10-168-0
 	key := path.Join(esr.etcdCfg.Prefix, "subnets", MakeSubnetKey(sn))
@@ -224,6 +225,7 @@ func (esr *etcdSubnetRegistry) watchSubnets(ctx context.Context, since uint64) (
 		AfterIndex: since,
 		Recursive:  true,
 	}
+	// 调用Watcher()从etcd中获取event
 	e, err := esr.client().Watcher(key, opts).Next(ctx)
 	if err != nil {
 		return Event{}, 0, err
@@ -304,6 +306,8 @@ func parseSubnetWatchResponse(resp *etcd.Response) (Event, error) {
 }
 
 func nodeToLease(node *etcd.Node) (*Lease, error) {
+	// 从Node的Key中截取处子网范围，例如Key为"/coreos.com/network/subnets/172.17.80.0-24"
+	// 获取对应的IPNet
 	sn := ParseSubnetKey(node.Key)
 	if sn == nil {
 		return nil, fmt.Errorf("failed to parse subnet key %s", node.Key)
@@ -315,6 +319,7 @@ func nodeToLease(node *etcd.Node) (*Lease, error) {
 	}
 
 	exp := time.Time{}
+	// exp为超时的时间
 	if node.Expiration != nil {
 		exp = *node.Expiration
 	}

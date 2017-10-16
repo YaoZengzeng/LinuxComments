@@ -71,11 +71,14 @@ func (lw *leaseWatcher) reset(leases []Lease) []Event {
 	batch := []Event{}
 
 	for _, nl := range leases {
+		// 忽略本node的lease
 		if lw.ownLease != nil && nl.Subnet.Equal(lw.ownLease.Subnet) {
 			continue
 		}
 
 		found := false
+		// 从lw.leases中删除和leases的交集
+		// 剩下的即为过时的lease
 		for i, ol := range lw.leases {
 			if ol.Subnet.Equal(nl.Subnet) {
 				lw.leases = deleteLease(lw.leases, i)
@@ -86,11 +89,14 @@ func (lw *leaseWatcher) reset(leases []Lease) []Event {
 
 		if !found {
 			// new lease
+			// 对于原本lw.leases不存在的lease，创建Add Event
+			// 创建nl对应的Add Event并加入batch中
 			batch = append(batch, Event{EventAdded, nl})
 		}
 	}
 
 	// everything left in sm.leases has been deleted
+	// 为lw.leases中的所有leases创建Removed Event
 	for _, l := range lw.leases {
 		if lw.ownLease != nil && l.Subnet.Equal(lw.ownLease.Subnet) {
 			continue
@@ -99,6 +105,7 @@ func (lw *leaseWatcher) reset(leases []Lease) []Event {
 	}
 
 	// copy the leases over (caution: don't just assign a slice)
+	// 用当前的leases覆盖lw.leases
 	lw.leases = make([]Lease, len(leases))
 	copy(lw.leases, leases)
 
@@ -109,6 +116,7 @@ func (lw *leaseWatcher) update(events []Event) []Event {
 	batch := []Event{}
 
 	for _, e := range events {
+		// 如果获取的event是本node自己的lease的改变，则忽略
 		if lw.ownLease != nil && e.Lease.Subnet.Equal(lw.ownLease.Subnet) {
 			continue
 		}
@@ -126,6 +134,8 @@ func (lw *leaseWatcher) update(events []Event) []Event {
 }
 
 func (lw *leaseWatcher) add(lease *Lease) Event {
+	// 如果lease的subnet之前就已经存在，则对其进行更新
+	// 返回Add Event
 	for i, l := range lw.leases {
 		if l.Subnet.Equal(lease.Subnet) {
 			lw.leases[i] = *lease
@@ -133,12 +143,15 @@ func (lw *leaseWatcher) add(lease *Lease) Event {
 		}
 	}
 
+	// 否则将新的lease增加到lw.leases中，并返回Add Event
 	lw.leases = append(lw.leases, *lease)
 
 	return Event{EventAdded, lw.leases[len(lw.leases)-1]}
 }
 
 func (lw *leaseWatcher) remove(lease *Lease) Event {
+	// 同理，如果lease对应的subnet在lw.leases中存在，则将其从中删除
+	// 并返回Removed Event
 	for i, l := range lw.leases {
 		if l.Subnet.Equal(lease.Subnet) {
 			lw.leases = deleteLease(lw.leases, i)
@@ -146,11 +159,13 @@ func (lw *leaseWatcher) remove(lease *Lease) Event {
 		}
 	}
 
+	// 否则报个error，不过还是返回一个Removed Event
 	log.Errorf("Removed subnet (%s) was not found", lease.Subnet)
 	return Event{EventRemoved, *lease}
 }
 
 func deleteLease(l []Lease, i int) []Lease {
+	// 将最后一个元素替换到第i个元素，并返回长度为len(l) - 1大小的切片
 	l[i] = l[len(l)-1]
 	return l[:len(l)-1]
 }

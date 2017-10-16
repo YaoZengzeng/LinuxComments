@@ -104,7 +104,7 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 
 			// Always add the route to the route list.
-			// 加入network的rl数组
+			// 将route加入加入network的rl数组
 			n.addToRouteList(route)
 
 			// Check if route exists before attempting to add it
@@ -114,7 +114,8 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			if err != nil {
 				log.Warningf("Unable to list routes: %v", err)
 			}
-			//   Check match on Dst for match on Gw
+			// Check match on Dst for match on Gw
+			// 为什么都只判断routeList中的第一个元素？
 			if len(routeList) > 0 && !routeList[0].Gw.Equal(route.Gw) {
 				// Same Dst different Gw. Remove it, correct route will be added below.
 				// 将Dst相同，但是Gw不同的路由删除
@@ -126,6 +127,7 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 			if len(routeList) > 0 && routeList[0].Gw.Equal(route.Gw) {
 				// Same Dst and same Gw, keep it and do not attempt to add it.
+				// 如果路由的Dst和Gw都相同的话，则没有必要进行任何的修改
 				log.Infof("Route to %v via %v already exists, skipping.", evt.Lease.Subnet, evt.Lease.Attrs.PublicIP)
 			} else if err := netlink.RouteAdd(&route); err != nil {
 				log.Errorf("Error adding route to %v via %v: %v", evt.Lease.Subnet, evt.Lease.Attrs.PublicIP, err)
@@ -147,6 +149,7 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 
 			// Always remove the route from the route list.
+			// 先从network的rl数组中删除
 			n.removeFromRouteList(route)
 
 			if err := netlink.RouteDel(&route); err != nil {

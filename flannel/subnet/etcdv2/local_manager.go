@@ -135,6 +135,7 @@ func findLeaseBySubnet(leases []Lease, subnet ip.IP4Net) *Lease {
 }
 
 func (m *LocalManager) tryAcquireLease(ctx context.Context, config *Config, extIaddr ip.IP4, attrs *LeaseAttrs) (*Lease, error) {
+	// 从etcd中获取各种lease信息，每个lease包括子网范围（subnet）,超时时间，LeaseAttrs
 	leases, _, err := m.registry.getSubnets(ctx)
 	if err != nil {
 		return nil, err
@@ -158,11 +159,13 @@ func (m *LocalManager) tryAcquireLease(ctx context.Context, config *Config, extI
 				return nil, err
 			}
 
+			// 更新LeaseAttrs，也就说可以更换backend
 			l.Attrs = *attrs
 			l.Expiration = exp
 			return l, nil
 		} else {
 			log.Infof("Found lease (%v) for current IP (%v) but not compatible with current config, deleting", l.Subnet, extIaddr)
+			// 否则，将与当前PublicIP相关的lease删除
 			if err := m.registry.deleteSubnet(ctx, l.Subnet); err != nil {
 				return nil, err
 			}
@@ -200,6 +203,7 @@ func (m *LocalManager) tryAcquireLease(ctx context.Context, config *Config, extI
 			}
 		} else {
 			// Check if the previous subnet is a part of the network and of the right subnet length
+			// 若previous subnet在leases中不存在，则判断它是否与当前的network config兼容
 			if isSubnetConfigCompat(config, m.previousSubnet) {
 				log.Infof("Found previously leased subnet (%v), reusing", m.previousSubnet)
 				sn = m.previousSubnet
@@ -242,10 +246,11 @@ func (m *LocalManager) allocateSubnet(config *Config, leases []Lease) (ip.IP4Net
 	sn := ip.IP4Net{IP: config.SubnetMin, PrefixLen: config.SubnetLen}
 
 OuterLoop:
-	// 从SubnetMin开始遍历subnets，从找找出和已有的lease没有重合区域的subnet
+	// 从SubnetMin开始遍历subnets，从中找出和已有的lease没有重合区域的subnet
 	// 将其加入bag中
 	for ; sn.IP <= config.SubnetMax && len(bag) < 100; sn = sn.Next() {
 		for _, l := range leases {
+			// 如果l.Subnet和sn中的一个属于另一个的子集，则Overlaps为true
 			if sn.Overlaps(l.Subnet) {
 				continue OuterLoop
 			}
@@ -256,7 +261,7 @@ OuterLoop:
 	if len(bag) == 0 {
 		return ip.IP4Net{}, errors.New("out of subnets")
 	} else {
-		// 从已获取的bag中，随机挑选一个作为subent
+		// 从已获取的bag中，随机挑选一个作为subnet
 		i := randInt(0, len(bag))
 		return ip.IP4Net{IP: bag[i], PrefixLen: config.SubnetLen}, nil
 	}
@@ -331,6 +336,7 @@ func (m *LocalManager) WatchLease(ctx context.Context, sn ip.IP4Net, cursor inte
 }
 
 func (m *LocalManager) WatchLeases(ctx context.Context, cursor interface{}) (LeaseWatchResult, error) {
+	// 第一次调用WatchLeases时，cursor即为nil
 	if cursor == nil {
 		return m.leasesWatchReset(ctx)
 	}
@@ -345,7 +351,7 @@ func (m *LocalManager) WatchLeases(ctx context.Context, cursor interface{}) (Lea
 	switch {
 	case err == nil:
 		return LeaseWatchResult{
-			// 其中不包含leases?
+			// 只有在第一次返回时才包含Snapshot，其余时候都返回Events
 			Events: []Event{evt},
 			Cursor: watchCursor{index},
 		}, nil

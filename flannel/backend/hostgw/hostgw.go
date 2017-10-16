@@ -51,6 +51,7 @@ func New(sm subnet.Manager, extIface *backend.ExternalInterface) (backend.Backen
 	return be, nil
 }
 
+// 参数中的config显得多余，因为在AcquireLease中会再次获取config
 func (be *HostgwBackend) RegisterNetwork(ctx context.Context, config *subnet.Config) (backend.Network, error) {
 	n := &network{
 		extIface: be.extIface,
