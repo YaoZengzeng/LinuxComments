@@ -385,6 +385,7 @@ func MonitorLease(ctx context.Context, sm subnet.Manager, bn backend.Network, wg
 	for {
 		select {
 		case <-time.After(dur):
+			// 当dur到期后，调用RenewLease更新etcd中的lease
 			err := sm.RenewLease(ctx, bn.Lease())
 			if err != nil {
 				log.Error("Error renewing lease (trying again in 1 min): ", err)
@@ -398,6 +399,7 @@ func MonitorLease(ctx context.Context, sm subnet.Manager, bn backend.Network, wg
 		case e := <-evts:
 			switch e.Type {
 			case subnet.EventAdded:
+				// 当检测到本节点的subnet对应的Add Event时，更新dur
 				bn.Lease().Expiration = e.Lease.Expiration
 				dur = bn.Lease().Expiration.Sub(time.Now()) - renewMargin
 				log.Infof("Waiting for %s to renew lease", dur)

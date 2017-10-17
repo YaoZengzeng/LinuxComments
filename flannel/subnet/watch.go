@@ -190,6 +190,7 @@ func WatchLease(ctx context.Context, sm Manager, sn ip.IP4Net, receiver chan Eve
 		}
 
 		if len(wr.Snapshot) > 0 {
+			// 当第一次调用WatchLease时，就将当前的lease放入wr.Snapshot[0]中
 			receiver <- Event{
 				Type:  EventAdded,
 				Lease: wr.Snapshot[0],

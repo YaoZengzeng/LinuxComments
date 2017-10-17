@@ -317,6 +317,7 @@ func (m *LocalManager) WatchLease(ctx context.Context, sn ip.IP4Net, cursor inte
 		return LeaseWatchResult{}, err
 	}
 
+	// 对指定的subnet进行watch
 	evt, index, err := m.registry.watchSubnet(ctx, nextIndex, sn)
 
 	switch {

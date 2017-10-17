@@ -152,6 +152,7 @@ func (esr *etcdSubnetRegistry) getSubnets(ctx context.Context) ([]Lease, uint64,
 	return leases, resp.Index, nil
 }
 
+// getSubnet获取指定subnet的lease信息
 func (esr *etcdSubnetRegistry) getSubnet(ctx context.Context, sn ip.IP4Net) (*Lease, uint64, error) {
 	key := path.Join(esr.etcdCfg.Prefix, "subnets", MakeSubnetKey(sn))
 	resp, err := esr.client().Get(ctx, key, &etcd.GetOptions{Quorum: true})
