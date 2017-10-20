@@ -660,6 +660,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
     config_ofproto_types(&ovs_cfg->other_config);
 
     HMAP_FOR_EACH (br, node, &all_bridges) {
+        // 对于每个网桥，将网卡添加进去
         bridge_add_ports(br, &br->wanted_ports);
         shash_destroy(&br->wanted_ports);
     }
@@ -2916,6 +2917,7 @@ bridge_run__(void)
 
     /* Let each bridge do the work that it needs to do. */
     HMAP_FOR_EACH (br, node, &all_bridges) {
+        // 对于每个bridge，调用br->ofproto->ofproto_class->run()
         ofproto_run(br->ofproto);
     }
 }
@@ -2974,6 +2976,7 @@ bridge_run(void)
                                         "flow-restore-wait", false));
     }
 
+    // bridge_run__中最重要的是对于所有网桥，都调用ofproto_run
     bridge_run__();
 
     /* Re-configure SSL.  We do this on every trip through the main loop,
@@ -2995,6 +2998,7 @@ bridge_run(void)
 
         idl_seqno = ovsdb_idl_get_seqno(idl);
         txn = ovsdb_idl_txn_create(idl);
+        // cfg是从ovsdb-server中读取出来的配置
         bridge_reconfigure(cfg ? cfg : &null_cfg);
 
         if (cfg) {

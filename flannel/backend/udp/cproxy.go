@@ -81,6 +81,7 @@ func removeRoute(ctl *os.File, dst ip.IP4Net) {
 		dest_net_len: C.int(dst.PrefixLen),
 	}
 
+	// 通过ctl写入
 	writeCommand(ctl, &cmd)
 }
 

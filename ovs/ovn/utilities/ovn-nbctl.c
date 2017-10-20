@@ -72,7 +72,9 @@ static struct table_style table_style = TABLE_STYLE_DEFAULT;
 /* The IDL we're using and the current transaction, if any.
  * This is for use by nbctl_exit() only, to allow it to clean up.
  * Other code should use its context arguments. */
+// 我们当前使用的IDL
 static struct ovsdb_idl *the_idl;
+// 当前的transaction
 static struct ovsdb_idl_txn *the_idl_txn;
 OVS_NO_RETURN static void nbctl_exit(int status);
 
@@ -119,7 +121,9 @@ main(int argc, char *argv[])
     }
 
     /* Initialize IDL. */
+    // 连接远程数据库
     idl = the_idl = ovsdb_idl_create(db, &nbrec_idl_class, true, false);
+    // 允许commands中的prerequisties函数
     run_prerequisites(commands, n_commands, idl);
 
     /* Execute the commands.
@@ -140,6 +144,7 @@ main(int argc, char *argv[])
 
         if (seqno != ovsdb_idl_get_seqno(idl)) {
             seqno = ovsdb_idl_get_seqno(idl);
+            // 具体执行nbctl命令
             if (do_nbctl(args, commands, n_commands, idl)) {
                 free(args);
                 exit(EXIT_SUCCESS);
@@ -3435,6 +3440,8 @@ do_nbctl(const char *args, struct ctl_command *commands, size_t n_commands,
     for (c = commands; c < &commands[n_commands]; c++) {
         ctl_context_init_command(&ctx, c);
         if (c->syntax->run) {
+            // 具体执行nbctl中的命令
+            // 例如，对于"ls-add"则执行nbctl_ls_add()函数
             (c->syntax->run)(&ctx);
         }
         ctl_context_done_command(&ctx, c);
@@ -3754,5 +3761,6 @@ static void
 nbctl_cmd_init(void)
 {
     ctl_init(nbrec_table_classes, tables, NULL, nbctl_exit);
+    // 将所有的nbctl_commands加入all_commands中
     ctl_register_commands(nbctl_commands);
 }

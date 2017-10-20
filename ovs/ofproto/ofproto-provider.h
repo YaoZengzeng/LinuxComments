@@ -68,6 +68,7 @@ extern struct ovs_mutex ofproto_mutex;
  *
  * With few exceptions, ofproto implementations may look at these fields but
  * should not modify them. */
+// struct ofproto表示一个虚拟交换机
 struct ofproto {
     struct hmap_node hmap_node; /* In global 'all_ofprotos' hmap. */
     const struct ofproto_class *ofproto_class;
@@ -147,6 +148,7 @@ struct ofport *ofproto_get_port(const struct ofproto *, ofp_port_t ofp_port);
  *
  * With few exceptions, ofproto implementations may look at these fields but
  * should not modify them. */
+// struct ofport表示交换机上的一个端口
 struct ofport {
     struct hmap_node hmap_node; /* In struct ofproto's "ports" hmap. */
     struct ofproto *ofproto;    /* The ofproto that contains this port. */
@@ -348,6 +350,7 @@ enum OVS_PACKED_ENUM rule_state {
                        * removed from the classifier as well. */
 };
 
+// struct rule表示交换机上的一条flow规则
 struct rule {
     /* Where this rule resides in an OpenFlow switch.
      *
@@ -536,6 +539,7 @@ void ofproto_rule_reduce_timeouts(struct rule *rule, uint16_t idle_timeout,
  *
  * With few exceptions, ofproto implementations may look at these fields but
  * should not modify them. */
+// struct ofgroup表示一个flow规则组
 struct ofgroup {
     struct cmap_node cmap_node; /* In ofproto's "groups" cmap. */
 

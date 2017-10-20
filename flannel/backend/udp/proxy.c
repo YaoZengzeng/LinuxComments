@@ -101,6 +101,7 @@ static uint16_t cksum(aliasing_uint32_t *buf, int len) {
 	return ~t1;
 }
 
+// 如果下一跳地址不可达，则返回一个ICMP UNREACHABLE包
 static void send_net_unreachable(int tun, char *offender) {
 	icmp_pkt pkt;
 	int off_iph_len;
@@ -113,6 +114,7 @@ static void send_net_unreachable(int tun, char *offender) {
 		return; /* ip pkt mulformed */
 	}
 
+	// 不对ICMP包的错误返回ICMP
 	if( off_iph->protocol == IPPROTO_ICMP ) {
 		/* To avoid infinite loops, RFC 792 instructs not to send ICMPs
 		 * about ICMPs */
@@ -127,6 +129,7 @@ static void send_net_unreachable(int tun, char *offender) {
 
 	pktlen = sizeof(struct iphdr) + sizeof(struct icmphdr) + off_iph_len + 8;
 
+	// pkt代表了一个icmp包
 	memset(&pkt, 0, sizeof(pkt));
 
 	/* Fill in the IP header */
@@ -164,6 +167,7 @@ static int set_route(struct ip_net dst, struct sockaddr_in *next_hop) {
 	size_t i;
 
 	for( i = 0; i < routes_cnt; i++ ) {
+		// 若有匹配的目的地址范围，则更新下一跳地址
 		if( dst.ip == routes[i].dst.ip && dst.mask == routes[i].dst.mask ) {
 			routes[i].next_hop = *next_hop;
 			return 0;
@@ -171,6 +175,7 @@ static int set_route(struct ip_net dst, struct sockaddr_in *next_hop) {
 	}
 
 	if( routes_alloc == routes_cnt ) {
+		// 扩展两倍
 		int new_alloc = (routes_alloc ? 2*routes_alloc : 8);
 		struct route_entry *new_routes = (struct route_entry *) realloc(routes, new_alloc*sizeof(struct route_entry));
 		if( !new_routes )
@@ -192,6 +197,7 @@ static int del_route(struct ip_net dst) {
 
 	for( i = 0; i < routes_cnt; i++ ) {
 		if( dst.ip == routes[i].dst.ip && dst.mask == routes[i].dst.mask ) {
+			// 直接用最后一条路由来填充被删除的路由
 			routes[i] = routes[routes_cnt-1];
 			routes_cnt--;
 			return 0;
@@ -204,9 +210,11 @@ static int del_route(struct ip_net dst) {
 static struct sockaddr_in *find_route(in_addr_t dst) {
 	size_t i;
 
+	// 遍历所有到达各个目的主机的路由，选取一个下一跳地址
 	for( i = 0; i < routes_cnt; i++ ) {
 		if( contains(routes[i].dst, dst) ) {
 			// packets for same dest tend to come in bursts. swap to front make it faster for subsequent ones
+			// 发往同一个主机的包可能源源不断地到来，所以将刚刚匹配的路由放到第一条，加速匹配
 			if( i != 0 ) {
 				struct route_entry tmp = routes[i];
 				routes[i] = routes[0];
@@ -303,6 +311,7 @@ inline static int decrement_ttl(struct iphdr *iph) {
 	}
 
 	/* patch up IP checksum (see RFC 1624) */
+	// 递减ttl后，快速更新校验和
 	if( iph->check >= htons(0xFFFFu - 0x100) ) {
 		iph->check += htons(0x100) + 1;
 	} else {
@@ -312,6 +321,7 @@ inline static int decrement_ttl(struct iphdr *iph) {
 	return 1;
 }
 
+// 从tun设备中读取封包并封装到udp中
 static int tun_to_udp(int tun, int sock, char *buf, size_t buflen) {
 	struct iphdr *iph;
 	struct sockaddr_in *next_hop;
@@ -322,6 +332,7 @@ static int tun_to_udp(int tun, int sock, char *buf, size_t buflen) {
 	
 	iph = (struct iphdr *)buf;
 
+	// 找到通往目的地址主机的路由
 	next_hop = find_route((in_addr_t) iph->daddr);
 	if( !next_hop ) {
 		send_net_unreachable(tun, buf);
@@ -335,6 +346,7 @@ static int tun_to_udp(int tun, int sock, char *buf, size_t buflen) {
 		goto _active;
 	}
 
+	// 直接将包通过socket传输出去即可
 	sock_send_packet(sock, buf, pktlen, next_hop);
 _active:
 	return 1;
@@ -343,6 +355,7 @@ _active:
 static int udp_to_tun(int sock, int tun, char *buf, size_t buflen) {
 	struct iphdr *iph;
 
+	// 从socket中获取封包
 	ssize_t pktlen = sock_recv_packet(sock, buf, buflen);
 	if( pktlen < 0 )
 		return 0;
@@ -441,6 +454,7 @@ void run_proxy(int tun, int sock, int ctl, in_addr_t tun_ip, size_t tun_mtu, int
 		}
 
 		if( fds[PFD_CTL].revents & POLLIN )
+			// 从ctl中获取事件，删除添加路由，stop proxy
 			process_cmd(ctl);
 
 		if( fds[PFD_TUN].revents & POLLIN || fds[PFD_SOCK].revents & POLLIN )

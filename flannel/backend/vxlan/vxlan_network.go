@@ -99,15 +99,19 @@ func (nw *network) handleSubnetEvents(batch []subnet.Event) {
 		}
 
 		// This route is used when traffic should be vxlan encapsulated
+		// 创建通往目的subnet的路由
 		vxlanRoute := netlink.Route{
 			LinkIndex: nw.dev.link.Attrs().Index,
 			Scope:     netlink.SCOPE_UNIVERSE,
 			Dst:       sn.ToIPNet(),
+			// 网关为目的主机vtep的地址
 			Gw:        sn.IP.ToIP(),
 		}
 		vxlanRoute.SetFlag(syscall.RTNH_F_ONLINK)
 
 		// directRouting is where the remote host is on the same subnet so vxlan isn't required.
+		// 如果远端主机在同一个子网内，则vxlan是没有必要的
+		// 相当于直接使用hostgw
 		directRoute := netlink.Route{
 			Dst: sn.ToIPNet(),
 			Gw:  attrs.PublicIP.ToIP(),
@@ -121,6 +125,7 @@ func (nw *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 			if len(routes) == 1 && routes[0].Gw == nil {
 				// There is only a single route and there's no gateway (i.e. it's directly connected)
+				// 根据目的IP获取的路由没有网关，则说明是直连的
 				directRoutingOK = true
 			}
 		}
@@ -130,17 +135,20 @@ func (nw *network) handleSubnetEvents(batch []subnet.Event) {
 			if directRoutingOK {
 				log.V(2).Infof("Adding direct route to subnet: %s PublicIP: %s", sn, attrs.PublicIP)
 
+				// 主机都在同一子网内，则使用directRoute
 				if err := netlink.RouteReplace(&directRoute); err != nil {
 					log.Errorf("Error adding route to %v via %v: %v", sn, attrs.PublicIP, err)
 					continue
 				}
 			} else {
 				log.V(2).Infof("adding subnet: %s PublicIP: %s VtepMAC: %s", sn, attrs.PublicIP, net.HardwareAddr(vxlanAttrs.VtepMAC))
+				// 增加到对端VTEP设备的ARP缓存
 				if err := nw.dev.AddARP(neighbor{IP: sn.IP, MAC: net.HardwareAddr(vxlanAttrs.VtepMAC)}); err != nil {
 					log.Error("AddARP failed: ", err)
 					continue
 				}
 
+				// 增加fdb，ip为目的主机的Public IP，地址为目的主机vtep设备的mac地址
 				if err := nw.dev.AddFDB(neighbor{IP: attrs.PublicIP, MAC: net.HardwareAddr(vxlanAttrs.VtepMAC)}); err != nil {
 					log.Error("AddFDB failed: ", err)
 

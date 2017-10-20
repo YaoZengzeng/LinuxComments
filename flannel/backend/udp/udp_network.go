@@ -38,6 +38,7 @@ type network struct {
 	backend.SimpleNetwork
 	name   string
 	port   int
+	// ctl用于进程间通信，通知proxy结束
 	ctl    *os.File
 	ctl2   *os.File
 	tun    *os.File
@@ -63,6 +64,7 @@ func newNetwork(sm subnet.Manager, extIface *backend.ExternalInterface, port int
 	}
 
 	var err error
+	// 对Public IP所在的网卡进行udp监听
 	n.conn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: extIface.IfaceAddr, Port: port})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start listening on UDP socket: %v", err)
@@ -131,6 +133,7 @@ func newCtlSockets() (*os.File, *os.File, error) {
 	return f1, f2, nil
 }
 
+// 创建tun设备
 func (n *network) initTun() error {
 	var tunName string
 	var err error
@@ -140,6 +143,7 @@ func (n *network) initTun() error {
 		return fmt.Errorf("failed to open TUN device: %v", err)
 	}
 
+	// n.tunNet的IP为subnet.IP
 	err = configureIface(tunName, n.tunNet, n.MTU())
 	return err
 }
@@ -150,6 +154,7 @@ func configureIface(ifname string, ipn ip.IP4Net, mtu int) error {
 		return fmt.Errorf("failed to lookup interface %v", ifname)
 	}
 
+	// 设置tun设备的地址为subnet.IP
 	err = netlink.AddrAdd(iface, &netlink.Addr{IPNet: ipn.ToIPNet(), Label: ""})
 	if err != nil {
 		return fmt.Errorf("failed to add IP address %v to %v: %v", ipn.String(), ifname, err)
@@ -170,6 +175,7 @@ func configureIface(ifname string, ipn ip.IP4Net, mtu int) error {
 	err = netlink.RouteAdd(&netlink.Route{
 		LinkIndex: iface.Attrs().Index,
 		Scope:     netlink.SCOPE_UNIVERSE,
+		// Dst的子网大小是整个集群子网地址空间的大小
 		Dst:       ipn.Network().ToIPNet(),
 	})
 	if err != nil && err != syscall.EEXIST {
@@ -185,11 +191,13 @@ func (n *network) processSubnetEvents(batch []subnet.Event) {
 		case subnet.EventAdded:
 			log.Info("Subnet added: ", evt.Lease.Subnet)
 
+			// 新增lease，创建路由
 			setRoute(n.ctl, evt.Lease.Subnet, evt.Lease.Attrs.PublicIP, n.port)
 
 		case subnet.EventRemoved:
 			log.Info("Subnet removed: ", evt.Lease.Subnet)
 
+			// 删除lease，删除路由
 			removeRoute(n.ctl, evt.Lease.Subnet)
 
 		default:

@@ -50,6 +50,7 @@ func (be *UdpBackend) RegisterNetwork(ctx context.Context, config *subnet.Config
 	cfg := struct {
 		Port int
 	}{
+		// 默认端口为8285
 		Port: defaultPort,
 	}
 
@@ -78,6 +79,7 @@ func (be *UdpBackend) RegisterNetwork(ctx context.Context, config *subnet.Config
 
 	// Tunnel's subnet is that of the whole overlay network (e.g. /16)
 	// and not that of the individual host (e.g. /24)
+	// Tunnel subnet是整个集群网络的地址空间范围，但是IP是获取的subnet的IP
 	tunNet := ip.IP4Net{
 		IP:        l.Subnet.IP,
 		PrefixLen: config.Network.PrefixLen,

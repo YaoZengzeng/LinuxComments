@@ -48,10 +48,12 @@ func newVXLANDevice(devAttrs *vxlanDeviceAttrs) (*vxlanDevice, error) {
 		VtepDevIndex: devAttrs.vtepIndex,
 		SrcAddr:      devAttrs.vtepAddr,
 		Port:         devAttrs.vtepPort,
+		// learning为false，说明高速vtep不要通过收到的报文来学习fdb表
 		Learning:     false,
 		GBP:          devAttrs.gbp,
 	}
 
+	// 确保符合要求的vxlan设备存在
 	link, err := ensureLink(link)
 	if err != nil {
 		return nil, err
@@ -65,6 +67,7 @@ func ensureLink(vxlan *netlink.Vxlan) (*netlink.Vxlan, error) {
 	err := netlink.LinkAdd(vxlan)
 	if err == syscall.EEXIST {
 		// it's ok if the device already exists as long as config is similar
+		// 如果vxlan设备已经存在也没问题，只要配置相同即可
 		log.V(1).Infof("VXLAN device already exists")
 		existing, err := netlink.LinkByName(vxlan.Name)
 		if err != nil {
@@ -73,17 +76,20 @@ func ensureLink(vxlan *netlink.Vxlan) (*netlink.Vxlan, error) {
 
 		incompat := vxlanLinksIncompat(vxlan, existing)
 		if incompat == "" {
+			// 如果配置相同则直接返回
 			log.V(1).Infof("Returning existing device")
 			return existing.(*netlink.Vxlan), nil
 		}
 
 		// delete existing
 		log.Warningf("%q already exists with incompatable configuration: %v; recreating device", vxlan.Name, incompat)
+		// 删除配置不同的old device
 		if err = netlink.LinkDel(existing); err != nil {
 			return nil, fmt.Errorf("failed to delete interface: %v", err)
 		}
 
 		// create new
+		// 根据配置创建一个新的device
 		if err = netlink.LinkAdd(vxlan); err != nil {
 			return nil, fmt.Errorf("failed to create vxlan interface: %v", err)
 		}
@@ -98,6 +104,7 @@ func ensureLink(vxlan *netlink.Vxlan) (*netlink.Vxlan, error) {
 	}
 
 	var ok bool
+	// 获取并返回vxlan设备
 	if vxlan, ok = link.(*netlink.Vxlan); !ok {
 		return nil, fmt.Errorf("created vxlan device with index %v is not vxlan", ifindex)
 	}
@@ -119,6 +126,7 @@ func (dev *vxlanDevice) Configure(ipn ip.IP4Net) error {
 
 	// If the device has an incompatible address then delete it. This can happen if the lease changes for example.
 	if len(existingAddrs) == 1 && !existingAddrs[0].Equal(addr) {
+		// 将不符合条件的已配置地址删除
 		if err := netlink.AddrDel(dev.link, &existingAddrs[0]); err != nil {
 			return fmt.Errorf("failed to remove IP address %s from %s: %s", ipn.String(), dev.link.Attrs().Name, err)
 		}
@@ -127,6 +135,7 @@ func (dev *vxlanDevice) Configure(ipn ip.IP4Net) error {
 
 	// Actually add the desired address to the interface if needed.
 	if len(existingAddrs) == 0 {
+		// 向vtep设备添加配置地址
 		if err := netlink.AddrAdd(dev.link, &addr); err != nil {
 			return fmt.Errorf("failed to add IP address %s to %s: %s", ipn.String(), dev.link.Attrs().Name, err)
 		}
@@ -205,6 +214,8 @@ func vxlanLinksIncompat(l1, l2 netlink.Link) string {
 	v1 := l1.(*netlink.Vxlan)
 	v2 := l2.(*netlink.Vxlan)
 
+	// 对VxlanId，VtepDevIndex，SrcAddr，Group，L2miss，Port以及GBP进行比较
+	// 有一项不相同，则报错
 	if v1.VxlanId != v2.VxlanId {
 		return fmt.Sprintf("vni: %v vs %v", v1.VxlanId, v2.VxlanId)
 	}

@@ -29,7 +29,7 @@ package vxlan
 // In this scheme the scaling of table entries (per host) is:
 //  - 1 route (for the configured network out the vxlan device)
 //  - One arp entry for each remote container that this host has recently contacted
-//  - One FDB entry for each remote host
+//  - One FDB entry for each remote hosts
 //
 // The second version of flannel vxlan removed the need for the L3MISS callout. When a new remote host is found (either
 // during startup or when it's created), flannel simply adds the required entries so that no further lookup/callout is required.
@@ -88,6 +88,7 @@ func New(sm subnet.Manager, extIface *backend.ExternalInterface) (backend.Backen
 }
 
 func newSubnetAttrs(publicIP net.IP, mac net.HardwareAddr) (*subnet.LeaseAttrs, error) {
+	// vtep设备的mac地址作为BackendData
 	data, err := json.Marshal(&vxlanLeaseAttrs{hardwareAddr(mac)})
 	if err != nil {
 		return nil, err
@@ -108,6 +109,7 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, config *subnet.Conf
 		GBP           bool
 		DirectRouting bool
 	}{
+		// 配置默认的VNI为1
 		VNI: defaultVNI,
 	}
 
@@ -121,6 +123,7 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, config *subnet.Conf
 	devAttrs := vxlanDeviceAttrs{
 		vni:       uint32(cfg.VNI),
 		name:      fmt.Sprintf("flannel.%v", cfg.VNI),
+		// vtepIndex和vtepAddr都是用的extIface
 		vtepIndex: be.extIface.Iface.Index,
 		vtepAddr:  be.extIface.IfaceAddr,
 		vtepPort:  cfg.Port,
@@ -150,6 +153,8 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, config *subnet.Conf
 	// Ensure that the device has a /32 address so that no broadcast routes are created.
 	// This IP is just used as a source address for host to workload traffic (so
 	// the return path for the traffic has an address on the flannel network to use as the destination)
+	// 确保vtep设备的子网大小为/32，从而不会创建broadcast routes
+	// 这个IP仅仅用作发往其他主机流量的源地址，这样返回的流量就有源地址了
 	if err := dev.Configure(ip.IP4Net{IP: lease.Subnet.IP, PrefixLen: 32}); err != nil {
 		return nil, fmt.Errorf("failed to configure interface %s: %s", dev.link.Attrs().Name, err)
 	}

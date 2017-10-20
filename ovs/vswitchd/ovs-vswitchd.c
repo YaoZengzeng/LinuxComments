@@ -106,6 +106,8 @@ main(int argc, char *argv[])
 
     exiting = false;
     cleanup = false;
+    // 最终进入无限循环，其中最重要的是bridge_run()和netdev_run()函数
+    // ovs主要管理两种类型的设备，一个是创建的虚拟网桥，一个是连接到虚拟网桥上的设备
     while (!exiting) {
         memory_run();
         if (memory_should_report()) {
@@ -116,6 +118,7 @@ main(int argc, char *argv[])
             memory_report(&usage);
             simap_destroy(&usage);
         }
+        // bridge_run()初始化数据库中已经创建的虚拟网桥
         bridge_run();
         unixctl_server_run(unixctl);
         netdev_run();
