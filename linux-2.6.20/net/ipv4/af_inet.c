@@ -1398,7 +1398,8 @@ static int __init inet_init(void)
 	BUILD_BUG_ON(sizeof(struct inet_skb_parm) > sizeof(dummy_skb->cb));
 
 	// 初始化tcp_prot,udp_prot和raw_prot的slab，并把它们加入到proto_list链表中
-	// 以便支持/proc/net/文件系统
+	// 其中，例如tcp_prot包含的是套接字函数在tcp层的对应函数
+	// 比如，close对应tcp_v4_close
 	rc = proto_register(&tcp_prot, 1);
 	if (rc)
 		goto out;
@@ -1424,6 +1425,7 @@ static int __init inet_init(void)
 	 */
 
 	// 将系统中的常用传输层协议以及传输层的报文接收例程注册到inet_protos[]数组中
+	// 例如对于icmp_protocol，其中就包含了icmp_rcv这个handler
 	if (inet_add_protocol(&icmp_protocol, IPPROTO_ICMP) < 0)
 		printk(KERN_CRIT "inet_init: Cannot add ICMP protocol\n");
 	// 将udp协议的接口udp_protocol加入全局数组struct net_protocol *inet_protos[MAX_INET_PROTOS]中
@@ -1438,6 +1440,7 @@ static int __init inet_init(void)
 
 	/* Register the socket-side information for inet_create. */
 	// 初始化协议交换表的套接字层的存放各协议族API的链表
+	// 数组中的每个元素都包含了某个协议的系统调用函数到协议套接字函数的对应关系
 	for (r = &inetsw[0]; r < &inetsw[SOCK_MAX]; ++r)
 		INIT_LIST_HEAD(r);
 
