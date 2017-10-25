@@ -53,6 +53,7 @@ import types
 import threading
 
 import pox.core
+# core为实例化的POXCore
 core = pox.core.initialize()
 
 import pox.openflow
@@ -88,6 +89,7 @@ def _do_import (name):
       return name
 
     try:
+      # 加载module，因为之前ext和pot已经加入PATH中，因此都能找到
       __import__(name, level=0)
       return name
     except ImportError:
@@ -148,6 +150,7 @@ def _do_imports (components):
     if r is False:
       return False
     members = dict(inspect.getmembers(sys.modules[r]))
+    # done中包含了模块的名字，
     done[name] = (r,sys.modules[r],members)
 
   return done
@@ -158,28 +161,36 @@ def _do_launch (argv):
   components = {}
 
   curargs = {}
+  # pox选项是最先导的，因此会先被存放在curargs中
   pox_options = curargs
 
   for arg in argv:
     if not arg.startswith("-"):
+      # 在components中加入组件名
       if arg not in components:
         components[arg] = []
+      # 每个参数的选项都应该在参数之后
       curargs = {}
       components[arg].append(curargs)
+      # 将每个组件依次加入component_order中
       component_order.append(arg)
     else:
       arg = arg.lstrip("-").split("=", 1)
       arg[0] = arg[0].replace("-", "_")
       if len(arg) == 1: arg.append(True)
+      # 将参数选项加入curargs中
       curargs[arg[0]] = arg[1]
 
+  # options是pox的启动参数，已初始化为POXOptions
   _options.process_options(pox_options)
+  # 配置log，启动openflow
   _pre_startup()
   modules = _do_imports(n.split(':')[0] for n in component_order)
   if modules is False:
     return False
 
   inst = {}
+  # 遍历组件列表
   for name in component_order:
     cname = name
     inst[name] = inst.get(name, -1) + 1
@@ -232,6 +243,7 @@ def _do_launch (argv):
         return False
 
       try:
+        # 运行launch函数
         if f(**params) is False:
           # Abort startup
           return False
@@ -313,6 +325,7 @@ def _do_launch (argv):
 
 
 class Options (object):
+  # POXOptions中有verbose，enable_openflow和log_config三个选项
   def set (self, given_name, value):
     name = given_name.replace("-", "_")
     if name.startswith("_") or hasattr(Options, name):
@@ -331,6 +344,7 @@ class Options (object):
       if isinstance(getattr(self, name), bool):
         # Automatic bool-ization
         value = str_to_bool(value)
+      # 重新设置name的value
       setattr(self, name, value)
     return True
 
@@ -418,15 +432,18 @@ def _pre_startup ():
   to try to log something!).
   """
 
+  # 在其他组件运行之前，先配置log
   _setup_logging()
 
   if _options.verbose:
     logging.getLogger().setLevel(logging.DEBUG)
 
+  # 默认启动openflow
   if _options.enable_openflow:
     pox.openflow.launch() # Default OpenFlow launch
 
 
+# 在其他组件都启动之后
 def _post_startup ():
   if _options.enable_openflow:
     pox.openflow.of_01.launch() # Usually, we launch of_01
@@ -489,12 +506,14 @@ def boot (argv = None):
 
   quiet = False
 
+  # 参数预处理
   try:
     if argv is None:
       argv = sys.argv[1:]
 
     # Always load cli (first!)
-    #TODO: Can we just get rid of the normal options yet?
+    #TODO: Can we just get rid of the normal options yet?、
+    # pre中存放pox的启动选项
     pre = []
     while len(argv):
       if argv[0].startswith("-"):
@@ -503,9 +522,10 @@ def boot (argv = None):
         break
     argv = pre + "py --disable".split() + argv
 
-    if _do_launch(argv):
-      _post_startup()
-      core.goUp()
+    if _do_launch(argv):  # 根据参数启动组件
+      # 所有组件启动以后
+      _post_startup()   # 启动openflow.of_01，监听事件
+      core.goUp()     # 登记debug信息和事件机制
     else:
       #return
       quiet = True

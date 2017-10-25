@@ -15,9 +15,11 @@
 """
 Some of POX's core API and functionality is here, largely in the POXCore
 class (an instance of which is available as pox.core.core).
+POX的API和功能都在这里了，主要都在POXCore class中（可通过pox.core.core获取）
 
 This includes things like component rendezvous, logging, system status
 (up and down events), etc.
+包括的功能有组件的聚集，日志，系统状态等等
 """
 
 from __future__ import print_function
@@ -146,6 +148,8 @@ class ComponentRegistered (Event):
   This is raised by core whenever a new component is registered.
   By watching this, a component can monitor whether other components it
   depends on are available.
+  当有一个新的component注册时，core会产生一个ComponentRegistered事件
+  通过监听该事件，组件可以监听它依赖的组件是否可用
   """
   def __init__ (self, name, component):
     Event.__init__(self)
@@ -166,11 +170,15 @@ class POXCore (EventMixin):
   then be accessed on the core object (e.g., if you register foo, then
   there will then be a pox.core.core.foo).  In many cases, this means you
   won't need to import a module.
+  core相当于各个组件的一个汇合点，一个组件可以在core中注册对象，之后它们就能通过core的对象
+  来访问（例如，我们注册一个foo，接着就会有一个pox.core.core.foo），在很多情况下，这意味着
+  你不需要载入一个模块
 
   Another purpose to the central registration is that it decouples
   functionality from a specific module.  If myL2Switch and yourL2Switch
   both register as "switch" and both provide the same API, then it doesn't
   matter.  Doing this with imports is a pain.
+  将功能从特定的模块中解耦
 
   Additionally, a number of commmon API functions are vailable here.
   """
@@ -186,6 +194,7 @@ class POXCore (EventMixin):
     self.debug = False
     self.running = True
     self.starting_up = True
+    # pox.core.core代表的就是这个类的一个实例
     self.components = {'core':self}
 
     import threading
@@ -195,8 +204,10 @@ class POXCore (EventMixin):
     self.version_name = "carp"
     print(self.banner)
 
+    # 调度器
     self.scheduler = recoco.Scheduler(daemon=True)
 
+    # 等待的组件
     self._waiters = [] # List of waiting components
 
   @property
@@ -331,8 +342,10 @@ class POXCore (EventMixin):
       l.warn("If you run into problems, try using Python 2.7 or PyPy.")
 
     self.starting_up = False
+    # 创建GoingUpEvent
     self.raiseEvent(GoingUpEvent())
 
+    # 创建UpEvent
     self.raiseEvent(UpEvent())
 
     self._waiter_notify()
@@ -370,10 +383,13 @@ class POXCore (EventMixin):
     core.registerNew(FooClass, arg) is roughly equivalent to
     core.register("FooClass", FooClass(arg)).
     """
+    # 得到类名
     name = __componentClass.__name__
+    # 创建类的实例
     obj = __componentClass(*args, **kw)
     if hasattr(obj, '_core_name'):
       # Default overridden
+      # 如果有_core_name的话，使用它覆盖name
       name = obj._core_name
     self.register(name, obj)
     return obj
@@ -381,6 +397,7 @@ class POXCore (EventMixin):
   def register (self, name, component=None):
     """
     Makes the object "component" available as pox.core.core.name.
+    让组件可以通过pox.core.core.name使用
 
     If only one argument is specified, the given argument is registered
     using its class name as the name.
@@ -395,7 +412,9 @@ class POXCore (EventMixin):
 
     if name in self.components:
       log.warn("Warning: Registered '%s' multipled times" % (name,))
+    # 将component加入到core.components中
     self.components[name] = component
+    # 创建一个ComponentRegistered事件
     self.raiseEventNoErrors(ComponentRegistered, name, component)
     self._try_waiters()
 
@@ -448,8 +467,10 @@ class POXCore (EventMixin):
     for c in components:
       if not self.hasComponent(c):
         return False
+    # 调用完之后从_waiter中移除
     self._waiters.remove(entry)
     try:
+      # 调用waiter的回调函数
       if callback is not None:
         callback(*args_,**kw_)
     except:
@@ -473,6 +494,7 @@ class POXCore (EventMixin):
     while changed:
       changed = False
       for entry in list(self._waiters):
+        # 如果_try_waiter()返回true，说明_waiters的内容都已经处理完了
         if self._try_waiter(entry):
           changed = True
 

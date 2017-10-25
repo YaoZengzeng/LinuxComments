@@ -31,14 +31,17 @@ class EventLoopExample (Task):
 
    First note that we inherit from Task. The Task class is recoco's equivalent
    of python's threading.thread interface.
+   我们继承自Task，recoco中的Task类和python的threading.thread接口是等效的
    """
    def __init__(self):
      Task.__init__(self)  # call our superconstructor
 
+     # 监听socket
      self.sockets = self.get_sockets() # ... the sockets to listen to events on
 
      # Note! We can't start our event loop until the core is up. Therefore,
      # we'll add an event handler.
+     # 当GoingUpEvent出现的时候，调用start_event_loop
      core.addListener(pox.core.GoingUpEvent, self.start_event_loop)
 
    def start_event_loop(self, event):
@@ -46,6 +49,7 @@ class EventLoopExample (Task):
      Takes a second parameter: the GoingUpEvent object (which we ignore)
      """
      # This causes us to be added to the scheduler's recurring Task queue
+     # 我们将加入到scheduler的recurring Task queue
      Task.start(self)
 
    def get_sockets(self):
@@ -57,7 +61,8 @@ class EventLoopExample (Task):
    def run(self):
      """
      run() is the method that gets called by the scheduler to execute this task
-      """
+     """
+     # 当scheduler运行这个task的时候就会运行run()方法
      while core.running:
        """
        This looks almost exactly like python's select.select, except that it's

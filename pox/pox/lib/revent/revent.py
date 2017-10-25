@@ -27,10 +27,13 @@ Events themselves are generally instances of some subclass of the Event
 class.  In fact, they can be arbitrary values of any sort, though
 subclasses of Event get special handling (and support for values of other
 sorts may eventually be removed).
+Events本身一般都是Event class一些子类的实例。事实上，它们可以是任意类型的数据，但是如果是Event
+的子类，它们将得到特殊的处理
 
 To subscribe to an event, you create a callback function and register it
 with the source.  For example:
 
+如果我们要订阅一个event，我们要创建一个回调函数，并在source中注册它，如下所示
 def bar_handler(self, event):
   print("bar!", event)
 
@@ -40,11 +43,14 @@ pox.core.addListener(UpEvent, bar_handler)
 Often (especially if you are going to listen to multiple events from a
 single source), it is easier to inherit from EventMixin just so that you
 can use the listenTo() method.  For example:
+另外，如果你想从单一的source中监听多个events，更简单的方法是，继承EventMixin，这样我们就能
+使用listenTo()方法了，如下所示：
 
 class Sink (EventMixin):
   def __init__(self):
    # Listen to events sourced by pox.core
    pox.core.addListeners(self)
+   # pox.core就是所有event的源头
    self.listenTo(pox.core)
 
   def _handle_ComponentRegistered (self, event):
@@ -65,10 +71,12 @@ class Sink (EventMixin):
 
 
 Event sources can also use the EventMixin library:
+# EventMixin还能用来定义Event source
 
 class Source (EventMixin):
   # Defining this variable tells the revent library what kind of events
   # this source can raise.
+  # 定义_eventMixin_events，其中包含了这个source能产生的event类型
   _eventMixin_events = set([ComponentRegistered])
 
   def __init__ (self):
@@ -76,6 +84,7 @@ class Source (EventMixin):
 
   def foo (self):
     # We can raise events as follows:
+    # 创建一个event
     component = "fake_pox_component"
     self.raiseEvent(ComponentRegistered(component))
 
@@ -83,6 +92,7 @@ class Source (EventMixin):
     # ComponentRegistered (which is a subclass of Event).  The following is
     # functionally equivalent, but has the nice property that
     # ComponentRegistered is never instantiated if there are no listeners.
+    # 下面的方法同样用于产生一个event，但是与上文不同的是，如果没有listener就不会初始化
     #self.raiseEvent(ComponentRegistered, component)
     # In both cases, "component" is passed to the __init__ method for the
     # ComponentRegistered class.
@@ -90,6 +100,7 @@ class Source (EventMixin):
     # The above method invocation will raise an exception if an event
     # handler rauses an exception.  To project yourself from exceptions in
     # handlers, see raiseEventNoErrors().
+    # 上文中的方法都会因为event handler产生异常而产生异常，为了避免这种情况，调用raiseEventNoErrors()
 """
 
 from __future__ import print_function
@@ -243,6 +254,7 @@ class EventMixin (object):
     Returns the event object, unless it was never created (because there
     were no listeners) in which case returns None.
     """
+    # 设置_eventMixin_events为True，并且将_eventMixin_handlers初始化为dict
     self._eventMixin_init()
 
     classCall = False
@@ -254,6 +266,7 @@ class EventMixin (object):
       # Check for early-out
       if event not in self._eventMixin_handlers:
         return None
+      # 如果该event没有handler就直接返回
       if len(self._eventMixin_handlers[event]) == 0:
         return None
 
@@ -277,6 +290,7 @@ class EventMixin (object):
       if classCall:
         rv = event._invoke(handler, *args, **kw)
       else:
+        # 调用事件的处理函数进行处理
         rv = handler(event, *args, **kw)
       if once: self.removeListener(eid)
       if rv is None: continue
@@ -378,17 +392,22 @@ class EventMixin (object):
                    priority=None, byName=False):
     """
     Add an event handler for an event triggered by this object (subscribe).
+    添加事件处理函数
 
     eventType : event class object (e.g. ConnectionUp). If byName is True,
                 should be a string (e.g. "ConnectionUp")
+    event class对象，如果byName为True，那么eventType的类型为string
     handler : function/method to be invoked when event is raised
+    handler为事件产生时的处理函数
     once : if True, this handler is removed after being fired once
+    once为True的话，handler会在使用一次后移除
     weak : If handler is a method on object A, then listening to an event
            on object B will normally make B have a reference to A, so A
            can not be released until after B is released or the listener
            is removed.
            If weak is True, there is no relationship between the lifetimes
            of the publisher and subscriber.
+    当weak为true时，订阅者和发布者之间不会有依赖
     priority : The order in which to call event handlers if there are
                multiple for an event type.  Should probably be an integer,
                where higher means to call it earlier.  Do not specify if
@@ -404,6 +423,7 @@ class EventMixin (object):
     self._eventMixin_init()
     if (self._eventMixin_events is not True
         and eventType not in self._eventMixin_events):
+      # 如果未能找到eventType
       # eventType wasn't found
       fail = True
       if byName:
@@ -420,6 +440,7 @@ class EventMixin (object):
                            % (eventType, type(self)))
     if eventType not in self._eventMixin_handlers:
       # if no handlers are already registered, initialize
+      # 如果eventType还没有相应的handler，则新建一个
       handlers = self._eventMixin_handlers[eventType] = []
       self._eventMixin_handlers[eventType] = handlers
     else:
@@ -441,12 +462,15 @@ class EventMixin (object):
   def listenTo (self, source, *args, **kv):
     """
     Automatically subscribe to events on source.
+    订阅事件
 
     This method tries to bind all _handle_ methods on self to events
     on source.  Kind of the opposite of addListeners().
+    将所有的_handle_方法注册到events的source
 
     See also: addListeners(), autoBindEvents()
     """
+    # 一般监听者为self，source为core
     return autoBindEvents(self, source, *args, **kv)
 
   def addListeners (self, sink, prefix='', weak=False, priority=None):
@@ -480,15 +504,21 @@ def autoBindEvents (sink, source, prefix='', weak=False, priority=None):
   listen to these events.  To do so, it names its handler methods
   "_handle_FooEvent" and "_handle_BarEvent".  It can then simply call
   autoBindEvents(mySink, mySource), and the handlers are set up.
+  如果有一个事件源mySource，它会产生两类事件FooEvent和BarEvent，如果有一个对象
+  mySink想要监听这些事件，它只要将它的处理函数命名为"_handle_FooEvent"和"_handle_BarEvent"
+  并调用autoBindEvents(mySink, mySource)即可
 
   You can also set a prefix which changes how the handlers are to be named.
   For example, autoBindEvents(mySink, mySource, "source1") would use a
   handler named "_handle_source1_FooEvent".
+  同时，我们也能指定前缀，来更改处理函数的命名方式。例如，autoBindEvents(mySink, mySource, "source1")
+  将会使用的处理函数的名字为"_handle_source1_FooEvent"
 
   "weak" has the same meaning as with addListener().
 
   Returns the added listener IDs (so that you can remove them later).
   """
+  # 判断event是否有前缀
   if len(prefix) > 0 and prefix[0] != '_': prefix = '_' + prefix
   if hasattr(source, '_eventMixin_events') is False:
     # If source does not declare that it raises any events, do nothing
@@ -496,6 +526,7 @@ def autoBindEvents (sink, source, prefix='', weak=False, priority=None):
           source.__class__.__name__,))
     return []
 
+  # 存储事件
   events = {}
   for e in source._eventMixin_events:
     if type(e) == str:
@@ -507,14 +538,17 @@ def autoBindEvents (sink, source, prefix='', weak=False, priority=None):
   # for each method in sink
   for m in dir(sink):
     # get the method object
+    # 提取出处理函数
     a = getattr(sink, m)
     if callable(a):
       # if it has the revent prefix signature,
       if m.startswith("_handle" + prefix + "_"):
+        # 从m的字段中提取出代表event的字符串
         event = m[8+len(prefix):]
         # and it is one of the events our source triggers
         if event in events:
           # append the listener
+          # 
           listeners.append(source.addListener(events[event], a, weak=weak,
                                               priority=priority))
           #print("autoBind: ",source,m,"to",sink)

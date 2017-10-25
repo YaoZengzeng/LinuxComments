@@ -247,6 +247,7 @@ def handle_VENDOR (con, msg):
 handlers = []
 
 # Message handlers
+# Openflow各种message的类型
 handlerMap = {
   of.OFPT_HELLO : handle_HELLO,
   of.OFPT_ECHO_REQUEST : handle_ECHO_REQUEST,
@@ -566,7 +567,9 @@ class Connection (EventMixin):
   """
   A Connection object represents a single TCP session with an
   openflow-enabled switch.
+  一个Connection对象表示和openflow-enabled switch的单个TCP连接
   If the switch reconnects, a new connection object is instantiated.
+  如果switch重连了，一个新的connection对象将被初始化
   """
   _eventMixin_events = set([
     ConnectionUp,
@@ -830,6 +833,7 @@ from pox.lib.recoco.recoco import *
 class OpenFlow_01_Task (Task):
   """
   The main recoco thread for listening to openflow messages
+  用于监听openflow message的主要线程
   """
   def __init__ (self, port = 6633, address = '0.0.0.0'):
     Task.__init__(self)
@@ -837,6 +841,7 @@ class OpenFlow_01_Task (Task):
     self.address = address
     self.started = False
 
+    # 当GoingUpEvent事件发生时，_handle_GoingUpEvent会被调用
     core.addListener(pox.core.GoingUpEvent, self._handle_GoingUpEvent)
 
   def _handle_GoingUpEvent (self, event):
@@ -846,6 +851,7 @@ class OpenFlow_01_Task (Task):
     if self.started:
       return
     self.started = True
+    # 调用父类Task的start方法
     return super(OpenFlow_01_Task,self).start()
 
   def run (self):
@@ -853,8 +859,10 @@ class OpenFlow_01_Task (Task):
     sockets = []
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # 一般来说，一个端口释放后等待两分钟之后才能使用，SO_REUSEADDR可以让端口释放后立即可以被再次使用
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
+      # 绑定127.0.0.1:6633
       listener.bind((self.address, self.port))
     except socket.error as (errno, strerror):
       log.error("Error %i while binding socket: %s", errno, strerror)
@@ -882,6 +890,7 @@ class OpenFlow_01_Task (Task):
           if len(rlist) == 0 and len(wlist) == 0 and len(elist) == 0:
             if not core.running: break
 
+          # 处理异常
           for con in elist:
             if con is listener:
               raise RuntimeError("Error on listener socket")
@@ -896,6 +905,7 @@ class OpenFlow_01_Task (Task):
                 pass
 
           timestamp = time.time()
+          # 处理sockets可读的情况
           for con in rlist:
             if con is listener:
               new_sock = listener.accept()[0]
@@ -904,7 +914,9 @@ class OpenFlow_01_Task (Task):
               new_sock.setblocking(0)
               # Note that instantiating a Connection object fires a
               # ConnectionUp event (after negotation has completed)
+              # 初始化一个Connection对象将会产生一个ConnectionUp event
               newcon = Connection(new_sock)
+              # 将新创建的Connection对象加入sockets中
               sockets.append( newcon )
               #print str(newcon) + " connected"
             else:
@@ -952,7 +964,9 @@ _set_handlers()
 # Used by the Connection class
 deferredSender = None
 
+# 默认监听本地的6633端口
 def launch (port = 6633, address = "0.0.0.0"):
+  # 如果of_01已经注册，就返回
   if core.hasComponent('of_01'):
     return None
 

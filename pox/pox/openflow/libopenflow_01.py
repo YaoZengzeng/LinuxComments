@@ -164,6 +164,7 @@ class _ofp_meta (type):
 class ofp_base (object):
   """
   Base class for OpenFlow messages/structures
+  OpenFlow message或者structure的基础结构
 
   You should implement a __len__ method.  If your length is fixed, it
   should be a static method.  If your length is not fixed, you should
@@ -185,6 +186,7 @@ class ofp_base (object):
   def __ne__ (self, other):
     return not self.__eq__(other)
 
+  # 在def前面加上@classmethod，这种类方法可以通过类名去调用，一般用cls表示类，表示可以通过类直接调用
   @classmethod
   def unpack_new (cls, raw, offset=0):
     """
@@ -337,6 +339,8 @@ def openflow_stats_reply (stats_type, type_val=None, is_list=None,
 # ----------------------------------------------------------------------
 # Constants, etc.
 # ----------------------------------------------------------------------
+
+# 常量定义
 
 ofp_error_type_rev_map = {
   'OFPET_HELLO_FAILED'    : 0,
@@ -536,10 +540,13 @@ NO_BUFFER = 4294967295
 # Structure definitions
 # ----------------------------------------------------------------------
 
+# Openflow协议相关数据的定义
+
 #1. Openflow Header
 class ofp_header (ofp_base):
   _MIN_LENGTH = 8
   def __init__ (self, **kw):
+    # 使用的Openflow的版本
     self.version = OFP_VERSION
     #self.header_type = None # Set via class decorator
     self._xid = None
@@ -619,6 +626,7 @@ class ofp_stats_body_base (ofp_base):
   """
 
 
+# ofp_action_base和spec中的ofp_action_header相同
 class ofp_action_base (ofp_base):
   """
   Base class for actions
@@ -642,6 +650,7 @@ class ofp_action_base (ofp_base):
     return (r, o)
 
 
+# 以下结构和spec中的ofp_queue_prop_header等效
 class ofp_queue_prop_base (ofp_base):
   """
   Base class for queue properties
@@ -774,6 +783,7 @@ class ofp_phy_port (ofp_base):
 
 
 ##2.2 Queue Structures
+# 一个port可以绑定一个或多个queue
 class ofp_packet_queue (ofp_base):
   _MIN_LENGTH = 8
   def __init__ (self, **kw):
@@ -917,6 +927,7 @@ class ofp_queue_prop_min_rate (ofp_base):
 
 
 ##2.3 Flow Match Structures
+# 用于描述一个flow entry
 class ofp_match (ofp_base):
   adjust_wildcards = True # Set to true to "fix" outgoing wildcards
 
@@ -2125,8 +2136,10 @@ class ofp_features_reply (ofp_header):
   _MIN_LENGTH = 32
   def __init__ (self, **kw):
     ofp_header.__init__(self)
+    # datapath_id代表了一个datapath
     self.datapath_id = 0
     self.n_buffers = 0
+    # n_tables代表了switch支持的table的数量
     self.n_tables = 0
     self.capabilities = 0
     self.actions = 0

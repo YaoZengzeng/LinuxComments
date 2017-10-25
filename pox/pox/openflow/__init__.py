@@ -20,8 +20,11 @@ There are a number of Events, which are generally raised on core.openflow
 as well as on individual switch Connections.  Many of these events have at
 least some of the following properties:
  .connection - a reference to the switch connection that caused the event
+    导致该event的和switch的连接
  .dpid - the DPID of the switch that caused the event
+    导致该event的DPID
  .ofp - the OpenFlow message that caused the event (from libopenflow)
+    导致该event的OpenFlow message
 
 One of the more complicated aspects of OpenFlow is dealing with stats
 replies, which may come in multiple parts (it shouldn't be that that
@@ -38,6 +41,7 @@ from pox.lib.util import dpidToStr
 import libopenflow_01 as of
 from pox.lib.packet.ethernet import ethernet
 
+# 当和一个OpenFlow switch建立连接时产生的Event
 class ConnectionUp (Event):
   """
   Event raised when the connection to an OpenFlow switch has been
@@ -254,6 +258,7 @@ class OpenFlowConnectionArbiter (EventMixin):
   Determines which OpenFlowNexus gets the switch.
   Default implementation always just gives it to core.openflow
   """
+  # 该类决定哪个OpenFlowNexus能获取switch，默认为core.openflow
   _eventMixin_events = set([
     ConnectionIn,
   ])
@@ -303,6 +308,7 @@ class OpenFlowNexus (EventMixin):
   core.openflow.  Most OpenFlow events fire here in addition to on their
   specific connections.
   """
+  # 通常这个类只有一个实例，并且会被注册为core.openflow，许多OpenFlow event都是这里发生的
   _eventMixin_events = set([
     ConnectionUp,
     ConnectionDown,
@@ -323,6 +329,7 @@ class OpenFlowNexus (EventMixin):
   ])
 
   # Bytes to send to controller when a packet misses all flows
+  # 当所有的flow都匹配失败的时候，发送给controller的字节数
   miss_send_len = of.OFP_DEFAULT_MISS_SEND_LEN
 
   # Enable/Disable clearing of flows on switch connect
@@ -333,6 +340,7 @@ class OpenFlowNexus (EventMixin):
 
     from pox.core import core
 
+    # source为core
     self.listenTo(core)
 
   @property

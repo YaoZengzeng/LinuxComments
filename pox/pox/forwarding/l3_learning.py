@@ -332,5 +332,6 @@ def launch (fakeways="", arp_for_unknowns=None):
     arp_for_unknowns = len(fakeways) > 0
   else:
     arp_for_unknowns = str_to_bool(arp_for_unknowns)
+  # 注册组件
   core.registerNew(l3_switch, fakeways, arp_for_unknowns)
 
