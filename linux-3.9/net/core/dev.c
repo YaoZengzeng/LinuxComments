@@ -2828,7 +2828,10 @@ int weight_p __read_mostly = 64;            /* old backlog weight */
 static inline void ____napi_schedule(struct softnet_data *sd,
 				     struct napi_struct *napi)
 {
+	// 将napi_struct的poll_list添加到当前CPU的softnet_data相关的poll_list中
 	list_add_tail(&napi->poll_list, &sd->poll_list);
+	// 触发一个NET_RX_SOFTIRQ类型的softirq，它会引发设备子系统初始化时注册的
+	// net_rx_action执行
 	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
 }
 
@@ -3057,6 +3060,8 @@ static int rps_ipi_queued(struct softnet_data *sd)
  * enqueue_to_backlog is called to queue an skb to a per CPU backlog
  * queue (may be a remote CPU queue).
  */
+// enqueue_to_backlog也会被netif_rx所调用，如果既没有开启RPS，又没有使用netif_rx
+// 则增加netdev_max_backlog，对性能提高无益，因为没有数据会进入input_pkt_queue
 static int enqueue_to_backlog(struct sk_buff *skb, int cpu,
 			      unsigned int *qtail)
 {
@@ -3068,9 +3073,11 @@ static int enqueue_to_backlog(struct sk_buff *skb, int cpu,
 	local_irq_save(flags);
 
 	rps_lock(sd);
+	// 如果softnet_data的input_pkt_queue大于netdev_max_backlog则丢弃
 	if (skb_queue_len(&sd->input_pkt_queue) <= netdev_max_backlog) {
 		if (skb_queue_len(&sd->input_pkt_queue)) {
 enqueue:
+			// 如果input_pkt_queue不为空，则直接加入
 			__skb_queue_tail(&sd->input_pkt_queue, skb);
 			input_queue_tail_incr_save(sd, qtail);
 			rps_unlock(sd);
@@ -3082,7 +3089,9 @@ enqueue:
 		 * We can use non atomic operation since we own the queue lock
 		 */
 		if (!__test_and_set_bit(NAPI_STATE_SCHED, &sd->backlog.state)) {
+			// 否则创建一个IPI，并启动NAPI
 			if (!rps_ipi_queued(sd))
+				// 启动NAPI processing
 				____napi_schedule(sd, &sd->backlog);
 		}
 		goto enqueue;
@@ -3364,6 +3373,7 @@ static bool skb_pfmemalloc_protocol(struct sk_buff *skb)
 	}
 }
 
+// __netif_receive_skb_core用于完成将数据包传往协议栈的主要工作
 static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 {
 	struct packet_type *ptype, *pt_prev;
@@ -3379,6 +3389,7 @@ static int __netif_receive_skb_core(struct sk_buff *skb, bool pfmemalloc)
 	trace_netif_receive_skb(skb);
 
 	/* if we've gotten here through NAPI, check netpoll */
+	// netpoll用于在内核崩溃时，驱动还能从NIC发送和接收数据
 	if (netpoll_receive_skb(skb))
 		goto out;
 
@@ -3414,6 +3425,7 @@ another_round:
 	if (pfmemalloc)
 		goto skip_taps;
 
+	// 如果安装了packet tap，数据包将首先发往它们，接着再发往协议栈
 	list_for_each_entry_rcu(ptype, &ptype_all, list) {
 		if (!ptype->dev || ptype->dev == skb->dev) {
 			if (pt_prev)
@@ -3471,13 +3483,16 @@ ncls:
 	/* deliver only exact match when indicated */
 	null_or_dev = deliver_exact ? skb->dev : NULL;
 
+	// 从skb中获取协议类型
 	type = skb->protocol;
 	list_for_each_entry_rcu(ptype,
+			// 各个协议将处理函数注册至ptype中
 			&ptype_base[ntohs(type) & PTYPE_HASH_MASK], list) {
 		if (ptype->type == type &&
 		    (ptype->dev == null_or_dev || ptype->dev == skb->dev ||
 		     ptype->dev == orig_dev)) {
 			if (pt_prev)
+				// 最终deliver_skb将会调用三层协议的接收函数，例如ip_rcv
 				ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = ptype;
 		}
@@ -3552,12 +3567,14 @@ int netif_receive_skb(struct sk_buff *skb)
 		return NET_RX_SUCCESS;
 
 #ifdef CONFIG_RPS
+	// 当启动RPS时
 	if (static_key_false(&rps_needed)) {
 		struct rps_dev_flow voidflow, *rflow = &voidflow;
 		int cpu, ret;
 
 		rcu_read_lock();
 
+		// 计算该将包发往哪个CPU，会将RFS和aRFS考虑在内
 		cpu = get_rps_cpu(skb->dev, skb, &rflow);
 
 		if (cpu >= 0) {
@@ -3729,16 +3746,19 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 
 		*pp = nskb->next;
 		nskb->next = NULL;
+		// 当协议层觉得一个传送经过GRO的包时，调用napi_gro_complete
+		// 最终会将包传送给netif_receive_skb
 		napi_gro_complete(nskb);
 		napi->gro_count--;
 	}
-
+	// 如果包属于同一个flow，则直接整合
 	if (same_flow)
 		goto ok;
 
 	if (NAPI_GRO_CB(skb)->flush || napi->gro_count >= MAX_GRO_SKBS)
 		goto normal;
 
+	// 如果包不能被整合，且系统中少于MAX_GRO_SKBS个flow，则在本CPU的NAPI　structure的gro_list加入新的一项
 	napi->gro_count++;
 	NAPI_GRO_CB(skb)->count = 1;
 	NAPI_GRO_CB(skb)->age = jiffies;
@@ -3822,6 +3842,7 @@ static void skb_gro_reset_offset(struct sk_buff *skb)
 	}
 }
 
+// gro->Generic Receive Offloading的含义就是将类似的包级联起来，从而减少包的处理
 gro_result_t napi_gro_receive(struct napi_struct *napi, struct sk_buff *skb)
 {
 	skb_gro_reset_offset(skb);
@@ -3978,6 +3999,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
 
 		while ((skb = __skb_dequeue(&sd->process_queue))) {
 			local_irq_enable();
+			// 加入__netif_receive_skb，传入网络栈
 			__netif_receive_skb(skb);
 			local_irq_disable();
 			input_queue_head_incr(sd);
@@ -4024,6 +4046,8 @@ void __napi_schedule(struct napi_struct *n)
 	unsigned long flags;
 
 	local_irq_save(flags);
+	// __get_cpu_var用于获取当前CPU的softnet_data
+	// softnet_data和napi_struct都交给了____napi_schedule
 	____napi_schedule(&__get_cpu_var(softnet_data), n);
 	local_irq_restore(flags);
 }
@@ -4098,12 +4122,15 @@ EXPORT_SYMBOL(netif_napi_del);
 static void net_rx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = &__get_cpu_var(softnet_data);
+	// 通过budge和time_limit来控制执行时间
 	unsigned long time_limit = jiffies + 2;
+	// 同一个CPU上的所有的NAPI structs的budget都是相同的
 	int budget = netdev_budget;
 	void *have;
 
 	local_irq_disable();
 
+	// 当CPU中没有NAPI structure的时候退出
 	while (!list_empty(&sd->poll_list)) {
 		struct napi_struct *n;
 		int work, weight;
@@ -4112,6 +4139,7 @@ static void net_rx_action(struct softirq_action *h)
 		 * Allow this to run for 2 jiffies since which will allow
 		 * an average latency of 1.5/HZ.
 		 */
+		// 没有budget或者超时，退出
 		if (unlikely(budget <= 0 || time_after_eq(jiffies, time_limit)))
 			goto softnet_break;
 
@@ -4136,6 +4164,7 @@ static void net_rx_action(struct softirq_action *h)
 		 */
 		work = 0;
 		if (test_bit(NAPI_STATE_SCHED, &n->state)) {
+			// poll函数返回已经处理的数据的帧数
 			work = n->poll(n, weight);
 			trace_napi_poll(n);
 		}
@@ -4165,6 +4194,7 @@ static void net_rx_action(struct softirq_action *h)
 					napi_gro_flush(n, HZ >= 1000);
 					local_irq_disable();
 				}
+				// 将NAPI structure移动到CPU的尾部，从而处理下一个注册的NAPI structure
 				list_move_tail(&n->poll_list, &sd->poll_list);
 			}
 		}
@@ -4172,6 +4202,7 @@ static void net_rx_action(struct softirq_action *h)
 		netpoll_poll_unlock(have);
 	}
 out:
+	// 如果Receive Packet Steering开启的话，下列函数会唤醒远程的CPU用于处理数据
 	net_rps_action_and_irq_enable(sd);
 
 #ifdef CONFIG_NET_DMA
@@ -4185,6 +4216,7 @@ out:
 	return;
 
 softnet_break:
+	// time_squeeze用于记录超时或者budget用完的情况
 	sd->time_squeeze++;
 	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
 	goto out;
@@ -6242,7 +6274,9 @@ static int __init net_dev_init(void)
 		sd->cpu = i;
 #endif
 
+		// 对于backlog的NAPI
 		sd->backlog.poll = process_backlog;
+		// 设备驱动的NAPI的weight是写死为64的，但是backlog是可以改写的
 		sd->backlog.weight = weight_p;
 		sd->backlog.gro_list = NULL;
 		sd->backlog.gro_count = 0;
@@ -6267,6 +6301,7 @@ static int __init net_dev_init(void)
 	if (register_pernet_device(&default_device_ops))
 		goto out;
 
+	// 注册传输和接收的softirq handler，他们会被用于处理接收和发送网络数据
 	open_softirq(NET_TX_SOFTIRQ, net_tx_action);
 	open_softirq(NET_RX_SOFTIRQ, net_rx_action);
 

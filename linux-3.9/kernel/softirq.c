@@ -205,6 +205,11 @@ EXPORT_SYMBOL(local_bh_enable_ip);
  */
 #define MAX_SOFTIRQ_TIME  msecs_to_jiffies(2)
 
+// __do_softirq会做如下这些事情：
+// 是否有pending softirq
+// 记录softirq时间
+// 增加softirq的执行时间
+// 执行pending softirq的处理函数（通过调用open_softirq调用）
 asmlinkage void __do_softirq(void)
 {
 	struct softirq_action *h;
@@ -839,11 +844,15 @@ static struct notifier_block __cpuinitdata cpu_nfb = {
 
 static struct smp_hotplug_thread softirq_threads = {
 	.store			= &ksoftirqd,
+	// 首先调用ksoftirqd_should_run来确定是否有pending softirqs
+	// 如果有的话，就调用run_ksoftirqd
 	.thread_should_run	= ksoftirqd_should_run,
+	// run_ksoftirqd会在调用__do_softirq之前做一些minor bookkeeping
 	.thread_fn		= run_ksoftirqd,
 	.thread_comm		= "ksoftirqd/%u",
 };
 
+// 为每个cpu创建一个ksoftirqd内核线程
 static __init int spawn_ksoftirqd(void)
 {
 	register_cpu_notifier(&cpu_nfb);

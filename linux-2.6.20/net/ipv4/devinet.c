@@ -451,6 +451,7 @@ struct in_ifaddr *inet_ifa_byprefix(struct in_device *in_dev, __be32 prefix,
 {
 	ASSERT_RTNL();
 
+	// 遍历ifa_list，选取其中ifa_flags不包含IFA_F_SECONDARY者
 	for_primary_ifa(in_dev) {
 		if (ifa->ifa_mask == mask && inet_ifa_match(prefix, ifa))
 			return ifa;

@@ -111,6 +111,8 @@ static DEFINE_PCI_DEVICE_TABLE(igb_pci_tbl) = {
 	{0, }
 };
 
+// MODULE_DEVICE_TABLE用于注册一系列本设备驱动程序能够控制的设备
+// 内核会通过它来确定用哪个驱动控制哪个设备
 MODULE_DEVICE_TABLE(pci, igb_pci_tbl);
 
 void igb_reset(struct igb_adapter *);
@@ -230,7 +232,10 @@ static void igb_init_dmac(struct igb_adapter *adapter, u32 pba);
 
 static struct pci_driver igb_driver = {
 	.name     = igb_driver_name,
+	// 驱动能够控制的设备的列表
 	.id_table = igb_pci_tbl,
+	// 每个PCI设备都会在PCI系统中注册一个probe函数，内核会用该函数去识别还未被其他驱动控制的设备
+	// 一旦一个设备被某个驱动控制了，其他设备不会再试着对它进行控制
 	.probe    = igb_probe,
 	.remove   = igb_remove,
 #ifdef CONFIG_PM
@@ -670,6 +675,7 @@ struct net_device *igb_get_hw_dev(struct e1000_hw *hw)
  * igb_init_module is the first routine called when the driver is
  * loaded. All it does is register with the PCI subsystem.
  **/
+// igb_init_module通过module_init注册
 static int __init igb_init_module(void)
 {
 	int ret;
@@ -681,6 +687,7 @@ static int __init igb_init_module(void)
 #ifdef CONFIG_IGB_DCA
 	dca_register_notify(&dca_notifier);
 #endif
+	// 对于设备的初始化主要是由pci_register_driver()完成的
 	ret = pci_register_driver(&igb_driver);
 	return ret;
 }
@@ -1157,11 +1164,15 @@ static int igb_alloc_q_vector(struct igb_adapter *adapter,
 	       (sizeof(struct igb_ring) * ring_count);
 
 	/* allocate q_vector and rings */
+	// 为接收队列分配内存
 	q_vector = kzalloc(size, GFP_KERNEL);
 	if (!q_vector)
 		return -ENOMEM;
 
 	/* initialize NAPI */
+	// 注册poll函数以及它的私有数据
+	// 每个队列q_vector都有一个struct napi_struct，它会在NAPI子系统调用
+	// igb_poll获取数据时作为参数传入
 	netif_napi_add(adapter->netdev, &q_vector->napi,
 		       igb_poll, 64);
 
@@ -1337,6 +1348,7 @@ static int igb_request_irq(struct igb_adapter *adapter)
 	int err = 0;
 
 	if (adapter->msix_entries) {
+		// 设置MSI-X的处理函数
 		err = igb_request_msix(adapter);
 		if (!err)
 			goto request_done;
@@ -1357,6 +1369,7 @@ static int igb_request_irq(struct igb_adapter *adapter)
 	igb_assign_vector(adapter->q_vector[0], 0);
 
 	if (adapter->flags & IGB_FLAG_HAS_MSI) {
+		// MSI interrupt handler->igb_intr_msi
 		err = request_irq(pdev->irq, igb_intr_msi, 0,
 				  netdev->name, adapter);
 		if (!err)
@@ -1367,6 +1380,7 @@ static int igb_request_irq(struct igb_adapter *adapter)
 		adapter->flags &= ~IGB_FLAG_HAS_MSI;
 	}
 
+	// 注册default legacy handler -> igb_intr
 	err = request_irq(pdev->irq, igb_intr, IRQF_SHARED,
 			  netdev->name, adapter);
 
@@ -1961,6 +1975,8 @@ static s32 igb_init_i2c(struct igb_adapter *adapter)
  * The OS initialization, configuring of the adapter private structure,
  * and a hardware reset occur.
  **/
+// igb_probe会做一些重要的设备初始化的工作，除了PCI相关的工作，它还完成例如注册
+// struct net_device_ops，从NIC获取默认的MAC地址，以及设置net_device feature flag等工作
 static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct net_device *netdev;
@@ -1983,11 +1999,14 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return -EINVAL;
 	}
 
+	// 通过pci_enable_device_mem初始化设备，它能够唤醒设备，如果它挂起了的话
+	// 使能内存资源等等
 	err = pci_enable_device_mem(pdev);
 	if (err)
 		return err;
 
 	pci_using_dac = 0;
+	// 设置DMA mask，通过设置DMA_BIT_MASK(64)，使设备能读写64位的内存地址
 	err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(64));
 	if (!err) {
 		err = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(64));
@@ -2005,6 +2024,7 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 
+	// 保留内存
 	err = pci_request_selected_regions(pdev, pci_select_bars(pdev,
 	                                   IORESOURCE_MEM),
 	                                   igb_driver_name);
@@ -2013,7 +2033,9 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	pci_enable_pcie_error_reporting(pdev);
 
+	// 使能DMA
 	pci_set_master(pdev);
+	// 保存PCI配置空间
 	pci_save_state(pdev);
 
 	err = -ENOMEM;
@@ -2040,7 +2062,9 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!hw->hw_addr)
 		goto err_ioremap;
 
+	// struct net_device_ops包含了很多网络子系统用于控制设备的函数指针
 	netdev->netdev_ops = &igb_netdev_ops;
+	// 注册igb驱动的ethtool处理函数
 	igb_set_ethtool_ops(netdev);
 	netdev->watchdog_timeo = 5 * HZ;
 
@@ -2066,6 +2090,11 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_sw_init;
 
 	/* setup the private structure */
+	// 初始化NAPI设备
+	// igb_sw_init->igb_init_interrupt_scheme->igb_alloc_q_vectors
+	// ->igb_alloc_q_vector->netif_napi_add
+	// 在整个上述的流程中，设备的发送和接收队列将会确定，对于每个队列都会调用
+	// igb_alloc_q_vector
 	err = igb_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
@@ -2737,6 +2766,8 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	 * clean_rx handler before we do so.  */
 	igb_configure(adapter);
 
+	// 注册中断处理函数
+	// 像igb这样的驱动，都会依次注册MSI-X, MSI以及legacy interrupt的handler，直到成功为止
 	err = igb_request_irq(adapter);
 	if (err)
 		goto err_req_irq;
@@ -2755,12 +2786,15 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	/* From here on the code is the same as igb_up() */
 	clear_bit(__IGB_DOWN, &adapter->state);
 
+	// 当设备open时，使能NAPI，
 	for (i = 0; i < adapter->num_q_vectors; i++)
+		// 对每个队列调用napi_enable使能NAPI，其实就将struct napi_struct中的一个位翻转
 		napi_enable(&(adapter->q_vector[i]->napi));
 
 	/* Clear any pending interrupts. */
 	rd32(E1000_ICR);
 
+	// 最后开启中断，并且等待数据到达
 	igb_irq_enable(adapter);
 
 	/* notify VFs that reset has been completed */
@@ -3033,6 +3067,7 @@ static int igb_setup_all_rx_resources(struct igb_adapter *adapter)
 	int i, err = 0;
 
 	for (i = 0; i < adapter->num_rx_queues; i++) {
+		// 用于处理接收队列的处理函数
 		err = igb_setup_rx_resources(adapter->rx_ring[i]);
 		if (err) {
 			dev_err(&pdev->dev,
@@ -5051,13 +5086,17 @@ static void igb_write_itr(struct igb_q_vector *q_vector)
 	q_vector->set_itr = 0;
 }
 
+// igb的MSI-X中断处理函数
 static irqreturn_t igb_msix_ring(int irq, void *data)
 {
 	struct igb_q_vector *q_vector = data;
 
 	/* Write the ITR value calculated from the previous interrupt. */
+	// 更新网络设备的一个寄存器，该寄存器用于追踪硬件中断到达的频率
 	igb_write_itr(q_vector);
 
+	// 唤醒NAPI processing loop，但是它并不在中断处理程序内执行
+	// 中断处理程序仅仅只在它还未执行时，触发它执行
 	napi_schedule(&q_vector->napi);
 
 	return IRQ_HANDLED;
@@ -5885,14 +5924,17 @@ static int igb_poll(struct napi_struct *napi, int budget)
 		clean_complete = igb_clean_tx_irq(q_vector);
 
 	if (q_vector->rx.ring)
+		// 完成获取数据的工作
 		clean_complete &= igb_clean_rx_irq(q_vector, budget);
 
 	/* If all work not completed, return budget and keep polling */
+	// 如果还有数据，就返回budget=64，并将NAPI structure移动到尾端
 	if (!clean_complete)
 		return budget;
 
 	/* If not enough Rx work done, exit the polling mode */
 	napi_complete(napi);
+	// 重启中断
 	igb_ring_irq_enable(q_vector);
 
 	return 0;
@@ -6580,6 +6622,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 	unsigned int total_bytes = 0, total_packets = 0;
 	u16 cleaned_count = igb_desc_unused(rx_ring);
 
+	// 一次循环处理一个包
 	do {
 		union e1000_adv_rx_desc *rx_desc;
 
@@ -6601,6 +6644,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 		rmb();
 
 		/* retrieve a buffer from the ring */
+		// 从输入队列中读取一个包，并存放至skb中
 		skb = igb_fetch_rx_buffer(rx_ring, rx_desc, skb);
 
 		/* exit if we failed to retrieve a buffer */
@@ -6625,6 +6669,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 		/* populate checksum, timestamp, VLAN, and protocol */
 		igb_process_skb_fields(rx_ring, rx_desc, skb);
 
+		// 将skb上传至协议栈
 		napi_gro_receive(&q_vector->napi, skb);
 
 		/* reset skb pointer */
@@ -6637,6 +6682,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 	/* place incomplete frames back on ring for completion */
 	rx_ring->skb = skb;
 
+	// 更新统计数据
 	u64_stats_update_begin(&rx_ring->rx_syncp);
 	rx_ring->rx_stats.packets += total_packets;
 	rx_ring->rx_stats.bytes += total_bytes;

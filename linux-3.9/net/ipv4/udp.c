@@ -1464,7 +1464,7 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		encap_rcv = ACCESS_ONCE(up->encap_rcv);
 		if (skb->len > sizeof(struct udphdr) && encap_rcv != NULL) {
 			int ret;
-
+			// 如果是encapsulation socket，则先将数据传递给它
 			ret = encap_rcv(sk, skb);
 			if (ret <= 0) {
 				UDP_INC_STATS_BH(sock_net(sk),
@@ -1480,6 +1480,7 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	/*
 	 * 	UDP-Lite specific tests, ignored on UDP sockets
 	 */
+	// 是否是UDP-Lite socket
 	if ((is_udplite & UDPLITE_RECV_CC)  &&  UDP_SKB_CB(skb)->partial_cov) {
 
 		/*
@@ -1516,6 +1517,7 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		goto drop;
 
 
+	// 检查udp的接收队列是否已满
 	if (sk_rcvqueues_full(sk, skb, sk->sk_rcvbuf))
 		goto drop;
 
@@ -1523,6 +1525,7 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 
 	ipv4_pktinfo_prepare(skb);
 	bh_lock_sock(sk);
+	// 首先判断socket是否有被用户进程占用
 	if (!sock_owned_by_user(sk))
 		rc = __udp_queue_rcv_skb(sk, skb);
 	else if (sk_add_backlog(sk, skb, sk->sk_rcvbuf)) {
@@ -1678,6 +1681,7 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	if (!pskb_may_pull(skb, sizeof(struct udphdr)))
 		goto drop;		/* No space for header. */
 
+	// 获取udp头部信息，udp数据包长度，源地址和目的地址
 	uh   = udp_hdr(skb);
 	ulen = ntohs(uh->len);
 	saddr = ip_hdr(skb)->saddr;
@@ -1700,9 +1704,11 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 		return __udp4_lib_mcast_deliver(net, skb, uh,
 				saddr, daddr, udptable);
 
+	// 寻找接收socket
 	sk = __udp4_lib_lookup_skb(skb, uh->source, uh->dest, udptable);
 
 	if (sk != NULL) {
+		// 将skb放入udp的接收队列
 		int ret = udp_queue_rcv_skb(sk, skb);
 		sock_put(sk);
 
@@ -1719,6 +1725,7 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	nf_reset(skb);
 
 	/* No socket. Drop packet silently, if checksum is wrong */
+	// 没有找到端口，丢弃数据包
 	if (udp_lib_checksum_complete(skb))
 		goto csum_error;
 

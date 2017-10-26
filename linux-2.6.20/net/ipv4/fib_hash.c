@@ -445,6 +445,7 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	if (!f)
 		fa = NULL;
 	else
+		// 从node中寻找alias
 		fa = fib_find_alias(&f->fn_alias, tos, fi->fib_priority);
 
 	/* Now fa, if non-NULL, points to the first fib alias
@@ -453,9 +454,13 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 	 *
 	 * If fa is NULL, we will need to allocate a new one and
 	 * insert to the head of f.
-	 *
+
+	 * 如果fa为NULL，那么我们需要创建一个新的并将它插入f
+
 	 * If f is NULL, no fib node matched the destination key
 	 * and we need to allocate a new one of those as well.
+
+	 * 如果f为NULL, 那么说明没有node和destination key匹配，同样，我们需要分配一个新的
 	 */
 	// 处理存在tos和优先级完全相同的fib_alias实例的情况
 	if (fa && fa->fa_tos == tos &&

@@ -680,12 +680,14 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 	int err;
 	struct fib_info *fi = NULL;
 	struct fib_info *ofi;
+	// 下一跳的数目
 	int nhs = 1;
 
 	/* Fast check to catch the most weird cases */
 	if (fib_props[cfg->fc_type].scope > cfg->fc_scope)
 		goto err_inval;
 
+// 当支持多路径时
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (cfg->fc_mp) {
 		nhs = fib_count_nexthops(cfg->fc_mp, cfg->fc_mp_len);
@@ -693,6 +695,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 			goto err_inval;
 	}
 #endif
+// 当支持多路径缓存时
 #ifdef CONFIG_IP_ROUTE_MULTIPATH_CACHED
 	if (cfg->fc_mp_alg) {
 		if (cfg->fc_mp_alg < IP_MP_ALG_NONE ||
@@ -702,6 +705,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 #endif
 
 	err = -ENOBUFS;
+	// 扩容哈希表
 	if (fib_info_cnt >= fib_hash_size) {
 		unsigned int new_size = fib_hash_size << 1;
 		struct hlist_head *new_info_hash;

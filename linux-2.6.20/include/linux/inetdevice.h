@@ -160,6 +160,7 @@ extern void		inet_forward_change(void);
 
 static __inline__ int inet_ifa_match(__be32 addr, struct in_ifaddr *ifa)
 {
+	// addr和ifa->ifa_address异或运算，若相等，则结果为0
 	return !((addr^ifa->ifa_address)&ifa->ifa_mask);
 }
 

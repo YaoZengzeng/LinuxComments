@@ -691,7 +691,9 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 	struct net_device *dev = in_dev->dev;
 	struct in_ifaddr *prim = ifa;
 	__be32 mask = ifa->ifa_mask;
+	// 假设地址为192.168.1.2/24
 	__be32 addr = ifa->ifa_local;
+	// 则prefix为192.168.1.0
 	__be32 prefix = ifa->ifa_address&mask;
 
 	// 如果添加的是从属地址，则先校验添加的从属IP地址是否存在主IP地址
@@ -704,6 +706,7 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 	}
 
 	// 在RT_TABLE_LOCAL路由表添加一条输入到本地表项
+	// 添加一条到192.168.1.2/32的路由
 	fib_magic(RTM_NEWROUTE, RTN_LOCAL, addr, 32, prim);
 
 	// 检测添加IP地址的网络设备是否处于启用状态，如果启用，则还需要添加其他类型的路由
@@ -720,13 +723,16 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 	// 路由表中添加表项
 	if (!ZERONET(prefix) && !(ifa->ifa_flags&IFA_F_SECONDARY) &&
 	    (prefix != addr || ifa->ifa_prefixlen < 32)) {
+		// 添加到192.168.1.0/24的路由
 		fib_magic(RTM_NEWROUTE, dev->flags&IFF_LOOPBACK ? RTN_LOCAL :
 			  RTN_UNICAST, prefix, ifa->ifa_prefixlen, prim);
 
 		/* Add network specific broadcasts, when it takes a sense */
 		// 如果网络掩码长度小于31，则在RT_TABLE_LOCAL路由表中添加两条广播类型的表项
 		if (ifa->ifa_prefixlen < 31) {
+			// 添加到192.168.1.0/32的广播路由
 			fib_magic(RTM_NEWROUTE, RTN_BROADCAST, prefix, 32, prim);
+			// 添加到192.168.1.255/32的广播路由
 			fib_magic(RTM_NEWROUTE, RTN_BROADCAST, prefix|~mask, 32, prim);
 		}
 	}

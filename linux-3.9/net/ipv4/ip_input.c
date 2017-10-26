@@ -322,6 +322,7 @@ static int ip_rcv_finish(struct sk_buff *skb)
 
 		ipprot = rcu_dereference(inet_protos[protocol]);
 		if (ipprot && ipprot->early_demux) {
+			// 调用early_demux获取dst_entry
 			ipprot->early_demux(skb);
 			/* must reload iph, skb->head might have changed */
 			iph = ip_hdr(skb);

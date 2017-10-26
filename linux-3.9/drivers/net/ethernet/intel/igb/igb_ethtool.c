@@ -2613,6 +2613,7 @@ static void igb_ethtool_complete(struct net_device *netdev)
 	pm_runtime_put(&adapter->pdev->dev);
 }
 
+// 不同的驱动可以根据需要去实现部分的ethtool函数，并不是所有驱动都要实现所有的ethtool函数的
 static const struct ethtool_ops igb_ethtool_ops = {
 	.get_settings           = igb_get_settings,
 	.set_settings           = igb_set_settings,
@@ -2636,6 +2637,7 @@ static const struct ethtool_ops igb_ethtool_ops = {
 	.get_strings            = igb_get_strings,
 	.set_phys_id            = igb_set_phys_id,
 	.get_sset_count         = igb_get_sset_count,
+	// get_ethtool_stats会产生由驱动或设备进行跟踪的详细的数据信息
 	.get_ethtool_stats      = igb_get_ethtool_stats,
 	.get_coalesce           = igb_get_coalesce,
 	.set_coalesce           = igb_set_coalesce,

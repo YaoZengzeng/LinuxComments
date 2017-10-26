@@ -395,10 +395,12 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		return -ENOMEM;
 	}
 
+	// 处理Berkeley Packet Filter
 	err = sk_filter(sk, skb);
 	if (err)
 		return err;
 
+	// 调用sk_rmem_schedule确保有足够的接收缓存空间去接收数据包
 	if (!sk_rmem_schedule(sk, skb, skb->truesize)) {
 		atomic_inc(&sk->sk_drops);
 		return -ENOBUFS;
@@ -421,10 +423,12 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 
 	spin_lock_irqsave(&list->lock, flags);
 	skb->dropcount = atomic_read(&sk->sk_drops);
+	// 将数据加入队列
 	__skb_queue_tail(list, skb);
 	spin_unlock_irqrestore(&list->lock, flags);
 
 	if (!sock_flag(sk, SOCK_DEAD))
+		// 调用sk_data_ready通知监听该套接字的进程，有数据到达
 		sk->sk_data_ready(sk, skb_len);
 	return 0;
 }

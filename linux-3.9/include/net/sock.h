@@ -769,6 +769,7 @@ static inline bool sk_rcvqueues_full(const struct sock *sk, const struct sk_buff
 {
 	unsigned int qsize = sk->sk_backlog.len + atomic_read(&sk->sk_rmem_alloc);
 
+	// 检查backlog的长度加socket的sk_rmem_alloc是否大于socket的sk_rcvbuf
 	return qsize > limit;
 }
 
