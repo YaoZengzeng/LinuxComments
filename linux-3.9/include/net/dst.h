@@ -400,11 +400,14 @@ static inline int dst_neigh_output(struct dst_entry *dst, struct neighbour *n,
 
 		dst->pending_confirm = 0;
 		/* avoid dirtying neighbour */
+		// 更新邻居表项的时间，防止其被垃圾回收
 		if (n->confirmed != now)
 			n->confirmed = now;
 	}
 
 	hh = &n->hh;
+	// 根据邻居项的状态，确定输出函数
+	// 最终neigh_hh_output和n->output最终都将调用dev_queue_xmit，将数据包传输给网络设备子系统
 	if ((n->nud_state & NUD_CONNECTED) && hh->hh_len)
 		return neigh_hh_output(hh, skb);
 	else
@@ -445,6 +448,7 @@ static inline void dst_set_expires(struct dst_entry *dst, int timeout)
 /* Output packet to network from transport.  */
 static inline int dst_output(struct sk_buff *skb)
 {
+	// 一般都是为ip_output
 	return skb_dst(skb)->output(skb);
 }
 

@@ -195,13 +195,18 @@ u16 __skb_tx_hash(const struct net_device *dev, const struct sk_buff *skb,
 	u16 qcount = num_tx_queues;
 
 	if (skb_rx_queue_recorded(skb)) {
+		// 如果包是接收并转发的
 		hash = skb_get_rx_queue(skb);
 		while (unlikely(hash >= num_tx_queues))
 			hash -= num_tx_queues;
 		return hash;
 	}
 
+	// 如果设备的num_tc不为0，则设备支持基于硬件的traffic control
 	if (dev->num_tc) {
+		// 我们可以通过socket来设置数据的优先级，例如使用setsockopt的SOL_SOCKET
+		// 和SO_PRIORITY
+		// 如果我们利用setsockopt的IP_TOS选项设置IP的TOS，最终这些都将转换为skb->priority
 		u8 tc = netdev_get_prio_tc_map(dev, skb->priority);
 		qoffset = dev->tc_to_txq[tc].offset;
 		qcount = dev->tc_to_txq[tc].count;
@@ -269,11 +274,15 @@ static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 u16 __netdev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
+	// 首先检查queue_index是否已被存在socket中了
 	int queue_index = sk_tx_queue_get(sk);
 
+	// ooo_okay表示允许out of order packets
 	if (queue_index < 0 || skb->ooo_okay ||
 	    queue_index >= dev->real_num_tx_queues) {
+		// xps能够让系统管理员确定该用哪个CPU来处理设备可用的transmit queue
 		int new_index = get_xps_queue(dev, skb);
+		// 内核不支持xps
 		if (new_index < 0)
 			new_index = skb_tx_hash(dev, skb);
 
@@ -301,13 +310,17 @@ struct netdev_queue *netdev_pick_tx(struct net_device *dev,
 	if (dev->real_num_tx_queues != 1) {
 		const struct net_device_ops *ops = dev->netdev_ops;
 		if (ops->ndo_select_queue)
+			// 用更智能的方法选择tx queue
 			queue_index = ops->ndo_select_queue(dev, skb);
 		else
+			// 选择使用哪个queue
 			queue_index = __netdev_pick_tx(dev, skb);
 		queue_index = dev_cap_txqueue(dev, queue_index);
 	}
 
+	// 缓存queue_index
 	skb_set_queue_mapping(skb, queue_index);
+	// 返回queue的具体信息
 	return netdev_get_tx_queue(dev, queue_index);
 }
 

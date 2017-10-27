@@ -2069,6 +2069,7 @@ static inline void __netif_reschedule(struct Qdisc *q)
 	struct softnet_data *sd;
 	unsigned long flags;
 
+	// 保存当前的IRQ状态，同时关闭IRQ
 	local_irq_save(flags);
 	sd = &__get_cpu_var(softnet_data);
 	q->next_sched = NULL;
@@ -2481,6 +2482,7 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 		 * If device doesn't need skb->dst, release it right now while
 		 * its hot in this cpu cache
 		 */
+		// IFF_XMIT_DST_RELEASE只被虚拟设备使用
 		if (dev->priv_flags & IFF_XMIT_DST_RELEASE)
 			skb_dst_drop(skb);
 
@@ -2533,6 +2535,7 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 			dev_queue_xmit_nit(skb, dev);
 
 		skb_len = skb->len;
+		// 将数据传往设备
 		rc = ops->ndo_start_xmit(skb, dev);
 		trace_net_dev_xmit(skb, rc, dev, skb_len);
 		if (rc == NETDEV_TX_OK)
@@ -2613,6 +2616,7 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 	bool contended;
 	int rc;
 
+	// 计算将被qdisc传输的具体的数据长度
 	qdisc_pkt_len_init(skb);
 	qdisc_calculate_pkt_len(skb, q);
 	/*
@@ -2627,10 +2631,14 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 	spin_lock(root_lock);
 	if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED, &q->state))) {
+		// 如果qdisc是deactivated，丢弃数据
 		kfree_skb(skb);
 		rc = NET_XMIT_DROP;
 	} else if ((q->flags & TCQ_F_CAN_BYPASS) && !qdisc_qlen(q) &&
 		   qdisc_run_begin(q)) {
+		// 如果qdisc允许封包绕过queuing system，pfifo_fast类型的qdisc允许此类情况
+		// !qdisc_qlen(q)：qdisc队列中的数据没有等待被传输的
+		// qdisc_run_beigin会将qdisc设置为running
 		/*
 		 * This is a work-conserving queue; there are no old skbs
 		 * waiting to be sent out; and the qdisc is not running -
@@ -2641,11 +2649,13 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 		qdisc_bstats_update(q, skb);
 
+		// sch_direct_xmit用于传输数据包
 		if (sch_direct_xmit(skb, q, dev, txq, root_lock)) {
 			if (unlikely(contended)) {
 				spin_unlock(&q->busylock);
 				contended = false;
 			}
+			// 重启qdisc processing
 			__qdisc_run(q);
 		} else
 			qdisc_run_end(q);
@@ -2653,12 +2663,15 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		rc = NET_XMIT_SUCCESS;
 	} else {
 		skb_dst_force(skb);
+		// 将skb存储至qdisc
 		rc = q->enqueue(skb, q) & NET_XMIT_MASK;
+		// 将qdisc标记为running
 		if (qdisc_run_begin(q)) {
 			if (unlikely(contended)) {
 				spin_unlock(&q->busylock);
 				contended = false;
 			}
+			// 启动qdisc processing
 			__qdisc_run(q);
 		}
 	}
@@ -2745,7 +2758,9 @@ int dev_queue_xmit(struct sk_buff *skb)
 
 	skb_update_prio(skb);
 
+	// 确定使用哪种transmit queue
 	txq = netdev_pick_tx(dev, skb);
+	// 获取queue对应的qdisc
 	q = rcu_dereference_bh(txq->qdisc);
 
 #ifdef CONFIG_NET_CLS_ACT
@@ -2769,6 +2784,7 @@ int dev_queue_xmit(struct sk_buff *skb)
 	   Check this and shot the lock. It is not prone from deadlocks.
 	   Either shot noqueue qdisc, it is even simpler 8)
 	 */
+	 // 只有虚拟设备才没有队列
 	if (dev->flags & IFF_UP) {
 		int cpu = smp_processor_id(); /* ok because BHs are off */
 
@@ -3178,6 +3194,7 @@ static void net_tx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = &__get_cpu_var(softnet_data);
 
+	// 将那些等待释放的包加入队列中一起释放
 	if (sd->completion_queue) {
 		struct sk_buff *clist;
 
@@ -3196,10 +3213,12 @@ static void net_tx_action(struct softirq_action *h)
 		}
 	}
 
+	// 数据通过__netif_schedule加入output队列中
 	if (sd->output_queue) {
 		struct Qdisc *head;
 
 		local_irq_disable();
+		// 将sd->output_queue转移到head中
 		head = sd->output_queue;
 		sd->output_queue = NULL;
 		sd->output_queue_tailp = &sd->output_queue;

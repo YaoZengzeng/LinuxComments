@@ -294,6 +294,7 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 lookup_protocol:
 	err = -ESOCKTNOSUPPORT;
 	rcu_read_lock();
+	// 寻找sock->type对应的协议，保存在answer中
 	list_for_each_entry_rcu(answer, &inetsw[sock->type], list) {
 
 		err = 0;
@@ -340,7 +341,10 @@ lookup_protocol:
 	    !ns_capable(net->user_ns, CAP_NET_RAW))
 		goto out_rcu_unlock;
 
+	// 将协议对应的ops赋值给sock->ops，例如，对于tcp为inet_stream_ops，udp为inet_dgram_ops
 	sock->ops = answer->ops;
+	// answer->prot包含的是protocol-specific的结构，对于udp即为udp_prot
+	// 其中包含udp_sendmsg和udp_recvmsg等函数
 	answer_prot = answer->prot;
 	answer_no_check = answer->no_check;
 	answer_flags = answer->flags;
@@ -755,11 +759,13 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 }
 EXPORT_SYMBOL(inet_getname);
 
+// 本函数为AF_INET协议族提供的通用处理函数
 int inet_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 		 size_t size)
 {
 	struct sock *sk = sock->sk;
 
+	// 用于记录最后一个处理该flow的CPU
 	sock_rps_record_flow(sk);
 
 	/* We may need to bind the socket. */
@@ -767,6 +773,7 @@ int inet_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	    inet_autobind(sk))
 		return -EAGAIN;
 
+	// 最后，调用socket内部协议的sendmsg函数，对于udp为udp_sendmsg
 	return sk->sk_prot->sendmsg(iocb, sk, msg, size);
 }
 EXPORT_SYMBOL(inet_sendmsg);
@@ -1018,6 +1025,7 @@ static const struct proto_ops inet_sockraw_ops = {
 
 static const struct net_proto_family inet_family_ops = {
 	.family = PF_INET,
+	// 当用户程序创建socket时会被调用
 	.create = inet_create,
 	.owner	= THIS_MODULE,
 };

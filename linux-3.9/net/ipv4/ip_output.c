@@ -95,8 +95,11 @@ int __ip_local_out(struct sk_buff *skb)
 {
 	struct iphdr *iph = ip_hdr(skb);
 
+	// 设置IP的长度
 	iph->tot_len = htons(skb->len);
+	// 计算IP报头的校验和
 	ip_send_check(iph);
+	// nf_hook首先检查是否对特定的协议族或者hook type安装了任何的filter
 	return nf_hook(NFPROTO_IPV4, NF_INET_LOCAL_OUT, skb, NULL,
 		       skb_dst(skb)->dev, dst_output);
 }
@@ -163,6 +166,8 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 }
 EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
+// ip_finish_output2在IP分段或者直接被ip_finish_output调用
+// 该函数主要在封包进入neighbour cache之前更新统计数据
 static inline int ip_finish_output2(struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
@@ -178,9 +183,11 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 		IP_UPD_PO_STATS(dev_net(dev), IPSTATS_MIB_OUTBCAST, skb->len);
 
 	/* Be paranoid, rather than too clever. */
+	// 确认头部是否有足够的空间存储链路层的头部信息
 	if (unlikely(skb_headroom(skb) < hh_len && dev->header_ops)) {
 		struct sk_buff *skb2;
 
+		// 若头部信息不足
 		skb2 = skb_realloc_headroom(skb, LL_RESERVED_SPACE(dev));
 		if (skb2 == NULL) {
 			kfree_skb(skb);
@@ -196,8 +203,10 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	nexthop = (__force u32) rt_nexthop(rt, ip_hdr(skb)->daddr);
 	neigh = __ipv4_neigh_lookup_noref(dev, nexthop);
 	if (unlikely(!neigh))
+		// 若邻居缓存不存在，则创建一个
 		neigh = __neigh_create(&arp_tbl, &nexthop, dev, false);
 	if (!IS_ERR(neigh)) {
+		// dst_neigh_output继续将包往底层发送
 		int res = dst_neigh_output(dst, neigh, skb);
 
 		rcu_read_unlock_bh();
@@ -223,12 +232,14 @@ static int ip_finish_output(struct sk_buff *skb)
 {
 #if defined(CONFIG_NETFILTER) && defined(CONFIG_XFRM)
 	/* Policy lookup after SNAT yielded a new policy */
+	// netfilter使能的话，更新skb的flag，重新送回dst_ouput
 	if (skb_dst(skb)->xfrm != NULL) {
 		IPCB(skb)->flags |= IPSKB_REROUTED;
 		return dst_output(skb);
 	}
 #endif
 	if (skb->len > ip_skb_dst_mtu(skb) && !skb_is_gso(skb))
+		// 分段
 		return ip_fragment(skb, ip_finish_output2);
 	else
 		return ip_finish_output2(skb);
@@ -301,9 +312,10 @@ int ip_output(struct sk_buff *skb)
 
 	IP_UPD_PO_STATS(dev_net(dev), IPSTATS_MIB_OUT, skb->len);
 
+	// 设置发包的设备和协议
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IP);
-
+	// 用于判断条件!(IPCB(skb)->flags & IPSKB_REROUTED)是否为true
 	return NF_HOOK_COND(NFPROTO_IPV4, NF_INET_POST_ROUTING, skb, NULL, dev,
 			    ip_finish_output,
 			    !(IPCB(skb)->flags & IPSKB_REROUTED));
@@ -794,6 +806,10 @@ static inline int ip_ufo_append_data(struct sock *sk,
 				       (length - transhdrlen));
 }
 
+// 当支持udp corked时，ip_append_data会调用本函数
+// 当不支持udp corked时，ip_make_skb会调用本函数
+// 不管哪种情况，该函数会要么创建一个新的buffer存储输入的数据
+// 要么将数据加入到已有的数据中
 static int __ip_append_data(struct sock *sk,
 			    struct flowi4 *fl4,
 			    struct sk_buff_head *queue,
@@ -847,6 +863,7 @@ static int __ip_append_data(struct sock *sk,
 	cork->length += length;
 	if (((length > mtu) || (skb && skb_is_gso(skb))) &&
 	    (sk->sk_protocol == IPPROTO_UDP) &&
+	    // 如果硬件支持UDP fragmentation offloading（UFO）
 	    (rt->dst.dev->features & NETIF_F_UFO) && !rt->dst.header_len) {
 		err = ip_ufo_append_data(sk, queue, getfrag, from, length,
 					 hh_len, fragheaderlen, transhdrlen,
@@ -895,6 +912,8 @@ alloc_new_skb:
 			fraglen = datalen + fragheaderlen;
 
 			if ((flags & MSG_MORE) &&
+				// 如果支持scatter/gather IO，该特性意味着网卡可以传输被放在多个不同缓存中的数据
+				// 从而内核不需要将多个缓存合并到一个缓存中
 			    !(rt->dst.dev->features&NETIF_F_SG))
 				alloclen = mtu;
 			else
@@ -918,6 +937,8 @@ alloc_new_skb:
 				skb = NULL;
 				if (atomic_read(&sk->sk_wmem_alloc) <=
 				    2 * sk->sk_sndbuf)
+				    // 追踪发送队列的大小，如果没有足够的空间
+				    // skb将不被分配并且会返回错误	
 					skb = sock_wmalloc(sk,
 							   alloclen + hh_len + 15, 1,
 							   sk->sk_allocation);
@@ -1365,6 +1386,7 @@ int ip_send_skb(struct net *net, struct sk_buff *skb)
 	err = ip_local_out(skb);
 	if (err) {
 		if (err > 0)
+			// net_xmit_errno将错误转换为IP和UDP能够理解的形式
 			err = net_xmit_errno(err);
 		if (err)
 			IP_INC_STATS(net, IPSTATS_MIB_OUTDISCARDS);
@@ -1414,6 +1436,7 @@ struct sk_buff *ip_make_skb(struct sock *sk,
 			    unsigned int flags)
 {
 	struct inet_cork cork;
+	// 队列
 	struct sk_buff_head queue;
 	int err;
 
@@ -1429,14 +1452,19 @@ struct sk_buff *ip_make_skb(struct sock *sk,
 	if (err)
 		return ERR_PTR(err);
 
+	// 将数据加入队列
+	// 该函数对socket是否corked，都适用
+	// 该函数的功能为创建skb，加载数据以及将skb加入队列
 	err = __ip_append_data(sk, fl4, &queue, &cork,
 			       &current->task_frag, getfrag,
 			       from, length, transhdrlen, flags);
 	if (err) {
+		// 加载数据失败，丢弃数据，返回错误信息
 		__ip_flush_pending_frames(sk, &queue, &cork);
 		return ERR_PTR(err);
 	}
 
+	// 将skb从队列中取出，加上IP选项，最后返回
 	return __ip_make_skb(sk, fl4, &queue, &cork);
 }
 

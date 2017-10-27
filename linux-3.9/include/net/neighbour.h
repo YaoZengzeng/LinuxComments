@@ -340,6 +340,7 @@ static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb
 	unsigned int seq;
 	int hh_len;
 
+	// 持续调用seqlock，代码块内部的内容是为了确定硬件头部的长度在复制前是否需要对齐
 	do {
 		seq = read_seqbegin(&hh->hh_lock);
 		hh_len = hh->hh_len;

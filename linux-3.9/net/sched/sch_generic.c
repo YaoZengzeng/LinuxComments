@@ -94,6 +94,7 @@ static inline int handle_dev_cpu_collision(struct sk_buff *skb,
 		 * Another cpu is holding lock, requeue & delay xmits for
 		 * some time.
 		 */
+		// 另一个CPU拥有锁
 		__this_cpu_inc(softnet_data.cpu_collision);
 		ret = dev_requeue_skb(skb, q);
 	}
@@ -121,6 +122,7 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 
 	HARD_TX_LOCK(dev, txq, smp_processor_id());
 	if (!netif_xmit_frozen_or_stopped(txq))
+		// dev_hard_start_xmit将网络数据从内核的网络设备子系统传输到设备驱动
 		ret = dev_hard_start_xmit(skb, dev, txq);
 
 	HARD_TX_UNLOCK(dev, txq);
@@ -128,6 +130,7 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 	spin_lock(root_lock);
 
 	if (dev_xmit_complete(ret)) {
+		// 传输成功
 		/* Driver sent out skb successfully or skb was consumed */
 		ret = qdisc_qlen(q);
 	} else if (ret == NETDEV_TX_LOCKED) {
@@ -139,6 +142,7 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 			net_warn_ratelimited("BUG %s code %d qlen %d\n",
 					     dev->name, ret, q->q.qlen);
 
+		// 设备忙，重新将包加入队列
 		ret = dev_requeue_skb(skb, q);
 	}
 
@@ -175,6 +179,7 @@ static inline int qdisc_restart(struct Qdisc *q)
 	struct sk_buff *skb;
 
 	/* Dequeue packet */
+	// 取出下一个传输的包
 	skb = dequeue_skb(q);
 	if (unlikely(!skb))
 		return 0;
@@ -196,6 +201,8 @@ void __qdisc_run(struct Qdisc *q)
 		 * 1. we've exceeded packet quota
 		 * 2. another process needs the CPU;
 		 */
+		// 到此为止内核仍然在代表之前调用sendmsg的用户程序在运行
+		// 如果用户空间的时间片用尽了，need_resched就会返回true
 		if (--quota <= 0 || need_resched()) {
 			__netif_schedule(q);
 			break;

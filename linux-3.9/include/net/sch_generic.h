@@ -101,12 +101,14 @@ static inline bool qdisc_run_begin(struct Qdisc *qdisc)
 {
 	if (qdisc_is_running(qdisc))
 		return false;
+	// 设置__QDISC__STATE_RUNNING标志
 	qdisc->__state |= __QDISC___STATE_RUNNING;
 	return true;
 }
 
 static inline void qdisc_run_end(struct Qdisc *qdisc)
 {
+	// 关闭__QDISC__STATE_RUNNING标记
 	qdisc->__state &= ~__QDISC___STATE_RUNNING;
 }
 

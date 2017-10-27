@@ -1297,17 +1297,22 @@ int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 	if (!dst)
 		goto discard;
 
+	// neigh_event_send是对__neigh_event_send的简单包装
+	// __neigh_event_send完成了解析邻居的主要工作
+	// 当返回0时，标识邻居项为"connected"或"delayed"
 	if (!neigh_event_send(neigh, skb)) {
 		int err;
 		struct net_device *dev = neigh->dev;
 		unsigned int seq;
 
 		if (dev->header_ops->cache && !neigh->hh.hh_len)
+			// 设备支持头部缓存
 			neigh_hh_init(neigh, dst);
 
 		do {
 			__skb_pull(skb, skb_network_offset(skb));
 			seq = read_seqbegin(&neigh->ha_lock);
+			// 创建以太网头部
 			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
 					      neigh->ha, NULL, skb->len);
 		} while (read_seqretry(&neigh->ha_lock, seq));

@@ -4448,6 +4448,7 @@ static void igb_tx_olinfo_status(struct igb_ring *tx_ring,
 	tx_desc->read.olinfo_status = cpu_to_le32(olinfo_status);
 }
 
+// 将skb数据映射到DMA内存区域
 static void igb_tx_map(struct igb_ring *tx_ring,
 		       struct igb_tx_buffer *first,
 		       const u8 hdr_len)
@@ -4609,6 +4610,7 @@ static inline int igb_maybe_stop_tx(struct igb_ring *tx_ring, const u16 size)
 	return __igb_maybe_stop_tx(tx_ring, size);
 }
 
+// igb设备驱动对应的ndo_start_xmit函数
 netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 				struct igb_ring *tx_ring)
 {
@@ -4634,6 +4636,7 @@ netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 		count += skb_shinfo(skb)->nr_frags;
 	}
 
+	// 检测发送队列是否有足够的空间
 	if (igb_maybe_stop_tx(tx_ring, count + 3)) {
 		/* this is a hard error */
 		return NETDEV_TX_BUSY;
@@ -4673,6 +4676,7 @@ netdev_tx_t igb_xmit_frame_ring(struct sk_buff *skb,
 	else if (!tso)
 		igb_tx_csum(tx_ring, first);
 
+	// 传输数据
 	igb_tx_map(tx_ring, first, hdr_len);
 
 	/* Make sure there is space in the ring for the next send. */
@@ -5909,6 +5913,7 @@ static void igb_ring_irq_enable(struct igb_q_vector *q_vector)
  * @napi: napi polling structure
  * @budget: count of how many packets we should handle
  **/
+// igb_poll同时对输入输出的包进行处理
 static int igb_poll(struct napi_struct *napi, int budget)
 {
 	struct igb_q_vector *q_vector = container_of(napi,
@@ -5921,6 +5926,7 @@ static int igb_poll(struct napi_struct *napi, int budget)
 		igb_update_dca(q_vector);
 #endif
 	if (q_vector->tx.ring)
+		// 处理transmit completion operations
 		clean_complete = igb_clean_tx_irq(q_vector);
 
 	if (q_vector->rx.ring)
@@ -5974,6 +5980,7 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 		read_barrier_depends();
 
 		/* if DD is not set pending work has not been completed */
+		// 如果E1000_TXD_STAT_DD还未设置，说明传输仍未准备好
 		if (!(eop_desc->wb.status & cpu_to_le32(E1000_TXD_STAT_DD)))
 			break;
 
