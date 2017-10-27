@@ -794,6 +794,10 @@ static inline int ip_ufo_append_data(struct sock *sk,
 				       (length - transhdrlen));
 }
 
+// 当支持udp corked时，ip_append_data会调用本函数
+// 当不支持udp corked时，ip_make_skb会调用本函数
+// 不管哪种情况，该函数会要么创建一个新的buffer存储输入的数据
+// 要么将数据加入到已有的数据中
 static int __ip_append_data(struct sock *sk,
 			    struct flowi4 *fl4,
 			    struct sk_buff_head *queue,
@@ -847,6 +851,7 @@ static int __ip_append_data(struct sock *sk,
 	cork->length += length;
 	if (((length > mtu) || (skb && skb_is_gso(skb))) &&
 	    (sk->sk_protocol == IPPROTO_UDP) &&
+	    // 如果硬件支持UDP fragmentation offloading（UFO）
 	    (rt->dst.dev->features & NETIF_F_UFO) && !rt->dst.header_len) {
 		err = ip_ufo_append_data(sk, queue, getfrag, from, length,
 					 hh_len, fragheaderlen, transhdrlen,
@@ -895,6 +900,8 @@ alloc_new_skb:
 			fraglen = datalen + fragheaderlen;
 
 			if ((flags & MSG_MORE) &&
+				// 如果支持scatter/gather IO，该特性意味着网卡可以传输被放在多个不同缓存中的数据
+				// 从而内核不需要将多个缓存合并到一个缓存中
 			    !(rt->dst.dev->features&NETIF_F_SG))
 				alloclen = mtu;
 			else
@@ -918,6 +925,8 @@ alloc_new_skb:
 				skb = NULL;
 				if (atomic_read(&sk->sk_wmem_alloc) <=
 				    2 * sk->sk_sndbuf)
+				    // 追踪发送队列的大小，如果没有足够的空间
+				    // skb将不被分配并且会返回错误
 					skb = sock_wmalloc(sk,
 							   alloclen + hh_len + 15, 1,
 							   sk->sk_allocation);
@@ -1414,6 +1423,7 @@ struct sk_buff *ip_make_skb(struct sock *sk,
 			    unsigned int flags)
 {
 	struct inet_cork cork;
+	// 队列
 	struct sk_buff_head queue;
 	int err;
 
@@ -1429,14 +1439,19 @@ struct sk_buff *ip_make_skb(struct sock *sk,
 	if (err)
 		return ERR_PTR(err);
 
+	// 将数据加入队列
+	// 该函数对socket是否corked，都适用
+	// 该函数的功能为创建skb，加载数据以及将skb加入队列
 	err = __ip_append_data(sk, fl4, &queue, &cork,
 			       &current->task_frag, getfrag,
 			       from, length, transhdrlen, flags);
 	if (err) {
+		// 加载数据失败，丢弃数据，返回错误信息
 		__ip_flush_pending_frames(sk, &queue, &cork);
 		return ERR_PTR(err);
 	}
 
+	// 将skb从队列中取出，加上IP选项，最后返回
 	return __ip_make_skb(sk, fl4, &queue, &cork);
 }
 

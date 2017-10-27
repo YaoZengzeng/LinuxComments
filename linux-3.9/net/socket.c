@@ -626,6 +626,7 @@ static inline int __sock_sendmsg_nosec(struct kiocb *iocb, struct socket *sock,
 	si->msg = msg;
 	si->size = size;
 
+	// 最终调用sendmsg，对于udp即为inet_sendmsg
 	return sock->ops->sendmsg(iocb, sock, msg, size);
 }
 
@@ -634,6 +635,8 @@ static inline int __sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 {
 	int err = security_socket_sendmsg(sock, msg, size);
 
+	// 同样，__sock_sendmsg会在进行了自己的健康检查之后调用__sock_sendmsg_nosec
+	// 最终将数据传入socket子系统
 	return err ?: __sock_sendmsg_nosec(iocb, sock, msg, size);
 }
 
@@ -645,6 +648,7 @@ int sock_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 
 	init_sync_kiocb(&iocb, NULL);
 	iocb.private = &siocb;
+	// sock_sendmsg会在进行了自己的错误检查后调用__sock_sendmsg
 	ret = __sock_sendmsg(&iocb, sock, msg, size);
 	if (-EIOCBQUEUED == ret)
 		ret = wait_on_sync_kiocb(&iocb);
@@ -1804,12 +1808,15 @@ SYSCALL_DEFINE6(sendto, int, fd, void __user *, buff, size_t, len,
 		err = move_addr_to_kernel(addr, addr_len, &address);
 		if (err < 0)
 			goto out_put;
+		// 地址存放至msg.msg_name
 		msg.msg_name = (struct sockaddr *)&address;
 		msg.msg_namelen = addr_len;
 	}
 	if (sock->file->f_flags & O_NONBLOCK)
 		flags |= MSG_DONTWAIT;
 	msg.msg_flags = flags;
+	// 将数据整理为底层能够处理的形式，即msg
+	// sendto和sendmsg最终都将调用sock_sendmsg
 	err = sock_sendmsg(sock, &msg, len);
 
 out_put:

@@ -740,6 +740,7 @@ static void udp4_hwcsum(struct sk_buff *skb, __be32 src, __be32 dst)
 	}
 }
 
+// udp_send_skb最终将skb发往下一层协议栈
 static int udp_send_skb(struct sk_buff *skb, struct flowi4 *fl4)
 {
 	struct sock *sk = skb->sk;
@@ -754,35 +755,41 @@ static int udp_send_skb(struct sk_buff *skb, struct flowi4 *fl4)
 	/*
 	 * Create a UDP header
 	 */
+	// 首先，创建udp header
 	uh = udp_hdr(skb);
 	uh->source = inet->inet_sport;
 	uh->dest = fl4->fl4_dport;
 	uh->len = htons(len);
 	uh->check = 0;
 
+	// 首先处理udplite校验和
 	if (is_udplite)  				 /*     UDP-Lite      */
 		csum = udplite_csum(skb);
 
 	else if (sk->sk_no_check == UDP_CSUM_NOXMIT) {   /* UDP csum disabled */
-
+		// 如果通过setsockopt设置了SO_NO_CHECK，socket将不再产生任何校验和
 		skb->ip_summed = CHECKSUM_NONE;
 		goto send;
 
 	} else if (skb->ip_summed == CHECKSUM_PARTIAL) { /* UDP hardware csum */
-
+		// 如果硬件支持校验和
+		// 如果包被分片的话，将由内核产生校验和
 		udp4_hwcsum(skb, fl4->saddr, fl4->daddr);
 		goto send;
 
 	} else
+		// 最后，产生一个软件校验和
 		csum = udp_csum(skb);
 
 	/* add protocol-dependent pseudo-header */
+	// 加入伪头部的校验
 	uh->check = csum_tcpudp_magic(fl4->saddr, fl4->daddr, len,
 				      sk->sk_protocol, csum);
 	if (uh->check == 0)
 		uh->check = CSUM_MANGLED_0;
 
 send:
+	// 将数据发往IP层
 	err = ip_send_skb(sock_net(sk), skb);
 	if (err) {
 		if (err == -ENOBUFS && !inet->recverr) {
@@ -856,7 +863,10 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	getfrag = is_udplite ? udplite_getfrag : ip_generic_getfrag;
 
 	fl4 = &inet->cork.fl.u.ip4;
+	// 检查udp corking
+	// corking是指允许用户程序要求内核将多次send的数据整合在一起，作为一个数据包进行发送
 	if (up->pending) {
+		// 如果支持，则直接添加数据
 		/*
 		 * There are pending frames.
 		 * The socket lock must be held while it's corked.
@@ -876,6 +886,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	/*
 	 *	Get and verify the address.
 	 */
+	// 获取udp目标地址和端口
 	if (msg->msg_name) {
 		struct sockaddr_in *usin = (struct sockaddr_in *)msg->msg_name;
 		if (msg->msg_namelen < sizeof(*usin))
@@ -885,13 +896,17 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				return -EAFNOSUPPORT;
 		}
 
+		// 从msg中获取目的地址和端口
 		daddr = usin->sin_addr.s_addr;
 		dport = usin->sin_port;
 		if (dport == 0)
 			return -EINVAL;
 	} else {
+		// 如果没有信息没有在msg->msg_name中，即socket不处于连接状态
+		// 则报错
 		if (sk->sk_state != TCP_ESTABLISHED)
 			return -EDESTADDRREQ;
+		// 否则从inet中获取
 		daddr = inet->inet_daddr;
 		dport = inet->inet_dport;
 		/* Open fast path for connected socket.
@@ -899,13 +914,16 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		 */
 		connected = 1;
 	}
+	// 接着从socket中获取源地址，device index以及timestamping options
 	ipc.addr = inet->inet_saddr;
 
 	ipc.oif = sk->sk_bound_dev_if;
 	err = sock_tx_timestamp(sk, &ipc.tx_flags);
 	if (err)
 		return err;
+	// 用于处理辅助数据，例如IP_PKTINFO，IP_TTL，IP_TOS
 	if (msg->msg_controllen) {
+		// 通过ip_cmsg_send从msg中获取辅助数据
 		err = ip_cmsg_send(sock_net(sk), msg, &ipc);
 		if (err)
 			return err;
@@ -913,6 +931,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			free = 1;
 		connected = 0;
 	}
+	// 如果用户指定了IP选项，使用它
 	if (!ipc.opt) {
 		struct ip_options_rcu *inet_opt;
 
@@ -932,6 +951,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	if (ipc.opt && ipc.opt->opt.srr) {
 		if (!daddr)
 			return -EINVAL;
+		// 如果指定了source record route，则将第一跳的地址记录为faddr
 		faddr = ipc.opt->opt.faddr;
 		connected = 0;
 	}
@@ -943,7 +963,10 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 
+	// 用户可以通过IP_PKTINFO信息指定源地址和device index
 	if (ipv4_is_multicast(daddr)) {
+		// 如果目的地址是多播地址，那么发送该包的设备也要是多播设备
+		// 源地址也将设置为多播源地址
 		if (!ipc.oif)
 			ipc.oif = inet->mc_index;
 		if (!saddr)
@@ -953,17 +976,19 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		ipc.oif = inet->uc_index;
 
 	if (connected)
+		// fast routing
 		rt = (struct rtable *)sk_dst_check(sk, 0);
 
 	if (rt == NULL) {
 		struct net *net = sock_net(sk);
 
 		fl4 = &fl4_stack;
+		// 构造一个描述该udp flow的结构fl4
 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   inet_sk_flowi_flags(sk)|FLOWI_FLAG_CAN_SLEEP,
 				   faddr, saddr, dport, inet->inet_sport);
-
+		// 安全子系统，例如SELINUX和SMACK会在flow结构中设置security id
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
 		if (IS_ERR(rt)) {
@@ -979,9 +1004,12 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		    !sock_flag(sk, SOCK_BROADCAST))
 			goto out;
 		if (connected)
+			// 将路由结果缓存
 			sk_dst_set(sk, dst_clone(&rt->dst));
 	}
 
+	// MSG_CONFIRM是在调用send，sendto等函数时提供的
+	// 它用来表示ARP cache依然是正确的，从而防止它被垃圾回收
 	if (msg->msg_flags&MSG_CONFIRM)
 		goto do_confirm;
 back_from_confirm:
@@ -992,11 +1020,14 @@ back_from_confirm:
 
 	/* Lockless fast path for the non-corking case. */
 	if (!corkreq) {
+		// 如果udp corking不能用的话，ip_make_skb会把数据打包进struct sk_buff中
+		// 并且发往IP层
 		skb = ip_make_skb(sk, fl4, getfrag, msg->msg_iov, ulen,
 				  sizeof(struct udphdr), &ipc, &rt,
 				  msg->msg_flags);
 		err = PTR_ERR(skb);
 		if (!IS_ERR_OR_NULL(skb))
+			// 如果没有错误，则将skb发往IP层
 			err = udp_send_skb(skb, fl4);
 		goto out;
 	}
@@ -1023,14 +1054,21 @@ back_from_confirm:
 
 do_append_data:
 	up->len += ulen;
+	// 加载数据
+	// ip_append_data是__ip_append_data的包裹函数，在将数据传递给__ip_append_data之前
+	// 首先检验MSG_MORE是否被标记，从而确定用户是否真的想发送数据
+	// 如果socket的send queue为空，说明当前没有corked data，因此需要调用ip_setup_cork创建
 	err = ip_append_data(sk, fl4, getfrag, msg->msg_iov, ulen,
 			     sizeof(struct udphdr), &ipc, &rt,
 			     corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
 	if (err)
+		// 不再进行corking，将socket的发送队列中的数据丢弃
 		udp_flush_pending_frames(sk);
 	else if (!corkreq)
+		// 如果没有指定MSG_MORE，调用udp_push_pending_frams，将数据发送到下一层网络
 		err = udp_push_pending_frames(sk);
 	else if (unlikely(skb_queue_empty(&sk->sk_write_queue)))
+		// 如果发送队列为空，标记socket不再corking
 		up->pending = 0;
 	release_sock(sk);
 
@@ -1054,6 +1092,8 @@ out:
 	return err;
 
 do_confirm:
+	// dst_confirm函数会在dst中设置一个flag，之后会在访问neighbour cache的时候进行检查
+	// 这个特性有利于减少不必要的ARP流量
 	dst_confirm(&rt->dst);
 	if (!(msg->msg_flags&MSG_PROBE) || len)
 		goto back_from_confirm;
