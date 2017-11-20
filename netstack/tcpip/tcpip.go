@@ -169,6 +169,7 @@ const (
 
 // FullAddress represents a full transport node address, as required by the
 // Connect() and Bind() methods.
+// FullAddress代表了一个传输层节点地址，由Connect()和Bind()函数使用
 type FullAddress struct {
 	// NIC is the ID of the NIC this address refers to.
 	//
@@ -187,6 +188,7 @@ type FullAddress struct {
 // Endpoint is the interface implemented by transport protocols (e.g., tcp, udp)
 // that exposes functionality like read, write, connect, etc. to users of the
 // networking stack.
+// Endpoint实现了传输层协议的接口，将例如read，write，connect等等功能暴露给协议栈的用户
 type Endpoint interface {
 	// Close puts the endpoint in a closed state and frees all resources
 	// associated with it.

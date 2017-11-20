@@ -27,12 +27,14 @@ type portDescriptor struct {
 }
 
 // PortManager manages allocating, reserving and releasing ports.
+// PortManager负责管理申请，保留和释放端口
 type PortManager struct {
 	mu             sync.RWMutex
 	allocatedPorts map[portDescriptor]bindAddresses
 }
 
 // bindAddresses is a set of IP addresses.
+// bindAddresses代表了一系列的IP地址（三层地址更为准确）
 type bindAddresses map[tcpip.Address]struct{}
 
 // isAvailable checks whether an IP address is available to bind to.
@@ -62,10 +64,12 @@ func NewPortManager() *PortManager {
 // possible ephemeral ports, allowing the caller to decide whether a given port
 // is suitable for its needs, and stopping when a port is found or an error
 // occurs.
+// PickEphemeralPort从起始点开始随机选取端口，它能让调用者来决定给定的端口是否合适，直至找到合适的端口或者遇到错误
 func (s *PortManager) PickEphemeralPort(testPort func(p uint16) (bool, *tcpip.Error)) (port uint16, err *tcpip.Error) {
 	count := uint16(math.MaxUint16 - firstEphemeral + 1)
 	offset := uint16(rand.Int31n(int32(count)))
 
+	// 随机选择一个端口，并用testPort函数进行测试，直到获取一个合适的端口为止
 	for i := uint16(0); i < count; i++ {
 		port = firstEphemeral + (offset+i)%count
 		ok, err := testPort(port)

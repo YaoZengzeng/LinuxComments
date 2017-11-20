@@ -55,6 +55,7 @@ type headers struct {
 	dstPort uint16
 }
 
+// 创建Test Context，内容包括testing.T，Stack以及Endpoint
 func newDualTestContext(t *testing.T, mtu uint32) *testContext {
 	s := stack.New([]string{ipv4.ProtocolName, ipv6.ProtocolName}, []string{udp.ProtocolName})
 
@@ -199,6 +200,7 @@ func (c *testContext) sendV6Packet(payload []byte, h *headers) {
 
 func (c *testContext) sendPacket(payload []byte, h *headers) {
 	// Allocate a buffer for data and headers.
+	// 申请buffer存储封包，并且先将负载拷贝进去
 	buf := buffer.NewView(header.UDPMinimumSize + header.IPv4MinimumSize + len(payload))
 	copy(buf[len(buf)-len(payload):], payload)
 
@@ -223,6 +225,7 @@ func (c *testContext) sendPacket(payload []byte, h *headers) {
 	})
 
 	// Calculate the UDP pseudo-header checksum.
+	// 伪头部的校验和的计算
 	xsum := header.Checksum([]byte(testAddr), 0)
 	xsum = header.Checksum([]byte(stackAddr), xsum)
 	xsum = header.Checksum([]byte{0, uint8(udp.ProtocolNumber)}, xsum)
@@ -238,6 +241,7 @@ func (c *testContext) sendPacket(payload []byte, h *headers) {
 	c.linkEP.Inject(ipv4.ProtocolNumber, &vv)
 }
 
+// 产生长度为30~130的随机负载
 func newPayload() []byte {
 	b := make([]byte, 30+rand.Intn(100))
 	for i := range b {
@@ -248,13 +252,16 @@ func newPayload() []byte {
 
 func testV4Read(c *testContext) {
 	// Send a packet.
+	// 创建封包并发送
 	payload := newPayload()
+	// 构造一个IP封包，直接由c.linkEP.Inject()注入到协议栈的网络层
 	c.sendPacket(payload, &headers{
 		srcPort: testPort,
 		dstPort: stackPort,
 	})
 
 	// Try to receive the data.
+	// 在Queue中注册一个waiter，当有事件到达时，会从管道ch中收到信号
 	we, ch := waiter.NewChannelEntry(nil)
 	c.wq.EventRegister(&we, waiter.EventIn)
 	defer c.wq.EventUnregister(&we)
@@ -265,6 +272,7 @@ func testV4Read(c *testContext) {
 		// Wait for data to become available.
 		select {
 		case <-ch:
+			// 当有事件EventIn发生时
 			v, err = c.ep.Read(&addr)
 			if err != nil {
 				c.t.Fatalf("Read failed: %v", err)
@@ -387,12 +395,14 @@ func TestV4ReadOnV4(t *testing.T) {
 
 	// Create v4 UDP endpoint.
 	var err *tcpip.Error
+	// 创建一个udp endpoint，并赋值给c.ep
 	c.ep, err = c.s.NewEndpoint(udp.ProtocolNumber, ipv4.ProtocolNumber, &c.wq)
 	if err != nil {
 		c.t.Fatalf("NewEndpoint failed: %v", err)
 	}
 
 	// Bind to wildcard.
+	// 只绑定端口号
 	if err := c.ep.Bind(tcpip.FullAddress{Port: stackPort}, nil); err != nil {
 		c.t.Fatalf("Bind failed: %v", err)
 	}

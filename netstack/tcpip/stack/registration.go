@@ -15,11 +15,13 @@ import (
 // NetworkEndpointID is the identifier of a network layer protocol endpoint.
 // Currently the local address is sufficient because all supported protocols
 // (i.e., IPv4 and IPv6) have different sizes for their addresses.
+// LocalAddress用来标识一个网络层的endpoint
 type NetworkEndpointID struct {
 	LocalAddress tcpip.Address
 }
 
 // TransportEndpointID is the identifier of a transport layer protocol endpoint.
+// 用本地端口，地址和远程的端口和地址组成一个传输层的endpoint
 type TransportEndpointID struct {
 	// LocalPort is the local port associated with the endpoint.
 	LocalPort uint16
@@ -157,17 +159,22 @@ type NetworkDispatcher interface {
 // LinkEndpoint is the interface implemented by data link layer protocols (e.g.,
 // ethernet, loopback, raw) and used by network layer protocols to send packets
 // out through the implementer's data link endpoint.
+// LinkEndpoint是链路层协议实现的接口，包括（ethernet, loopback, raw）
+// 网络层协议通过使用它来将数据包发往其实现者的data link endpoint
 type LinkEndpoint interface {
 	// MTU is the maximum transmission unit for this endpoint. This is
 	// usually dictated by the backing physical network; when such a
 	// physical network doesn't exist, the limit is generally 64k, which
 	// includes the maximum size of an IP packet.
+	// 如果背后的物理设备不存在，则默认为64k，其中包含了对最大的IP包
 	MTU() uint32
 
 	// MaxHeaderLength returns the maximum size the data link (and
 	// lower level layers combined) headers can have. Higher levels use this
 	// information to reserve space in the front of the packets they're
 	// building.
+	// MaxHeaderLength返回链路层报头长度的最大值（包括更底层的layer）
+	// 高层协议通过在构建包时，会利用此信息在头部预留空间
 	MaxHeaderLength() uint16
 
 	// LinkAddress returns the link address (typically a MAC) of the
@@ -176,10 +183,12 @@ type LinkEndpoint interface {
 
 	// WritePacket writes a packet with the given protocol through the given
 	// route.
+	// WritePacket将指定协议的包通过指定的路由发送
 	WritePacket(r *Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) *tcpip.Error
 
 	// Attach attaches the data link layer endpoint to the network-layer
 	// dispatcher of the stack.
+	// Attach将数据链路层的endpoint和协议栈的网络层dispatcher联系在了一起
 	Attach(dispatcher NetworkDispatcher)
 }
 

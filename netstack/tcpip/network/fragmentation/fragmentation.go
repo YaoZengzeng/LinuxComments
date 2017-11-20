@@ -40,6 +40,8 @@ type Fragmentation struct {
 // reassemblingTimeout specifes the maximum time allowed to reassemble a packet.
 // Fragments are lazily evicted only when a new a packet with an
 // already existing fragmentation-id arrives after the timeout.
+// memoryLimit表示Fragmentation保存的fragments的内存上限，当到达limit的时候就丢弃Fragments
+// reassemblingTimeout标识了重组一个packet的最长的时间
 func NewFragmentation(memoryLimit int, reassemblingTimeout time.Duration) Fragmentation {
 	return Fragmentation{
 		reassemblers: make(map[uint32]*reassembler),

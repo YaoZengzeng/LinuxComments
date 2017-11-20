@@ -88,6 +88,7 @@ func TestConcurrentRegistration(t *testing.T) {
 	ch3 := make(chan struct{})
 
 	// Create goroutines that will all register/unregister concurrently.
+	// 创建concurrency个goroutine，它们会并行地进行register和unregister
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			var e Entry
@@ -115,18 +116,22 @@ func TestConcurrentRegistration(t *testing.T) {
 	}
 
 	// Let the goroutines register.
+	// 关闭ch1，通知各个goroutine启动注册
 	close(ch1)
 	for i := 0; i < concurrency; i++ {
+		// 等待所有goroutine注册完成
 		<-ch2
 	}
 
 	// Issue a notification.
+	// 发出一个通知，让所有注册了的Entry调用callback
 	q.Notify(EventIn)
 	if cnt != concurrency {
 		t.Errorf("cnt = %d, want %d", cnt, concurrency)
 	}
 
 	// Let the goroutine unregister.
+	// 启动unregister
 	close(ch3)
 	for i := 0; i < concurrency; i++ {
 		<-ch2
@@ -146,9 +151,11 @@ func TestConcurrentNotification(t *testing.T) {
 	const waiterCount = 1000
 
 	// Register waiters.
+	// 注册waiterCount个waiter
 	for i := 0; i < waiterCount; i++ {
 		var e Entry
 		e.Callback = &callbackStub{func(entry *Entry) {
+			// 原子加一
 			atomic.AddInt32(&cnt, 1)
 			if entry != &e {
 				t.Errorf("entry = %p, want %p", entry, &e)
@@ -161,16 +168,20 @@ func TestConcurrentNotification(t *testing.T) {
 	// Launch notifiers.
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
+	// 启动concurrency个notifier
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			<-ch1
+			// Notifier会等待所有callback函数结束
 			q.Notify(EventIn)
 			ch2 <- struct{}{}
 		}()
 	}
 
 	// Let notifiers go.
+	// 启动notifier
 	close(ch1)
+	// 等待所有concurrency个notifier结束
 	for i := 0; i < concurrency; i++ {
 		<-ch2
 	}

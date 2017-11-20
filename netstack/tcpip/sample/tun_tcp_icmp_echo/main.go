@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,41 +23,15 @@ import (
 	"github.com/google/netstack/tcpip/network/ipv6"
 	"github.com/google/netstack/tcpip/stack"
 	"github.com/google/netstack/tcpip/transport/tcp"
-	"github.com/google/netstack/waiter"
 )
 
-func echo(wq *waiter.Queue, ep tcpip.Endpoint) {
-	defer ep.Close()
-
-	// Create wait queue entry that notifies a channel.
-	waitEntry, notifyCh := waiter.NewChannelEntry(nil)
-
-	wq.EventRegister(&waitEntry, waiter.EventIn)
-	defer wq.EventUnregister(&waitEntry)
-
-	for {
-		v, err := ep.Read(nil)
-		if err != nil {
-			if err == tcpip.ErrWouldBlock {
-				<-notifyCh
-				continue
-			}
-
-			return
-		}
-
-		ep.Write(v, nil)
-	}
-}
-
 func main() {
-	if len(os.Args) != 4 {
-		log.Fatal("Usage: ", os.Args[0], " <tun-device> <local-address> <local-port>")
+	if len(os.Args) != 3 {
+		log.Fatal("Usage: ", os.Args[0], " <tun-device> <local-address>")
 	}
 
 	tunName := os.Args[1]
 	addrName := os.Args[2]
-	portName := os.Args[3]
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -68,7 +41,6 @@ func main() {
 		log.Fatalf("Bad IP address: %v", addrName)
 	}
 
-	// 类型tcpip.Address 和 tcpip.NetworkProtocolNumber本质上都是string类型
 	var addr tcpip.Address
 	var proto tcpip.NetworkProtocolNumber
 	if parsedAddr.To4() != nil {
@@ -81,29 +53,20 @@ func main() {
 		log.Fatalf("Unknown IP type: %v", addrName)
 	}
 
-	localPort, err := strconv.Atoi(portName)
-	if err != nil {
-		log.Fatalf("Unable to convert port %v: %v", portName, err)
-	}
-
 	// Create the stack with ip and tcp protocols, then add a tun-based
 	// NIC and address.
-	// 创建一个由tcp和ip组成的协议栈
 	s := stack.New([]string{ipv4.ProtocolName, ipv6.ProtocolName}, []string{tcp.ProtocolName})
 
-	// 获取tun设备的mtu
 	mtu, err := rawfile.GetMTU(tunName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// 打开tun设备，并设置为非阻塞模式
 	fd, err := tun.Open(tunName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// 创建一个link endpoint，并注册返回对应的linkID
 	linkID := fdbased.New(fd, mtu, nil)
 	if err := s.CreateNIC(1, linkID); err != nil {
 		log.Fatal(err)
@@ -114,7 +77,6 @@ func main() {
 	}
 
 	// Add default route.
-	// 添加默认路由
 	s.SetRouteTable([]tcpip.Route{
 		{
 			Destination: tcpip.Address(strings.Repeat("\x00", len(addr))),
@@ -124,42 +86,7 @@ func main() {
 		},
 	})
 
-	// Create TCP endpoint, bind it, then start listening.
-	var wq waiter.Queue
-	// 创建tcp endpoint，proto是三层协议号
-	ep, e := s.NewEndpoint(tcp.ProtocolNumber, proto, &wq)
-	if err != nil {
-		log.Fatal(e)
-	}
+	select {
 
-	defer ep.Close()
-
-	if err := ep.Bind(tcpip.FullAddress{0, "", uint16(localPort)}, nil); err != nil {
-		log.Fatal("Bind failed: ", err)
-	}
-
-	// udp也未实现Listen方法
-	if err := ep.Listen(10); err != nil {
-		log.Fatal("Listen failed: ", err)
-	}
-
-	// Wait for connections to appear.
-	// 等待连接的到来
-	waitEntry, notifyCh := waiter.NewChannelEntry(nil)
-	wq.EventRegister(&waitEntry, waiter.EventIn)
-	defer wq.EventUnregister(&waitEntry)
-
-	for {
-		n, wq, err := ep.Accept()
-		if err != nil {
-			if err == tcpip.ErrWouldBlock {
-				<-notifyCh
-				continue
-			}
-
-			log.Fatal("Accept() failed:", err)
-		}
-
-		go echo(wq, n)
 	}
 }

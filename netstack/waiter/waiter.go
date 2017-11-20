@@ -103,12 +103,14 @@ type EntryCallback interface {
 // Entry represents a waiter that can be add to the a wait queue. It can
 // only be in one queue at a time, and is added "intrusively" to the queue with
 // no extra memory allocations.
+// Entry代表了一个可以被加入wait queue的waiter，它一次只能加入一个队列
 type Entry struct {
 	// Context stores any state the waiter may wish to store in the entry
 	// itself, which may be used at wake up time.
 	//
 	// Note that use of this field is optional and state may alternatively be
 	// stored in the callback itself.
+	// Context代表了waiter希望存储在entry中的状态
 	Context interface{}
 
 	Callback EntryCallback
@@ -118,6 +120,7 @@ type Entry struct {
 	ilist.Entry
 }
 
+// channelCallback实现了EntryCallback接口
 type channelCallback struct{}
 
 // Callback implements EntryCallback.Callback.
@@ -132,6 +135,8 @@ func (*channelCallback) Callback(e *Entry) {
 // NewChannelEntry initializes a new Entry that does a non-blocking write to a
 // struct{} channel when the callback is called. It returns the new Entry
 // instance and the channel being used.
+// NewChannelEntry初始化一个新的entry，当调用callback时，会对一个struct{} channel执行一个
+// 非阻塞的写操作
 //
 // If a channel isn't specified (i.e., if "c" is nil), then NewChannelEntry
 // allocates a new channel.
@@ -147,6 +152,7 @@ func NewChannelEntry(c chan struct{}) (Entry, chan struct{}) {
 // notifiers can notify them when events happen.
 //
 // The zero value for waiter.Queue is an empty queue ready for use.
+// Queue代表了一个waiters可以加入的队列，从而在event发生的时候，notifier可以通知它们
 type Queue struct {
 	list ilist.List
 	mu   sync.RWMutex
@@ -154,6 +160,7 @@ type Queue struct {
 
 // EventRegister adds a waiter to the wait queue; the waiter will be notified
 // when at least one of the events specified in mask happens.
+// EventRegister将waiter加入wait queue中，当mask中至少一个event发生时，waiter都会得到通知
 func (q *Queue) EventRegister(e *Entry, mask EventMask) {
 	q.mu.Lock()
 	e.mask = mask

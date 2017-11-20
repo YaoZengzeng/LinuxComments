@@ -11,6 +11,7 @@ type View []byte
 
 // NewView allocates a new buffer and returns an initialized view that covers
 // the whole buffer.
+// 创建一个size大小的View，即[]byte
 func NewView(size int) View {
 	return make(View, size)
 }
@@ -39,6 +40,7 @@ func (v *View) CapLength(length int) {
 
 // ToVectorisedView transforms a View in a VectorisedView from an
 // already-allocated slice of View.
+// 将View转换为VectorisedView
 func (v *View) ToVectorisedView(views [1]View) VectorisedView {
 	views[0] = *v
 	return NewVectorisedView(len(*v), views[:])
@@ -62,6 +64,7 @@ func (vv *VectorisedView) TrimFront(count int) {
 	for count > 0 && len(vv.views) > 0 {
 		if count < len(vv.views[0]) {
 			vv.size -= count
+			// 去除头部
 			vv.views[0].TrimFront(count)
 			return
 		}
@@ -145,7 +148,9 @@ func (vv *VectorisedView) Size() int {
 
 // ToView returns the a single view containing the content of the vectorised view.
 func (vv *VectorisedView) ToView() View {
+	// 将VectorisedView转换至View
 	v := make([]byte, vv.size)
+	// u相当于一个index
 	u := v
 	for i := range vv.views {
 		n := copy(u, vv.views[i])

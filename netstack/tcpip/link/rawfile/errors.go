@@ -32,6 +32,7 @@ var translations = map[syscall.Errno]*tcpip.Error{
 //
 // Not all errnos are supported and this function will panic on unreconized
 // errnos.
+// TranslateErrno将返回的syscall.Errno转换为tcpip.Error
 func TranslateErrno(e syscall.Errno) *tcpip.Error {
 	if err, ok := translations[e]; ok {
 		return err

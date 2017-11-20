@@ -7,6 +7,7 @@ package ilist
 
 // Linker is the interface that objects must implement if they want to be added
 // to and/or removed from List objects.
+// 每个想要添加或者从List删除的object，都必须满足Linker这一接口
 //
 // N.B. When substituted in a template instantiation, Linker doesn't need to
 // be an interface, and in most cases won't be.

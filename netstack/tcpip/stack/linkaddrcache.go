@@ -16,6 +16,8 @@ const linkAddrCacheSize = 512 // max cache entries
 // linkAddrCache is a fixed-sized cache mapping IP addresses to link addresses.
 //
 // The entries are stored in a ring buffer, oldest entry replaced first.
+// linkAddrCache是用于映射IP地址到链路层地址的固定大小的缓存
+// 所有的entry都被存放在一个ring buffer中，最老的entry最先被移除
 type linkAddrCache struct {
 	ageLimit time.Duration
 

@@ -38,8 +38,10 @@ func (e *endpoint) handleICMP(r *stack.Route, vv *buffer.VectorisedView) {
 			return
 		}
 		vv.TrimFront(header.ICMPv4MinimumSize)
+		// 创建一个echoRequest的实例
 		req := echoRequest{r: r.Clone(), v: vv.ToView()}
 		select {
+		// 将echoRequest实例通过管道e.echoRequests进行发送
 		case e.echoRequests <- req:
 		default:
 			req.r.Release()
@@ -85,6 +87,7 @@ type Pinger struct {
 
 // Ping sends echo requests to an ICMPv4 endpoint.
 // Responses are streamed to the channel ch.
+// Ping会向一个ICMPv4 endpoint发送请求，并且回复将缓存在channel ch中
 func (p *Pinger) Ping(ctx context.Context, ch chan<- PingReply) *tcpip.Error {
 	count := p.Count
 	if count == 0 {
@@ -95,6 +98,7 @@ func (p *Pinger) Ping(ctx context.Context, ch chan<- PingReply) *tcpip.Error {
 		wait = 1 * time.Second
 	}
 
+	// 寻找路由
 	r, err := p.Stack.FindRoute(p.NICID, p.LocalAddr, p.Addr, ProtocolNumber)
 	if err != nil {
 		return err
@@ -117,6 +121,7 @@ func (p *Pinger) Ping(ctx context.Context, ch chan<- PingReply) *tcpip.Error {
 		case nil:
 			return true, nil
 		case tcpip.ErrPortInUse:
+			// 如果端口已经被占用，则再选一个
 			return false, nil
 		default:
 			return false, err
@@ -125,19 +130,23 @@ func (p *Pinger) Ping(ctx context.Context, ch chan<- PingReply) *tcpip.Error {
 	if err != nil {
 		return err
 	}
+	// 注册一个临时的TransportEndpoint
 	defer p.Stack.UnregisterTransportEndpoint(p.NICID, netProtos, pingProtocolNumber, id)
 
 	v := buffer.NewView(4)
+	// 将LocalPort作为identifier写入
 	binary.BigEndian.PutUint16(v[0:], id.LocalPort)
 
 	start := time.Now()
 
 	done := make(chan struct{})
+	// 另外启动一个goroutine，从pingEndpoint中读取count个封包，从中获取序号seq
 	go func(count int) {
 	loop:
 		for ; count > 0; count-- {
 			select {
 			case v := <-ep.pktCh:
+				// 获取seq
 				seq := binary.BigEndian.Uint16(v[header.ICMPv4MinimumSize+2:])
 				ch <- PingReply{
 					Duration:  time.Since(start) - time.Duration(seq)*wait,
@@ -149,18 +158,22 @@ func (p *Pinger) Ping(ctx context.Context, ch chan<- PingReply) *tcpip.Error {
 		}
 		close(done)
 	}(int(count))
+	// 匿名函数结束，本函数才能结束
 	defer func() { <-done }()
 
 	t := time.NewTicker(wait)
 	defer t.Stop()
+	// 发送count个ping request
 	for seq := uint16(0); seq < count; seq++ {
 		select {
 		case <-t.C:
 		case <-ctx.Done():
 			return nil
 		}
+		// 写入seq
 		binary.BigEndian.PutUint16(v[2:], seq)
 		sent := time.Now()
+		// 其中v为负载，icmp头部在sendICMPv4中构建
 		if err := sendICMPv4(&r, header.ICMPv4Echo, 0, v); err != nil {
 			ch <- PingReply{
 				Error:     err,
@@ -218,6 +231,7 @@ func (e *pingEndpoint) Close() {
 	close(e.pktCh)
 }
 
+// pingEndpoint的处理方式就是将VectorisedView转换为View并发送给channel e.pktCh
 func (e *pingEndpoint) HandlePacket(r *stack.Route, id stack.TransportEndpointID, vv *buffer.VectorisedView) {
 	select {
 	case e.pktCh <- vv.ToView():

@@ -62,6 +62,8 @@ func NonBlockingWrite(fd int, buf []byte) *tcpip.Error {
 
 // NonBlockingWrite2 writes up to two byte slices to a file descriptor in a
 // single syscall. It fails if partial data is written.
+// NonBlockingWrite2将两个byte slices用一次系统调用写入一个文件描述符中
+// 如果只有部分数据写入，则调用失败
 func NonBlockingWrite2(fd int, b1, b2 []byte) *tcpip.Error {
 	// If the is no second buffer, issue a regular write.
 	if len(b2) == 0 {
@@ -118,8 +120,12 @@ func BlockingRead(fd int, b []byte) (int, *tcpip.Error) {
 // BlockingReadv reads from a file descriptor that is set up as non-blocking and
 // stores the data in a list of iovecs buffers. If no data is available, it will
 // block in a poll() syscall until the file descirptor becomes readable.
+// BlockingReadv从一个设置为non-blocking的文件描述符中读取数据并且将数据存储在一个iovecs buffers
+// 的列表中
+// 如果其中没有数据，那么就会一直阻塞在poll()系统调用中，直到文件描述符可读
 func BlockingReadv(fd int, iovecs []syscall.Iovec) (int, *tcpip.Error) {
 	for {
+		// 传递给系统调用的指针为&iovecs[0]
 		n, _, e := syscall.RawSyscall(syscall.SYS_READV, uintptr(fd), uintptr(unsafe.Pointer(&iovecs[0])), uintptr(len(iovecs)))
 		if e == 0 {
 			return int(n), nil

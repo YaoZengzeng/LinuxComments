@@ -49,6 +49,7 @@ type Stack struct {
 	// route is the route table passed in by the user via SetRouteTable(),
 	// it is used by FindRoute() to build a route for a specific
 	// destination.
+	// 通过SetRouteTable()进行设置，并通过FindRoute()构建通往特定目的地的路由
 	routeTable []tcpip.Route
 
 	*ports.PortManager
@@ -169,6 +170,7 @@ func (s *Stack) MutableStats() *tcpip.Stats {
 
 // SetRouteTable assigns the route table to be used by this stack. It
 // specifies which NIC to use for given destination address ranges.
+// SetRouteTable设置了这个stack使用的路由表，它标识了对于给定的目标地址范围应该使用哪个网卡
 func (s *Stack) SetRouteTable(table []tcpip.Route) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -177,6 +179,7 @@ func (s *Stack) SetRouteTable(table []tcpip.Route) {
 }
 
 // NewEndpoint creates a new transport layer endpoint of the given protocol.
+// NewEndpoint根据给定的protocol创建一个新的transport layer endpoint
 func (s *Stack) NewEndpoint(transport tcpip.TransportProtocolNumber, network tcpip.NetworkProtocolNumber, waiterQueue *waiter.Queue) (tcpip.Endpoint, *tcpip.Error) {
 	t, ok := s.transportProtocols[transport]
 	if !ok {
@@ -303,10 +306,12 @@ func (s *Stack) FindRoute(id tcpip.NICID, localAddr, remoteAddr tcpip.Address, n
 	defer s.mu.RUnlock()
 
 	for i := range s.routeTable {
+		// 如果指定了网卡ID但是不匹配，或者路由表项和目的地址不匹配，则跳过该表项
 		if id != 0 && id != s.routeTable[i].NIC || !s.routeTable[i].Match(remoteAddr) {
 			continue
 		}
 
+		// 找到路由表项对应的网卡
 		nic := s.nics[s.routeTable[i].NIC]
 		if nic == nil {
 			continue
@@ -314,8 +319,10 @@ func (s *Stack) FindRoute(id tcpip.NICID, localAddr, remoteAddr tcpip.Address, n
 
 		var ref *referencedNetworkEndpoint
 		if len(localAddr) != 0 {
+			// 若指定了localAddr则选取对应的endpoint
 			ref = nic.findEndpoint(localAddr)
 		} else {
+			// 否则，直接找netProto对应的primary endpoint
 			ref = nic.primaryEndpoint(netProto)
 		}
 
@@ -323,6 +330,7 @@ func (s *Stack) FindRoute(id tcpip.NICID, localAddr, remoteAddr tcpip.Address, n
 			continue
 		}
 
+		// 创建路由
 		r := makeRoute(netProto, ref.ep.ID().LocalAddress, remoteAddr, ref)
 		r.RemoteLinkAddress = s.linkAddrCache.get(tcpip.FullAddress{NIC: nic.ID(), Addr: remoteAddr})
 		r.NextHop = s.routeTable[i].Gateway
@@ -403,8 +411,12 @@ func (s *Stack) AddLinkAddress(nicid tcpip.NICID, addr tcpip.Address, linkAddr t
 // transport dispatcher. Received packets that match the provided id will be
 // delivered to the given endpoint; specifying a nic is optional, but
 // nic-specific IDs have precedence over global ones.
+// RegisterTransportEndpoint在stack的transport dispatcher中注册endpoint
+// 若收到的包和给定id相匹配，则会交给指定的endpoint，是否指定nic是可选的
+// 但是有特定nic的ID的优先级高于通用的id
 func (s *Stack) RegisterTransportEndpoint(nicID tcpip.NICID, netProtos []tcpip.NetworkProtocolNumber, protocol tcpip.TransportProtocolNumber, id TransportEndpointID, ep TransportEndpoint) *tcpip.Error {
 	if nicID == 0 {
+		// 若nicID为0，则调用s.demux.registerEndpoint
 		return s.demux.registerEndpoint(netProtos, protocol, id, ep)
 	}
 
@@ -416,6 +428,7 @@ func (s *Stack) RegisterTransportEndpoint(nicID tcpip.NICID, netProtos []tcpip.N
 		return tcpip.ErrUnknownNICID
 	}
 
+	// 若指定了nic,则调用nic.demux.registerEndpoint
 	return nic.demux.registerEndpoint(netProtos, protocol, id, ep)
 }
 

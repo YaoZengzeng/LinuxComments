@@ -104,6 +104,7 @@ func (n *NIC) addAddressLocked(protocol tcpip.NetworkProtocolNumber, addr tcpip.
 
 	id := *ep.ID()
 	if ref, ok := n.endpoints[id]; ok {
+		// 检测该endpoint是否已存在
 		if !replace {
 			return nil, tcpip.ErrDuplicateAddress
 		}
@@ -211,6 +212,7 @@ func (n *NIC) RemoveAddress(addr tcpip.Address) *tcpip.Error {
 // This rule applies only to the slice itself, not to the items of the slice;
 // the ownership of the items is not retained by the caller.
 func (n *NIC) DeliverNetworkPacket(linkEP LinkEndpoint, remoteLinkAddr tcpip.LinkAddress, protocol tcpip.NetworkProtocolNumber, vv *buffer.VectorisedView) {
+	// 找到相应的网络层协议
 	netProto, ok := n.stack.networkProtocols[protocol]
 	if !ok {
 		atomic.AddUint64(&n.stack.stats.UnknownProtocolRcvdPackets, 1)
@@ -222,6 +224,7 @@ func (n *NIC) DeliverNetworkPacket(linkEP LinkEndpoint, remoteLinkAddr tcpip.Lin
 		return
 	}
 
+	// 解析源地址和目的地址
 	src, dst := netProto.ParseAddresses(vv.First())
 	id := NetworkEndpointID{dst}
 
@@ -236,6 +239,7 @@ func (n *NIC) DeliverNetworkPacket(linkEP LinkEndpoint, remoteLinkAddr tcpip.Lin
 
 	if ref == nil {
 		// Check if the packet is for a subnet this NIC cares about.
+		// 检查包是不是送往网卡所属的子网
 		if !promiscuous {
 			for _, sn := range subnets {
 				if sn.Contains(dst) {
@@ -275,6 +279,7 @@ func (n *NIC) DeliverNetworkPacket(linkEP LinkEndpoint, remoteLinkAddr tcpip.Lin
 // DeliverTransportPacket delivers the packets to the appropriate transport
 // protocol endpoint.
 func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolNumber, vv *buffer.VectorisedView) {
+	// 先获取传输层协议
 	state, ok := n.stack.transportProtocols[protocol]
 	if !ok {
 		atomic.AddUint64(&n.stack.stats.UnknownProtocolRcvdPackets, 1)
@@ -287,13 +292,16 @@ func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolN
 		return
 	}
 
+	// 从封包中提取源端口和目的端口
 	srcPort, dstPort, err := transProto.ParsePorts(vv.First())
 	if err != nil {
 		atomic.AddUint64(&n.stack.stats.MalformedRcvdPackets, 1)
 		return
 	}
 
+	// 由此构建TransportEndpointID
 	id := TransportEndpointID{dstPort, r.LocalAddress, srcPort, r.RemoteAddress}
+	// 由deliverPacket交给具体的endpoint进行处理
 	if n.demux.deliverPacket(r, protocol, vv, id) {
 		return
 	}
@@ -331,6 +339,7 @@ type referencedNetworkEndpoint struct {
 	// the reference count is biased by 1 due to the insertion of the
 	// endpoint. It is reset to false when RemoveAddress is called on the
 	// NIC.
+	// 当在NIC上调用RemoveAddress时，holdsInsertRef为false
 	holdsInsertRef bool
 }
 

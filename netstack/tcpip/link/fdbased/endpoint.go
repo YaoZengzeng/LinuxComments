@@ -35,6 +35,7 @@ type endpoint struct {
 	// its end of the communication pipe.
 	closed func(*tcpip.Error)
 
+	// vv用views来初始化，代表实际接收到的数据包
 	vv     *buffer.VectorisedView
 	iovecs []syscall.Iovec
 	views  []buffer.View
@@ -48,9 +49,11 @@ func New(fd int, mtu uint32, closed func(*tcpip.Error)) tcpip.LinkEndpointID {
 		fd:     fd,
 		mtu:    mtu,
 		closed: closed,
+		// buffer.View是[]byte的别名类型
 		views:  make([]buffer.View, len(BufConfig)),
 		iovecs: make([]syscall.Iovec, len(BufConfig)),
 	}
+	// 根据已经分配的views创建vectorisedView并设置它的大小
 	vv := buffer.NewVectorisedView(0, e.views)
 	e.vv = &vv
 	// RegisterLinkEndpoint将e加入linkEndpoints这个哈希表中
@@ -82,6 +85,7 @@ func (*endpoint) LinkAddress() tcpip.LinkAddress {
 
 // WritePacket writes outbound packets to the file descriptor. If it is not
 // currently writable, the packet is dropped.
+// WritePacket将包写往文件描述符，如果当前不能写，则将该包丢弃
 func (e *endpoint) WritePacket(_ *stack.Route, hdr *buffer.Prependable, payload buffer.View, protocol tcpip.NetworkProtocolNumber) *tcpip.Error {
 	if payload == nil {
 		return rawfile.NonBlockingWrite(e.fd, hdr.UsedBytes())
@@ -113,7 +117,9 @@ func (e *endpoint) allocateViews(bufConfig []int) {
 		b := buffer.NewView(bufConfig[i])
 		// 为每个views分配内存
 		e.views[i] = b
+		// e.iovecs[]中的元素为syscall.Iovec
 		e.iovecs[i] = syscall.Iovec{
+			// 用分配获得的view初始化Iovec
 			Base: &b[0],
 			Len:  uint64(len(b)),
 		}
@@ -122,9 +128,12 @@ func (e *endpoint) allocateViews(bufConfig []int) {
 
 // dispatch reads one packet from the file descriptor and dispatches it.
 // dispatch从文件描述符中读出一个包再进行转发
+// largerV貌似并没有用到？
 func (e *endpoint) dispatch(d stack.NetworkDispatcher, largeV buffer.View) (bool, *tcpip.Error) {
+	// 为endpoint中的每个view和iovec根据BufConfig分配内存
 	e.allocateViews(BufConfig)
 
+	// 将endpoint的iovecs[]传递给BlockingReadv，返回的n为读到的字节数
 	n, err := rawfile.BlockingReadv(e.fd, e.iovecs)
 	if err != nil {
 		return false, err
@@ -134,6 +143,7 @@ func (e *endpoint) dispatch(d stack.NetworkDispatcher, largeV buffer.View) (bool
 		return false, nil
 	}
 
+	// used为使用了的view的数量
 	used := e.capViews(n, BufConfig)
 	// 重新设置vv为已使用的views
 	e.vv.SetViews(e.views[:used])
@@ -156,6 +166,7 @@ func (e *endpoint) dispatch(d stack.NetworkDispatcher, largeV buffer.View) (bool
 	d.DeliverNetworkPacket(e, "", p, e.vv)
 
 	// Prepare e.views for another packet: release used views.
+	// 将包传输完成之后，重新将views中的每个view设置为nil
 	for i := 0; i < used; i++ {
 		e.views[i] = nil
 	}

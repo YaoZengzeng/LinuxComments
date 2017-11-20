@@ -18,6 +18,7 @@ type protocolIDs struct {
 
 // transportEndpoints manages all endpoints of a given protocol. It has its own
 // mutex so as to reduce interference between protocols.
+// transportEndpoints管理给定protocol的所有endpoints
 type transportEndpoints struct {
 	mu        sync.RWMutex
 	endpoints map[TransportEndpointID]TransportEndpoint
@@ -49,6 +50,7 @@ func newTransportDemuxer(stack *Stack) *transportDemuxer {
 // registerEndpoint registers the given endpoint with the dispatcher such that
 // packets that match the endpoint ID are delivered to it.
 func (d *transportDemuxer) registerEndpoint(netProtos []tcpip.NetworkProtocolNumber, protocol tcpip.TransportProtocolNumber, id TransportEndpointID, ep TransportEndpoint) *tcpip.Error {
+	// 遍历netProtos
 	for i, n := range netProtos {
 		if err := d.singleRegisterEndpoint(n, protocol, id, ep); err != nil {
 			d.unregisterEndpoint(netProtos[:i], protocol, id)
@@ -60,6 +62,7 @@ func (d *transportDemuxer) registerEndpoint(netProtos []tcpip.NetworkProtocolNum
 }
 
 func (d *transportDemuxer) singleRegisterEndpoint(netProto tcpip.NetworkProtocolNumber, protocol tcpip.TransportProtocolNumber, id TransportEndpointID, ep TransportEndpoint) *tcpip.Error {
+	// 利用netProto和protocol组合查找，获取对应的eps
 	eps, ok := d.protocol[protocolIDs{netProto, protocol}]
 	if !ok {
 		return nil
@@ -68,10 +71,12 @@ func (d *transportDemuxer) singleRegisterEndpoint(netProto tcpip.NetworkProtocol
 	eps.mu.Lock()
 	defer eps.mu.Unlock()
 
+	// 再检测TransportEndpointID是否已经存在
 	if _, ok := eps.endpoints[id]; ok {
 		return tcpip.ErrPortInUse
 	}
 
+	// 注册TransportEndpoint
 	eps.endpoints[id] = ep
 
 	return nil
@@ -106,6 +111,7 @@ func (d *transportDemuxer) deliverPacket(r *Route, protocol tcpip.TransportProto
 
 func (d *transportDemuxer) deliverPacketLocked(r *Route, eps *transportEndpoints, vv *buffer.VectorisedView, id TransportEndpointID) bool {
 	// Try to find a match with the id as provided.
+	// 完全匹配
 	if ep := eps.endpoints[id]; ep != nil {
 		ep.HandlePacket(r, id, vv)
 		return true
@@ -114,6 +120,7 @@ func (d *transportDemuxer) deliverPacketLocked(r *Route, eps *transportEndpoints
 	// Try to find a match with the id minus the local address.
 	nid := id
 
+	// 除了LocalAddress外，完全匹配
 	nid.LocalAddress = ""
 	if ep := eps.endpoints[nid]; ep != nil {
 		ep.HandlePacket(r, id, vv)
@@ -121,6 +128,7 @@ func (d *transportDemuxer) deliverPacketLocked(r *Route, eps *transportEndpoints
 	}
 
 	// Try to find a match with the id minus the remote part.
+	// 除了RemoteAddress和RemotePort外都匹配
 	nid.LocalAddress = id.LocalAddress
 	nid.RemoteAddress = ""
 	nid.RemotePort = 0
@@ -130,6 +138,7 @@ func (d *transportDemuxer) deliverPacketLocked(r *Route, eps *transportEndpoints
 	}
 
 	// Try to find a match with only the local port.
+	// 只有local port匹配
 	nid.LocalAddress = ""
 	if ep := eps.endpoints[nid]; ep != nil {
 		ep.HandlePacket(r, id, vv)

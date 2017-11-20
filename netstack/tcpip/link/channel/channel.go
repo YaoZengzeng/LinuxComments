@@ -5,6 +5,7 @@
 // Package channel provides the implemention of channel-based data-link layer
 // endpoints. Such endpoints allow injection of inbound packets and store
 // outbound packets in a channel.
+// channel类型的endpoint允许包的注入以及将外出的包存入channel
 package channel
 
 import (
@@ -14,6 +15,7 @@ import (
 )
 
 // PacketInfo holds all the information about an outbound packet.
+// PacketInfo包含了发出的包的头部，负载以及网络层协议号
 type PacketInfo struct {
 	Header  buffer.View
 	Payload buffer.View
@@ -22,12 +24,15 @@ type PacketInfo struct {
 
 // Endpoint is link layer endpoint that stores outbound packets in a channel
 // and allows injection of inbound packets.
+// channel类型的endpoint，将发出的包储存在channel中，并允许包注入
 type Endpoint struct {
+	// 网络层的dispatcher
 	dispatcher stack.NetworkDispatcher
 	mtu        uint32
 	linkAddr   tcpip.LinkAddress
 
 	// C is where outbound packets are queued.
+	// 发出的包都存在C中
 	C chan PacketInfo
 }
 
@@ -57,6 +62,7 @@ func (e *Endpoint) Drain() int {
 
 // Inject injects an inbound packet.
 func (e *Endpoint) Inject(protocol tcpip.NetworkProtocolNumber, vv *buffer.VectorisedView) {
+	// 克隆封包，作为输入封包
 	uu := vv.Clone(nil)
 	e.dispatcher.DeliverNetworkPacket(e, "", protocol, &uu)
 }

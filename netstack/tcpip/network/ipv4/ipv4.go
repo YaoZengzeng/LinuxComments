@@ -127,7 +127,9 @@ func (e *endpoint) HandlePacket(r *stack.Route, vv *buffer.VectorisedView) {
 
 	hlen := int(h.HeaderLength())
 	tlen := int(h.TotalLength())
+	// 去掉网络层的头部信息
 	vv.TrimFront(hlen)
+	// 调整cap
 	vv.CapLength(tlen - hlen)
 
 	more := (h.Flags() & header.IPv4FlagMoreFragments) != 0
@@ -141,6 +143,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, vv *buffer.VectorisedView) {
 		vv = &tt
 	}
 	p := tcpip.TransportProtocolNumber(h.Protocol())
+	// 如果获取的传输层报文为ICMP类型的，则单独进行 处理
 	if p == header.ICMPv4ProtocolNumber {
 		e.handleICMP(r, vv)
 		return

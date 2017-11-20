@@ -36,9 +36,12 @@ const (
 // between users of the endpoint and the protocol implementation; it is legal to
 // have concurrent goroutines make calls into the endpoint, they are properly
 // synchronized.
+// endpoint代表了一个udp endpoint，本结构代表了endpoint用户和协议实现之间的接口
+// 多个并发的goroutine调用endpoint都是合法的，它能自动处理同步
 type endpoint struct {
 	// The following fields are initialized at creation time and do not
 	// change throughout the lifetime of the endpoint.
+	// 以下字段在创建期间被初始化，并且在endpoint的整个生命周期内都不会改变
 	stack       *stack.Stack
 	netProto    tcpip.NetworkProtocolNumber
 	waiterQueue *waiter.Queue
@@ -73,6 +76,7 @@ type endpoint struct {
 	effectiveNetProtos []tcpip.NetworkProtocolNumber
 }
 
+// 创建一个udp endpoint
 func newEndpoint(stack *stack.Stack, netProto tcpip.NetworkProtocolNumber, waiterQueue *waiter.Queue) *endpoint {
 	// TODO: Use the send buffer size initialized here.
 	return &endpoint{
@@ -134,18 +138,22 @@ func (e *endpoint) Close() {
 
 // Read reads data from the endpoint. This method does not block if
 // there is no data pending.
+// 从endpoint中读取数据，如果没有数据可读，也不会阻塞
 func (e *endpoint) Read(addr *tcpip.FullAddress) (buffer.View, *tcpip.Error) {
 	e.rcvMu.Lock()
 
 	if e.rcvList.Empty() {
+		// 若接收队列为空
 		err := tcpip.ErrWouldBlock
 		if e.rcvClosed {
+			// 若接收队列已关闭
 			err = tcpip.ErrClosedForReceive
 		}
 		e.rcvMu.Unlock()
 		return buffer.View{}, err
 	}
 
+	// 从endpoint rcvList中读取封包
 	p := e.rcvList.Front()
 	e.rcvList.Remove(p)
 	e.rcvBufSize -= p.data.Size()
@@ -504,15 +512,18 @@ func (*endpoint) Accept() (tcpip.Endpoint, *waiter.Queue, *tcpip.Error) {
 	return nil, nil, tcpip.ErrNotSupported
 }
 
+// 将transport endpoint注册至stack中
 func (e *endpoint) registerWithStack(nicid tcpip.NICID, netProtos []tcpip.NetworkProtocolNumber, id stack.TransportEndpointID) (stack.TransportEndpointID, *tcpip.Error) {
 	if id.LocalPort != 0 {
 		// The endpoint already has a local port, just attempt to
 		// register it.
+		// 如果指定了Local endpoint，就直接注册
 		err := e.stack.RegisterTransportEndpoint(nicid, netProtos, ProtocolNumber, id, e)
 		return id, err
 	}
 
 	// We need to find a port for the endpoint.
+	// 否则调用PickEphemeralPort选取一个随机的端口，并传输一个匿名函数用于注册
 	_, err := e.stack.PickEphemeralPort(func(p uint16) (bool, *tcpip.Error) {
 		id.LocalPort = p
 		err := e.stack.RegisterTransportEndpoint(nicid, netProtos, ProtocolNumber, id, e)
@@ -532,6 +543,7 @@ func (e *endpoint) registerWithStack(nicid tcpip.NICID, netProtos []tcpip.Networ
 func (e *endpoint) bindLocked(addr tcpip.FullAddress, commit func() *tcpip.Error) *tcpip.Error {
 	// Don't allow binding once endpoint is not in the initial state
 	// anymore.
+	// 如果endpoint已经不处于initial state了，则不能进行binding
 	if e.state != stateInitial {
 		return tcpip.ErrInvalidEndpointState
 	}
@@ -545,6 +557,7 @@ func (e *endpoint) bindLocked(addr tcpip.FullAddress, commit func() *tcpip.Error
 	// wildcard (empty) address, and this is an IPv6 endpoint with v6only
 	// set to false.
 	netProtos := []tcpip.NetworkProtocolNumber{netProto}
+	// 当协议为IPv6，且endpoint的v6only为false，并且地址为空，则扩展netProtos，使其包含IPv4和IPv6
 	if netProto == header.IPv6ProtocolNumber && !e.v6only && addr.Addr == "" {
 		netProtos = []tcpip.NetworkProtocolNumber{
 			header.IPv6ProtocolNumber,
@@ -554,6 +567,7 @@ func (e *endpoint) bindLocked(addr tcpip.FullAddress, commit func() *tcpip.Error
 
 	if len(addr.Addr) != 0 {
 		// A local address was specified, verify that it's valid.
+		// 检查地址是否存在于Nic中
 		if e.stack.CheckLocalAddress(addr.NIC, addr.Addr) == 0 {
 			return tcpip.ErrBadLocalAddress
 		}
@@ -580,6 +594,7 @@ func (e *endpoint) bindLocked(addr tcpip.FullAddress, commit func() *tcpip.Error
 	e.effectiveNetProtos = netProtos
 
 	// Mark endpoint as bound.
+	// 修改endpoint的状态为bound
 	e.state = stateBound
 
 	e.rcvMu.Lock()
@@ -662,11 +677,13 @@ func (e *endpoint) HandlePacket(r *stack.Route, id stack.TransportEndpointID, vv
 		return
 	}
 
+	// 去除UDP头部
 	vv.TrimFront(header.UDPMinimumSize)
 
 	e.rcvMu.Lock()
 
 	// Drop the packet if our buffer is currently full.
+	// 如果还未准备好接收数据，或者接收已关闭，或者缓冲已满，则丢弃封包
 	if !e.rcvReady || e.rcvClosed || e.rcvBufSize >= e.rcvBufSizeMax {
 		e.rcvMu.Unlock()
 		return
@@ -675,6 +692,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, id stack.TransportEndpointID, vv
 	wasEmpty := e.rcvBufSize == 0
 
 	// Push new packet into receive list and increment the buffer size.
+	// 将封包加入接收队列，并增加缓冲大小
 	pkt := &udpPacket{
 		senderAddress: tcpip.FullAddress{
 			NIC:  r.NICID(),
@@ -689,6 +707,7 @@ func (e *endpoint) HandlePacket(r *stack.Route, id stack.TransportEndpointID, vv
 	e.rcvMu.Unlock()
 
 	// Notify any waiters that there's data to be read now.
+	// 如果当前队列为空，则通知相应的endpoint进行处理
 	if wasEmpty {
 		e.waiterQueue.Notify(waiter.EventIn)
 	}

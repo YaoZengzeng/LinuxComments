@@ -59,19 +59,24 @@ func (c *testContext) cleanup() {
 	close(c.linkEP.C)
 }
 
+// loopback从c.LinkEP.c中读取封包
 func (c *testContext) loopback() {
 	go func() {
 		for pkt := range c.linkEP.C {
+			// 将封包存入v中
 			v := make(buffer.View, len(pkt.Header)+len(pkt.Payload))
 			copy(v, pkt.Header)
 			copy(v[len(pkt.Header):], pkt.Payload)
+			// 根据v构建vectorisedView
 			vv := v.ToVectorisedView([1]buffer.View{})
+			// 最后将vectorisedView重新注入LinkEP
 			c.linkEP.Inject(pkt.Proto, &vv)
 		}
 	}()
 }
 
 func TestEcho(t *testing.T) {
+	// 新建一个stack，并创建网卡，设置IP地址和路由
 	c := newTestContext(t)
 	defer c.cleanup()
 	c.loopback()
