@@ -53,6 +53,7 @@ type endpoint struct {
 	// work. Only the main protocol goroutine is expected to call Lock() on
 	// it, but other goroutines (e.g., send) may call TryLock() to eagerly
 	// perform work without having to wait for the main one to wake up.
+	// 只有main protocol goroutine可以调用Lock(),其他的goroutine可以调用TryLock()
 	workMu tmutex.Mutex
 
 	// The following fields are initialized at creation time and do not
@@ -64,6 +65,7 @@ type endpoint struct {
 	// lastError represents the last error that the endpoint reported;
 	// access to it is protected by the following mutex.
 	lastErrorMu sync.Mutex
+	// lastError是endpoint报告的最后一个错误，需要通过lastErrorMu来访问它
 	lastError   *tcpip.Error
 
 	// The following fields are used to manage the receive queue. The
@@ -74,6 +76,7 @@ type endpoint struct {
 	// to indicate to users that no more data is coming.
 	rcvListMu  sync.Mutex
 	rcvList    segmentList
+	// 当对端关闭时，rcvClosed设置为true，表示不会有新的数据到达了
 	rcvClosed  bool
 	rcvBufSize int
 	rcvBufUsed int
@@ -132,6 +135,8 @@ type endpoint struct {
 	// segmentQueue is used to hand received segments to the protocol
 	// goroutine. Segments are queued as long as the queue is not full,
 	// and dropped when it is.
+	// segmentQueue用于将接收到的segments传递给protocol goroutine
+	// 如果队列未满，则将Segment入队，否则直接丢弃
 	segmentQueue segmentQueue
 
 	// The following fields are used to manage the send buffer. When
@@ -150,19 +155,24 @@ type endpoint struct {
 
 	// newSegmentWaker is used to indicate to the protocol goroutine that
 	// it needs to wake up and handle new segments queued to it.
+	// newSegmentWaker用于唤醒protocol goroutine处理入队的segment
 	newSegmentWaker sleep.Waker
 
 	// notificationWaker is used to indicate to the protocol goroutine that
 	// it needs to wake up and check for notifications.
+	// notificationWaker用于唤醒protocol goroutine,使其接收notification
 	notificationWaker sleep.Waker
 
 	// notifyFlags is a bitmask of flags used to indicate to the protocol
 	// goroutine what it was notified; this is only accessed atomically.
+	// 用于描述应该通知protocol goroutine哪些事情，该变量应该通过原子访问
 	notifyFlags uint32
 
 	// acceptedChan is used by a listening endpoint protocol goroutine to
 	// send newly accepted connections to the endpoint so that they can be
 	// read by Accept() calls.
+	// listening endpoint protocol goroutine通过使用acceptedChan传送新接收的
+	// connections，因此它们就能被Accept()获取
 	acceptedChan chan *endpoint
 
 	// The following are only used from the protocol goroutine, and
@@ -842,6 +852,7 @@ func (e *endpoint) Shutdown(flags tcpip.ShutdownFlags) *tcpip.Error {
 
 // Listen puts the endpoint in "listen" mode, which allows it to accept
 // new connections.
+// Listen将endpoint置为listen模式，使它能够接收新的连接
 func (e *endpoint) Listen(backlog int) *tcpip.Error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -850,6 +861,7 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 	// When the endpoint shuts down, it sets workerCleanup to true, and from
 	// that point onward, acceptedChan is the responsibility of the cleanup()
 	// method (and should not be touched anywhere else, including here).
+	// 在endpoint未关闭之前，允许对backlog进行调整
 	if e.state == stateListen && !e.workerCleanup {
 		// Adjust the size of the channel iff we can fix existing
 		// pending connections into the new one.
@@ -859,6 +871,7 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 		origChan := e.acceptedChan
 		e.acceptedChan = make(chan *endpoint, backlog)
 		close(origChan)
+		// 将原始的acceptedChan放入新的acceptedChan中
 		for ep := range origChan {
 			e.acceptedChan <- ep
 		}
@@ -866,6 +879,7 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 	}
 
 	// Endpoint must be bound before it can transition to listen mode.
+	// 在进入listen mode 之前的状态必须是stateBound
 	if e.state != stateBound {
 		return tcpip.ErrInvalidEndpointState
 	}
@@ -877,6 +891,7 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 
 	e.isRegistered = true
 	e.state = stateListen
+	// 将backlog设置为acceptedChan的大小
 	e.acceptedChan = make(chan *endpoint, backlog)
 	e.workerRunning = true
 
@@ -887,6 +902,7 @@ func (e *endpoint) Listen(backlog int) *tcpip.Error {
 
 // startAcceptedLoop sets up required state and starts a goroutine with the
 // main loop for accepted connections.
+// startAcceptedLoop设置状态并且为新accepted的连接启动一个goroutine作为主循环，用于接收处理segment
 func (e *endpoint) startAcceptedLoop(waiterQueue *waiter.Queue) {
 	e.waiterQueue = waiterQueue
 	e.workerRunning = true
@@ -927,6 +943,8 @@ func (e *endpoint) Bind(addr tcpip.FullAddress, commit func() *tcpip.Error) (ret
 	// Don't allow binding once endpoint is not in the initial state
 	// anymore. This is because once the endpoint goes into a connected or
 	// listen state, it is already bound.
+	// 只能在stateInitial的时候进行Bind操作
+	// 因为在connected或listen状态的时候，说明都已经bound了
 	if e.state != stateInitial {
 		return tcpip.ErrAlreadyBound
 	}
@@ -1076,6 +1094,7 @@ func (e *endpoint) readyToRead(s *segment) {
 
 // receiveBufferAvailable calculates how many bytes are still available in the
 // receive buffer.
+// receiveBufferAvailable用于计算接收缓存中有还有多少内存可用
 func (e *endpoint) receiveBufferAvailable() int {
 	e.rcvListMu.Lock()
 	size := e.rcvBufSize

@@ -51,6 +51,7 @@ var (
 
 	// mssTable is a slice containing the possible MSS values that we
 	// encode in the SYN cookie with two bits.
+	// mssTable中存储的是我们会编码在SYN cookie中可能的值	
 	mssTable = []uint16{536, 1300, 1440, 1460}
 )
 
@@ -66,6 +67,7 @@ func encodeMSS(mss uint16) uint32 {
 // syncRcvdCount is the number of endpoints in the SYN-RCVD state. The value is
 // protected by a mutex so that we can increment only when it's guaranteed not
 // to go above a threshold.
+// syncRcvdCount用来记录处于SYN-RCVD状态的endpoint的数目
 var synRcvdCount struct {
 	sync.Mutex
 	value uint64
@@ -75,9 +77,11 @@ var synRcvdCount struct {
 // listening for connections. This struct is allocated by the listen goroutine
 // and must not be accessed or have its methods called concurrently as they
 // may mutate the stored objects.
+// listenContex是listening endpoint用于在监听连接时保存状态的，它的方法都不能被并行调用
 type listenContext struct {
 	stack  *stack.Stack
 	rcvWnd seqnum.Size
+	// nonce是一个sha1.BlockSize大小的二元数组
 	nonce  [2][sha1.BlockSize]byte
 
 	hasherMu sync.Mutex
@@ -88,6 +92,7 @@ type listenContext struct {
 
 // timeStamp returns an 8-bit timestamp with a granularity of 64 seconds.
 func timeStamp() uint32 {
+	// 粒度为64s的timestamp，只保留后8位
 	return uint32(time.Now().Unix()>>6) & tsMask
 }
 
@@ -135,10 +140,13 @@ func newListenContext(stack *stack.Stack, rcvWnd seqnum.Size, v6only bool, netPr
 
 // cookieHash calculates the cookieHash for the given id, timestamp and nonce
 // index. The hash is used to create and validate cookies.
+// cookieHash根据给定的id，timestamp，以及nonce index计算cookieHash
+// 该hash值用来创建以及验证cookie
 func (l *listenContext) cookieHash(id stack.TransportEndpointID, ts uint32, nonceIndex int) uint32 {
 
 	// Initialize block with fixed-size data: local ports and v.
 	var payload [8]byte
+	// 用本地以及目标端口，还有timestamp填充payload
 	binary.BigEndian.PutUint16(payload[0:], id.LocalPort)
 	binary.BigEndian.PutUint16(payload[2:], id.RemotePort)
 	binary.BigEndian.PutUint32(payload[4:], ts)
@@ -156,15 +164,18 @@ func (l *listenContext) cookieHash(id stack.TransportEndpointID, ts uint32, nonc
 	h = l.hasher.Sum(h)
 	l.hasherMu.Unlock()
 
+	// 只返回哈希值的前四个byte
 	return binary.BigEndian.Uint32(h[:])
 }
 
 // createCookie creates a SYN cookie for the given id and incoming sequence
 // number.
+// 对于给定的id和接收到的sequence number创建SYN cookie
 func (l *listenContext) createCookie(id stack.TransportEndpointID, seq seqnum.Value, data uint32) seqnum.Value {
 	ts := timeStamp()
 	v := l.cookieHash(id, 0, 0) + uint32(seq) + (ts << tsOffset)
 	v += (l.cookieHash(id, ts, 1) + data) & hashMask
+	// cookie是一个32位的数值
 	return seqnum.Value(v)
 }
 
@@ -184,12 +195,14 @@ func (l *listenContext) isCookieValid(id stack.TransportEndpointID, cookie seqnu
 
 // createConnectedEndpoint creates a new connected endpoint, with the connection
 // parameters given by the arguments.
+// createConnectedEndpoint创建一个新的connected endpoint，connection parameter通过argumentes指定
 func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, irs seqnum.Value, rcvdSynOpts *header.TCPSynOptions) (*endpoint, *tcpip.Error) {
 	// Create a new endpoint.
 	netProto := l.netProto
 	if netProto == 0 {
 		netProto = s.route.NetProto
 	}
+	// 创建一个新的endpoint
 	n := newEndpoint(l.stack, netProto, nil)
 	n.v6only = l.v6only
 	n.id = s.id
@@ -221,6 +234,7 @@ func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, ir
 
 // createEndpoint creates a new endpoint in connected state and then performs
 // the TCP 3-way handshake.
+// createEndpoint创建一个新的处于connected状态的endpoint，之后再进行三次握手
 func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *header.TCPSynOptions) (*endpoint, *tcpip.Error) {
 	// Create new endpoint.
 	irs := s.sequenceNumber
@@ -254,6 +268,7 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 // deliverAccepted delivers the newly-accepted endpoint to the listener. If the
 // endpoint has transitioned out of the listen state, the new endpoint is closed
 // instead.
+// deliverAccepted将newly-accepted endpoint发送给listener
 func (e *endpoint) deliverAccepted(n *endpoint) {
 	e.mu.RLock()
 	if e.state == stateListen {
@@ -268,9 +283,12 @@ func (e *endpoint) deliverAccepted(n *endpoint) {
 // handleSynSegment is called in its own goroutine once the listening endpoint
 // receives a SYN segment. It is responsible for completing the handshake and
 // queueing the new endpoint for acceptance.
+// 当listening endpoint接收到SYN segment之后会开启一个独立的goroutine运行handleSynSegment
+// 它负责完成握手，以及将新的endpoint加入队列等待accept
 //
 // A limited number of these goroutines are allowed before TCP starts using SYN
 // cookies to accept connections.
+// 当这些goroutine到达一定数目以后,TCP会使用SYN cookie来完成连接
 func (e *endpoint) handleSynSegment(ctx *listenContext, s *segment, opts *header.TCPSynOptions) {
 	defer decSynRcvdCount()
 	defer s.decRef()
@@ -285,9 +303,11 @@ func (e *endpoint) handleSynSegment(ctx *listenContext, s *segment, opts *header
 
 // handleListenSegment is called when a listening endpoint receives a segment
 // and needs to handle it.
+// 当一个listening endpoint收到一个segment时，handleListenSegment负责处理它
 func (e *endpoint) handleListenSegment(ctx *listenContext, s *segment) {
 	switch s.flags {
 	case flagSyn:
+		// 解析syn segment中的选项
 		opts := parseSynSegmentOptions(s)
 		if incSynRcvdCount() {
 			s.incRef()
@@ -301,8 +321,10 @@ func (e *endpoint) handleListenSegment(ctx *listenContext, s *segment) {
 			// the timestamp option specified.
 			synOpts := header.TCPSynOptions{
 				WS:    -1,
+				// 如果初始的syn中包含timestamp选项
 				TS:    opts.TS,
 				TSVal: tcpTimeStamp(timeStampOffset()),
+				// 将original syn中的TSVal作为TSEcr返回
 				TSEcr: opts.TSVal,
 			}
 			sendSynTCP(&s.route, s.id, flagSyn|flagAck, cookie, s.sequenceNumber+1, ctx.rcvWnd, synOpts)
@@ -341,12 +363,16 @@ func (e *endpoint) handleListenSegment(ctx *listenContext, s *segment) {
 
 // protocolListenLoop is the main loop of a listening TCP endpoint. It runs in
 // its own goroutine and is responsible for handling connection requests.
+// protocolListenLoop是一个listening TCP endpoint的主循环，它在自己的goroutine中运行
+// 并且负责处理连接请求
 func (e *endpoint) protocolListenLoop(rcvWnd seqnum.Size) *tcpip.Error {
 	defer func() {
 		// Mark endpoint as closed. This will prevent goroutines running
 		// handleSynSegment() from attempting to queue new connections
 		// to the endpoint.
 		e.mu.Lock()
+		// 标记endpoint为closed，这可以让handleSynSegment()所在的goroutine不再将
+		// 新的连接加入队列中
 		e.state = stateClosed
 		e.mu.Unlock()
 
@@ -377,6 +403,7 @@ func (e *endpoint) protocolListenLoop(rcvWnd seqnum.Size) *tcpip.Error {
 		case wakerForNewSegment:
 			// Process at most maxSegmentsPerWake segments.
 			mayRequeue := true
+			// 一次最多处理maxSegmentsPerWake个segment
 			for i := 0; i < maxSegmentsPerWake; i++ {
 				s := e.segmentQueue.dequeue()
 				if s == nil {

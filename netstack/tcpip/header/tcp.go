@@ -80,13 +80,16 @@ type TCPFields struct {
 
 // TCPSynOptions is used to return the parsed TCP Options in a syn
 // segment.
+// TCPSynOptions用来返回从syn segment中解析出来的TCP Options
 type TCPSynOptions struct {
 	// MSS is the maximum segment size provided by the peer in the SYN.
+	// 对端提供的mss
 	MSS uint16
 
 	// WS is the window scale option provided by the peer in the SYN.
 	//
 	// Set to -1 if no window scale option was provided.
+	// 设置为-1，如果对端没有提供window scale option
 	WS int
 
 	// TS is true if the timestamp option was provided in the syn/syn-ack.
@@ -101,14 +104,18 @@ type TCPSynOptions struct {
 
 // TCPOptions are used to parse and cache the TCP segment options for a non
 // syn/syn-ack segment.
+// TCPOptions用来解析和缓存非syn/syn-ack的segment的TCP segment选项
 type TCPOptions struct {
 	// TS is true if the TimeStamp option is enabled.
+	// TS为true，如果TimeStamp选项打开的话
 	TS bool
 
 	// TSVal is the value in the TSVal field of the segment.
+	// 发送改tcp segment的时间戳
 	TSVal uint32
 
 	// TSEcr is the value in the TSEcr field of the segment.
+	// TSEcr -> TS Echo Reply
 	TSEcr uint32
 }
 
@@ -260,27 +267,34 @@ func (b TCP) EncodePartial(partialChecksum, length uint16, seqnum, acknum uint32
 
 // ParseSynOptions parses the options received in a SYN segment and returns the
 // relevant ones. opts should point to the option part of the TCP Header.
+// ParseSynOptions解析SYN segment中的选项
 func ParseSynOptions(opts []byte, isAck bool) TCPSynOptions {
 	limit := len(opts)
 
 	synOpts := TCPSynOptions{
 		// Per RFC 1122, page 85: "If an MSS option is not received at
 		// connection setup, TCP MUST assume a default send MSS of 536."
+		// 根据rfc 1122，如果在连接建立阶段没有指定MSS，那么默认值设为536
 		MSS: 536,
 		// If no window scale option is specified, WS in options is
 		// returned as -1; this is because the absence of the option
 		// indicates that the we cannot use window scaling on the
 		// receive end either.
+		// 如果没有指定window scale选项，则将其置为-1，这说明我们在接收端
+		// 也不能使用window scaling
 		WS: -1,
 	}
 
 	for i := 0; i < limit; {
 		switch opts[i] {
 		case TCPOptionEOL:
+			// End of Option List
 			i = limit
 		case TCPOptionNOP:
+			// No-Operation
 			i++
 		case TCPOptionMSS:
+			// Maximum Segment Size -> length is 4
 			if i+4 > limit || opts[i+1] != 4 {
 				return synOpts
 			}
@@ -292,6 +306,7 @@ func ParseSynOptions(opts []byte, isAck bool) TCPSynOptions {
 			i += 4
 
 		case TCPOptionWS:
+			// Window Scale -> length is 3
 			if i+3 > limit || opts[i+1] != 3 {
 				return synOpts
 			}
@@ -303,6 +318,7 @@ func ParseSynOptions(opts []byte, isAck bool) TCPSynOptions {
 			i += 3
 
 		case TCPOptionTS:
+			// TimeStamp -> length is 10
 			if i+10 > limit || opts[i+1] != 10 {
 				return synOpts
 			}
@@ -310,6 +326,7 @@ func ParseSynOptions(opts []byte, isAck bool) TCPSynOptions {
 			if isAck {
 				// If the segment is a SYN-ACK then store the Timestamp Echo Reply
 				// in the segment.
+				// 只有在Ack segment中，TSEcr才可用
 				synOpts.TSEcr = binary.BigEndian.Uint32(opts[i+6:])
 			}
 			synOpts.TS = true

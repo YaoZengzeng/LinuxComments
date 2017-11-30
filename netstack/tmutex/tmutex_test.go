@@ -28,6 +28,7 @@ func TestBasicLock(t *testing.T) {
 	}()
 
 	select {
+	// 若<-ch成功，则说明goroutine中的m.Lock()成功，重复Lock()，所以失败
 	case <-ch:
 		t.Fatalf("Lock succeeded on locked mutex")
 	case <-time.After(100 * time.Millisecond):
@@ -38,12 +39,14 @@ func TestBasicLock(t *testing.T) {
 	m.Unlock()
 
 	select {
+	// 此时等待goroutine中Lock成功
 	case <-ch:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("Lock failed to acquire unlocked mutex")
 	}
 
 	// Make sure we can lock and unlock again.
+	// 保证我们还能Lock()和Unlock()
 	m.Lock()
 	m.Unlock()
 }
@@ -101,6 +104,7 @@ func TestMutualExclusion(t *testing.T) {
 	//
 	// If one of the goroutines doesn't complete, it's likely a bug that
 	// causes to it to wait forever.
+	// 生成gr个goroutine，每个对变量v都增加iters次
 	const gr = 1000
 	const iters = 100000
 	v := 0
@@ -130,6 +134,7 @@ func TestMutualExclusionWithTryLock(t *testing.T) {
 
 	// Similar to the previous, with the addition of some goroutines that
 	// only increment the count if TryLock succeeds.
+	// 和前一个例子基本相同，除了有的goroutine在TryLock成功的时候增加counter
 	const gr = 1000
 	const iters = 100000
 	total := int64(gr * iters)
@@ -154,6 +159,7 @@ func TestMutualExclusionWithTryLock(t *testing.T) {
 					local++
 				}
 			}
+			// local其实就是在iters次的遍历中，TryLock()成功的次数
 			atomic.AddInt64(&total, local)
 			wg.Done()
 		}()

@@ -174,6 +174,7 @@ func TestBlock(t *testing.T) {
 
 	// Check that fetch sleeps if waker had been asserted but was reset
 	// before Fetch is called.
+	// 在调用Fetch之前，Assert被撤销
 	w.Assert()
 	w.Clear()
 	before = time.Now()
@@ -225,6 +226,7 @@ func TestNonBlock(t *testing.T) {
 
 // TestMultiple checks that a sleeper can wait for and receives notifications
 // from multiple wakers.
+// TestMultiple检测sleeper可以等待并接收来自多个waker的notification
 func TestMultiple(t *testing.T) {
 	s := Sleeper{}
 	w1 := Waker{}
@@ -241,6 +243,7 @@ func TestMultiple(t *testing.T) {
 		t.Fatalf("Fetch failed when there are asserted wakers")
 	}
 
+	// Fetch()会取到0或取到1
 	if v != 0 && v != 1 {
 		t.Fatalf("Unexpected waker id: %v", v)
 	}

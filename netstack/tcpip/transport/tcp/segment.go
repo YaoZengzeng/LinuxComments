@@ -26,6 +26,8 @@ const (
 // segment represents a TCP segment. It holds the payload and parsed TCP segment
 // information, and can be added to intrusive lists.
 // segment is mostly immutable, the only field allowed to change is viewToDeliver.
+// segment 代表了一个TCP segment，其中包含了负载以及经过分析的TCP segment信息，并且能够被加入到
+// intrusive list中，segment基本上是一成不变的，唯一可以被改变的字段就是viewToDeliver
 type segment struct {
 	segmentEntry
 	refCnt int32
@@ -37,6 +39,7 @@ type segment struct {
 	views [8]buffer.View
 	// viewToDeliver keeps track of the next View that should be
 	// delivered by the Read endpoint.
+	// viewToDeliver代表下一个将传输给Read endpoint的View
 	viewToDeliver  int
 	sequenceNumber seqnum.Value
 	ackNumber      seqnum.Value
@@ -114,6 +117,7 @@ func (s *segment) logicalLen() seqnum.Size {
 // parse populates the sequence & ack numbers, flags, and window fields of the
 // segment from the TCP header stored in the data. It then updates the view to
 // skip the data. Returns boolean indicating if the parsing was successful.
+// parse从tcp header中解析出sequence以及ack numbers，flags，以及window，跳过data，更新view
 func (s *segment) parse() bool {
 	h := header.TCP(s.data.First())
 

@@ -64,6 +64,7 @@ type handshake struct {
 
 	// sndWndScale is the send window scale, as defined in RFC 1323. A
 	// negative value means no scaling is supported by the peer.
+	// sndWndScale为负数说明scaling对端不支持
 	sndWndScale int
 
 	// rcvWndScale is the receive window scale, as defined in RFC 1323.
@@ -384,6 +385,7 @@ func (h *handshake) execute() *tcpip.Error {
 func parseSynSegmentOptions(s *segment) header.TCPSynOptions {
 	synOpts := header.ParseSynOptions(s.options, s.flagIsSet(flagAck))
 	if synOpts.TS {
+		// parsedOptions中只存储TSVal和TSEcr
 		s.parsedOptions.TSVal = synOpts.TSVal
 		s.parsedOptions.TSEcr = synOpts.TSEcr
 	}
@@ -634,6 +636,7 @@ func (e *endpoint) handleSegments() bool {
 // protocolMainLoop is the main loop of the TCP protocol. It runs in its own
 // goroutine and is responsible for sending segments and handling received
 // segments.
+// protocolMainLoop运行在自己的goroutine中，用于负责发送segment以及处理接收到的segment
 func (e *endpoint) protocolMainLoop(passive bool) *tcpip.Error {
 	var closeTimer *time.Timer
 	var closeWaker sleep.Waker
@@ -655,6 +658,7 @@ func (e *endpoint) protocolMainLoop(passive bool) *tcpip.Error {
 		// This is an active connection, so we must initiate the 3-way
 		// handshake, and then inform potential waiters about its
 		// completion.
+		// 如果这是一个主动连接，我们需要初始化三次握手，并且通知潜在的waiter握手的完成
 		h, err := newHandshake(e, seqnum.Size(e.receiveBufferAvailable()))
 		if err == nil {
 			err = h.execute()

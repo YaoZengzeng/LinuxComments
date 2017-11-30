@@ -23,6 +23,8 @@ type receiver struct {
 	// rcvNxt + rcvWnd if the receive window is reduced; in that case we
 	// have to reduce the window as we receive more data instead of
 	// shrinking it.
+	// rcvAcc是最后一个可接受的sequence number + 1，它可能在receive window减小的时候
+	// 和rcvNext + rcvWnd不同
 	rcvAcc seqnum.Value
 
 	rcvWndScale uint8

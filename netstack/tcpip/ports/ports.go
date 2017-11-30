@@ -20,6 +20,7 @@ const (
 	anyIPAddress = tcpip.Address("")
 )
 
+// 用网络层协议号，传输层协议号以及端口号作为一个标识符
 type portDescriptor struct {
 	network   tcpip.NetworkProtocolNumber
 	transport tcpip.TransportProtocolNumber
@@ -45,6 +46,7 @@ func (b bindAddresses) isAvailable(addr tcpip.Address) bool {
 
 	// If all addresses for this portDescriptor are already bound, no
 	// address is available.
+	// 如果绑定了任意的IP地址，则返回false，没有地址可用
 	if _, ok := b[anyIPAddress]; ok {
 		return false
 	}
@@ -89,6 +91,8 @@ func (s *PortManager) PickEphemeralPort(testPort func(p uint16) (bool, *tcpip.Er
 // reserved by another endpoint. If port is zero, ReservePort will search for
 // an unreserved ephemeral port and reserve it, returning its value in the
 // "port" return value.
+// ReservePort保留一个port/IP对，从而使其不能被其它endpoint保留，如果port为0，ReservePort
+// 会寻找一个未被保留的随机端口并且保留它，最后将port值返回
 func (s *PortManager) ReservePort(network []tcpip.NetworkProtocolNumber, transport tcpip.TransportProtocolNumber, addr tcpip.Address, port uint16) (reservedPort uint16, err *tcpip.Error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -111,7 +115,9 @@ func (s *PortManager) ReservePort(network []tcpip.NetworkProtocolNumber, transpo
 // reserveSpecificPort tries to reserve the given port on all given protocols.
 func (s *PortManager) reserveSpecificPort(network []tcpip.NetworkProtocolNumber, transport tcpip.TransportProtocolNumber, addr tcpip.Address, port uint16) bool {
 	// Check that the port is available on all network protocols.
+	// 检测是否port在所有network protocols上都是可获取的
 	desc := portDescriptor{0, transport, port}
+	// 遍历所有的network protocol，如果有一个不可获取，就返回false
 	for _, n := range network {
 		desc.network = n
 		if addrs, ok := s.allocatedPorts[desc]; ok {
@@ -122,6 +128,7 @@ func (s *PortManager) reserveSpecificPort(network []tcpip.NetworkProtocolNumber,
 	}
 
 	// Reserve port on all network protocols.
+	// 在所有的network protocol上保留端口
 	for _, n := range network {
 		desc.network = n
 		m, ok := s.allocatedPorts[desc]

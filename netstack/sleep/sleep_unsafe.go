@@ -65,6 +65,7 @@ import (
 const (
 	// preparingG is stored in sleepers to indicate that they're preparing
 	// to sleep.
+	// prepareG存储在sleeper中，用来表示它们准备进入休眠状态
 	preparingG = 1
 )
 
@@ -76,9 +77,12 @@ var (
 
 //go:linkname gopark runtime.gopark
 func gopark(unlockf func(uintptr, *uintptr) bool, wg *uintptr, reason string, traceEv byte, traceskip int)
+// gopark将当前的goroutine置于waiting的状态，并且调用unlockf，如果unlockf返回false
+// 那么goroutine继续执行
 
 //go:linkname goready runtime.goready
 func goready(g uintptr, traceskip int)
+// 通过调用goready可以让goroutine重新进入可执行状态
 
 // Sleeper allows a goroutine to sleep and receive wake up notifications from
 // Wakers in an efficient way.
@@ -123,13 +127,17 @@ func (s *Sleeper) AddWaker(w *Waker, id int) {
 
 	// Try to associate the waker with the sleeper. If it's already
 	// asserted, we simply enqueue it in the "ready" list.
+	// 将waker和sleeper相关联，如果waker已经assert了，就将它简单地加入"ready" list中
 	for {
+		// 加载*Sleeper
 		p := (*Sleeper)(atomic.LoadPointer(&w.s))
+		// 如果waker已经asserted了
 		if p == &assertedSleeper {
 			s.enqueueAssertedWaker(w)
 			return
 		}
 
+		// 将w.s置为s
 		if atomic.CompareAndSwapPointer(&w.s, usleeper(p), usleeper(s)) {
 			return
 		}
@@ -140,10 +148,13 @@ func (s *Sleeper) AddWaker(w *Waker, id int) {
 // needed.
 func (s *Sleeper) nextWaker(block bool) *Waker {
 	// Attempt to replenish the local list if it's currently empty.
+	// 如果当前的local list为空，则试着填充它
 	if s.localList == nil {
+		// 如果sharedList为空
 		for atomic.LoadPointer(&s.sharedList) == nil {
 			// Fail request if caller requested that we
 			// don't block.
+			// 如果blcok为false，则直接返回
 			if !block {
 				return nil
 			}
@@ -152,11 +163,14 @@ func (s *Sleeper) nextWaker(block bool) *Waker {
 			// this allows them to abort the wait by setting
 			// waitingG back to zero (which we'll notice
 			// before committing the sleep).
+			// 告诉waker我们准备休眠了，之后它们能够通过将s.waitingG重新
+			// 置为0来打破休眠
 			atomic.StoreUintptr(&s.waitingG, preparingG)
 
 			// Check if something was queued while we were
 			// preparing to sleep. We need this interleaving
 			// to avoid missing wake ups.
+			// 检查一下在我们准备进入睡眠之前是否有waker进队列
 			if atomic.LoadPointer(&s.sharedList) != nil {
 				atomic.StoreUintptr(&s.waitingG, 0)
 				break
@@ -168,6 +182,8 @@ func (s *Sleeper) nextWaker(block bool) *Waker {
 			// gopark puts the caller to sleep and calls
 			// commitSleep to decide whether to immediately
 			// wake the caller up or to leave it sleeping.
+			// gopark将caller置于睡眠状态，并调用commitSleep来决定是立即
+			// caller还是继续休眠
 			const traceEvGoBlockSelect = 24
 			gopark(commitSleep, &s.waitingG, "sleeper", traceEvGoBlockSelect, 0)
 		}
@@ -175,7 +191,9 @@ func (s *Sleeper) nextWaker(block bool) *Waker {
 		// Pull the shared list out and reverse it in the local
 		// list. Given that wakers push themselves in reverse
 		// order, we fix things here.
+		// 将waker从shared list中取出并将它放入local list中
 		v := (*Waker)(atomic.SwapPointer(&s.sharedList, nil))
+		// 并且按相反的顺序放入local list中
 		for v != nil {
 			cur := v
 			v = v.next
@@ -186,6 +204,7 @@ func (s *Sleeper) nextWaker(block bool) *Waker {
 	}
 
 	// Remove the waker in the front of the list.
+	// 从localList中取出waker
 	w := s.localList
 	s.localList = w.next
 
@@ -196,12 +215,16 @@ func (s *Sleeper) nextWaker(block bool) *Waker {
 // available, it is returned right away. Otherwise, the behavior depends on the
 // value of 'block': if true, the current goroutine blocks until a notification
 // arrives, then returns it; if false, returns 'ok' as false.
+// Fetch用于获取下一个wake-up notification，如果当前就有一个notification可得的话，就立即返回
+// 否则根据参数'block'来决定，如果block为true，则当前的goroutine会阻塞，直到有notification，
+// 如果block为false，则直接将返回值ok置为false
 //
 // When 'ok' is true, the value of 'id' corresponds to the id associated with
 // the waker; when 'ok' is false, 'id' is undefined.
 //
 // N.B. This method is *not* thread-safe. Only one goroutine at a time is
 //      allowed to call this method.
+// 本方法不是thread-safe，在给定时刻，只允许一个goroutine访问本方法
 func (s *Sleeper) Fetch(block bool) (id int, ok bool) {
 	for {
 		w := s.nextWaker(block)
@@ -228,6 +251,7 @@ func (s *Sleeper) Done() {
 	// asserted yet. By atomically switching w.s to nil, we guarantee that
 	// subsequent calls to Assert() on the waker will not result in it being
 	// queued to this sleeper.
+	// pending是w.s不为s的waker组成的链表
 	var pending *Waker
 	w := s.allWakers
 	for w != nil {
@@ -257,6 +281,7 @@ func (s *Sleeper) Done() {
 
 		// Remove the waker we just pulled from the list of associated
 		// wakers.
+		// 首先从list中获取associated wakers
 		prev := &pending
 		for w := *prev; w != nil; w = *prev {
 			if pulled == w {
@@ -273,9 +298,11 @@ func (s *Sleeper) Done() {
 // of wakers that want to notify the sleeper.
 func (s *Sleeper) enqueueAssertedWaker(w *Waker) {
 	// Add the new waker to the front of the list.
+	// 将waker加入sharedList前端
 	for {
 		v := (*Waker)(atomic.LoadPointer(&s.sharedList))
 		w.next = v
+		// 可能存在竞争，因此需要不断尝试
 		if atomic.CompareAndSwapPointer(&s.sharedList, uwaker(v), uwaker(w)) {
 			break
 		}
@@ -289,9 +316,11 @@ func (s *Sleeper) enqueueAssertedWaker(w *Waker) {
 		}
 
 		// Signal to the sleeper that a waker has been asserted.
+		// 给sleeper发信号
 		if atomic.CompareAndSwapUintptr(&s.waitingG, g, 0) {
 			if g != preparingG {
 				// We managed to get a G. Wake it up.
+				// 重新让g开始运行
 				goready(g, 0)
 			}
 		}
@@ -334,15 +363,19 @@ type Waker struct {
 
 // Assert moves the waker to an asserted state, if it isn't asserted yet. When
 // asserted, the waker will cause its matching sleeper to wake up.
+// Assert将waker置为associated state，如果它还未asserted的话，asserted之后，waker会
+// 引起相应的sleeper wake up
 func (w *Waker) Assert() {
 	// Nothing to do if the waker is already asserted. This check allows us
 	// to complete this case (already asserted) without any interlocked
 	// operations on x86.
+	// 重复Assert，则不做任何处理
 	if atomic.LoadPointer(&w.s) == usleeper(&assertedSleeper) {
 		return
 	}
 
 	// Mark the waker as asserted, and wake up a sleeper if there is one.
+	// 将w.s置为assertedSleeper
 	switch s := (*Sleeper)(atomic.SwapPointer(&w.s, usleeper(&assertedSleeper))); s {
 	case nil:
 	case &assertedSleeper:
