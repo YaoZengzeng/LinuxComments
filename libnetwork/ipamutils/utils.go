@@ -18,6 +18,7 @@ var (
 )
 
 // InitNetworks initializes the pre-defined networks used by the built-in IP allocator
+// InitNetworks初始化pre-defined networks
 func InitNetworks() {
 	initNetworksOnce.Do(func() {
 		PredefinedBroadNetworks = initBroadPredefinedNetworks()
@@ -28,6 +29,7 @@ func InitNetworks() {
 func initBroadPredefinedNetworks() []*net.IPNet {
 	pl := make([]*net.IPNet, 0, 31)
 	mask := []byte{255, 255, 0, 0}
+	// 15 + 16个预先定义的子网，创建的network可从中分配网络
 	for i := 17; i < 32; i++ {
 		pl = append(pl, &net.IPNet{IP: []byte{172, byte(i), 0, 0}, Mask: mask})
 	}
@@ -41,6 +43,7 @@ func initBroadPredefinedNetworks() []*net.IPNet {
 func initGranularPredefinedNetworks() []*net.IPNet {
 	pl := make([]*net.IPNet, 0, 256*256)
 	mask := []byte{255, 255, 255, 0}
+	// 256 * 256个private network
 	for i := 0; i < 256; i++ {
 		for j := 0; j < 256; j++ {
 			pl = append(pl, &net.IPNet{IP: []byte{10, byte(i), byte(j), 0}, Mask: mask})

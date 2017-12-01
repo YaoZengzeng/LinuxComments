@@ -339,6 +339,7 @@ func (daemon *Daemon) createNetwork(create types.NetworkCreateRequest, id string
 
 	if create.IPAM != nil {
 		ipam := create.IPAM
+		// v4Conf和v6Conf都为[]*libnetwork.IpamConfig
 		v4Conf, v6Conf, err := getIpamConfig(ipam.Config)
 		if err != nil {
 			return nil, err

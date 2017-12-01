@@ -8,6 +8,7 @@ import (
 	remoteIpam "github.com/docker/libnetwork/ipams/remote"
 )
 
+// lDs为nil
 func initIPAMDrivers(r *drvregistry.DrvRegistry, lDs, gDs interface{}) error {
 	for _, fn := range [](func(ipamapi.Callback, interface{}, interface{}) error){
 		builtinIpam.Init,

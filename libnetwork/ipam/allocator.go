@@ -43,7 +43,9 @@ func NewAllocator(lcDs, glDs datastore.DataStore) (*Allocator, error) {
 
 	// Load predefined subnet pools
 	a.predefined = map[string][]*net.IPNet{
+		// local默认的可分配子网范围
 		localAddressSpace:  ipamutils.PredefinedBroadNetworks,
+		// global默认的可分配子网范围
 		globalAddressSpace: ipamutils.PredefinedGranularNetworks,
 	}
 

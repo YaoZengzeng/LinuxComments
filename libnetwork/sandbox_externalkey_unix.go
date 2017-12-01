@@ -102,6 +102,7 @@ func processReturn(r io.Reader) error {
 }
 
 func (c *controller) startExternalKeyListener() error {
+	// udsBase为/run/docker/libnetwork
 	if err := os.MkdirAll(udsBase, 0600); err != nil {
 		return err
 	}

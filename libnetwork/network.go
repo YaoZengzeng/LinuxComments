@@ -77,9 +77,11 @@ type NetworkInfo interface {
 	// nodes participating in the same overlay network. This is currently the per-network
 	// gossip cluster. For non-dynamic overlay networks and bridge networks it returns an
 	// empty slice
+	// 对于non-dynamic overlay network和bridge network，返回空的slice
 	Peers() []networkdb.PeerInfo
 	//Services returns a map of services keyed by the service name with the details
 	//of all the tasks that belong to the service. Applicable only in swarm mode.
+	// 只在swarm模式下有效
 	Services() map[string]ServiceInfo
 }
 
@@ -129,6 +131,7 @@ type networkDBTable struct {
 }
 
 // IpamConf contains all the ipam related configurations for a network
+// IpamConf包含一个network所有ipam相关的配置信息
 type IpamConf struct {
 	// The master address pool for containers and network interfaces
 	PreferredPool string
@@ -151,6 +154,7 @@ func (c *IpamConf) Validate() error {
 }
 
 // IpamInfo contains all the ipam related operational info for a network
+// 一个network的ipam相关的operational info
 type IpamInfo struct {
 	PoolID string
 	Meta   map[string]string
@@ -1419,6 +1423,7 @@ func (n *network) getController() *controller {
 }
 
 func (n *network) ipamAllocate() error {
+	// host和null类型的就是special driver
 	if n.hasSpecialDriver() {
 		return nil
 	}
@@ -1429,6 +1434,7 @@ func (n *network) ipamAllocate() error {
 	}
 
 	if n.addrSpace == "" {
+		// 返回"local"或者"global"
 		if n.addrSpace, err = n.deriveAddressSpace(); err != nil {
 			return err
 		}

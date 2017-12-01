@@ -428,6 +428,7 @@ func (ep *endpoint) Join(sbox Sandbox, options ...EndpointOption) error {
 		return types.BadRequestErrorf("not a valid Sandbox interface")
 	}
 
+	// 确定没有join或者leave正在进行
 	sb.joinLeaveStart()
 	defer sb.joinLeaveEnd()
 

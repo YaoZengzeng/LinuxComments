@@ -147,6 +147,7 @@ type sandboxTable map[string]*sandbox
 
 type controller struct {
 	id                     string
+	// drvRegistry包含了各种已注册的network driver和ipam driver的信息
 	drvRegistry            *drvregistry.DrvRegistry
 	sandboxes              sandboxTable
 	cfg                    *config.Config
@@ -207,7 +208,7 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
 			dcfg = c.makeDriverConfig(i.ntype)
 		}
 
-		// 将插件加入registry中
+		// 将插件加入registry中，i.ntype为插件类型，i.fn为插件的初始化函数
 		if err := drvRegistry.AddDriver(i.ntype, i.fn, dcfg); err != nil {
 			return nil, err
 		}
@@ -233,13 +234,16 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
 	// Reserve pools first before doing cleanup. Otherwise the
 	// cleanups of endpoint/network and sandbox below will
 	// generate many unnecessary warnings
+	// 为已存在的network分配ip pool
 	c.reservePools()
 
 	// Cleanup resources
+	// 清理各种资源
 	c.sandboxCleanup(c.cfg.ActiveSandboxes)
 	c.cleanupLocalEndpoints()
 	c.networkCleanup()
 
+	// 创建socket文件用于监听
 	if err := c.startExternalKeyListener(); err != nil {
 		return nil, err
 	}
@@ -708,10 +712,12 @@ func (c *controller) NewNetwork(networkType, name string, id string, options ...
 		return nil, ErrInvalidName(name)
 	}
 
+	// id为空，随机生成一个
 	if id == "" {
 		id = stringid.GenerateRandomID()
 	}
 
+	// defaultIpam为"default"
 	defaultIpam := defaultIpamForNetworkType(networkType)
 	// Construct the network object
 	network := &network{
@@ -751,6 +757,7 @@ func (c *controller) NewNetwork(networkType, name string, id string, options ...
 		return nil, err
 	}
 
+	// network.scope默认为""
 	if network.scope == datastore.LocalScope && cap.DataScope == datastore.GlobalScope {
 		return nil, types.ForbiddenErrorf("cannot downgrade network scope for %s networks", networkType)
 
@@ -809,6 +816,7 @@ func (c *controller) NewNetwork(networkType, name string, id string, options ...
 		}
 	}()
 
+	// 调用对应的driver创建network
 	err = c.addNetwork(network)
 	if err != nil {
 		return nil, err
@@ -1048,6 +1056,7 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 
 	// Create sandbox and process options first. Key generation depends on an option
 	if sb == nil {
+		// 新建sandbox
 		sb = &sandbox{
 			id:                 stringid.GenerateRandomID(),
 			containerID:        containerID,

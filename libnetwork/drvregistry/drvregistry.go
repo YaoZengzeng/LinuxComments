@@ -28,6 +28,7 @@ type driverTable map[string]*driverData
 type ipamTable map[string]*ipamData
 
 // DrvRegistry holds the registry of all network drivers and IPAM drivers that it knows about.
+// DrvRegistry用于存储所有已注册的network driver和IPAM driver的信息
 type DrvRegistry struct {
 	sync.Mutex
 	drivers      driverTable
