@@ -187,6 +187,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	runconfig.SetDefaultNetModeIfBlank(container.HostConfig)
 
 	daemon.updateContainerNetworkSettings(container, endpointsConfigs)
+	// 将container注册到daemon中
 	if err := daemon.Register(container); err != nil {
 		return nil, err
 	}

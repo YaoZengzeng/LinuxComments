@@ -85,12 +85,14 @@ func main() {
 	}
 	o := options.NewCRIContainerdOptions()
 
+	// 添加CRIContainerdOptions的各种选项
 	o.AddFlags(cmd.Flags())
 	cmd.AddCommand(defaultConfigCommand())
 	cmd.AddCommand(versionCommand())
 	cmd.AddCommand(loadImageCommand())
 
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// 当终止程序时，打印程序的运行时信息
 		setupDumpStacksTrap()
 		if err := o.InitFlags(cmd.Flags()); err != nil {
 			return fmt.Errorf("failed to init CRI containerd flags: %v", err)
@@ -114,8 +116,9 @@ func main() {
 		// Use interrupt handler to make sure the server is stopped properly.
 		// Pass in non-empty final function to avoid os.Exit(1). We expect `Run`
 		// to return itself.
+		// 用interrupt handler确保server会正常停止
 		h := interrupt.New(func(os.Signal) {}, s.Stop)
-		// s.Run()运行cri-containerd的service
+		// s.Run()运行cri-containerd的grpc server
 		if err := h.Run(func() error { return s.Run() }); err != nil {
 			return fmt.Errorf("failed to run cri-containerd grpc server: %v", err)
 		}

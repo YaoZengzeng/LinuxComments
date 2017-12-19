@@ -38,6 +38,7 @@ func newInterface(nlh *netlink.Handle, config *networkConfiguration) (*bridgeInt
 	}
 
 	// Attempt to find an existing bridge named with the specified name.
+	// 试着寻找该BridgeName对应的bridge是否存在
 	i.Link, err = nlh.LinkByName(config.BridgeName)
 	if err != nil {
 		logrus.Debugf("Did not find any interface with name %s: %v", config.BridgeName, err)

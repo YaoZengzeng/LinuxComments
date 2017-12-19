@@ -30,6 +30,7 @@ type handshakeState int
 // handshake. A depiction of the states and transitions can be found in RFC 793,
 // page 23.
 const (
+	// 三次握手的状态
 	handshakeSynSent handshakeState = iota
 	handshakeSynRcvd
 	handshakeCompleted
@@ -88,12 +89,14 @@ func newHandshake(ep *endpoint, rcvWnd seqnum.Size) (handshake, *tcpip.Error) {
 // FindWndScale determines the window scale to use for the given maximum window
 // size.
 func FindWndScale(wnd seqnum.Size) int {
+	// 如果window的大小在2个byte以内
 	if wnd < 0x10000 {
 		return 0
 	}
 
 	max := seqnum.Size(0xffff)
 	s := 0
+	// s代表window字段向右移动的位数，直到window字段所能表示的最大值大于wnd为止
 	for wnd > max && s < header.MaxWndScale {
 		s++
 		max <<= 1
@@ -104,6 +107,7 @@ func FindWndScale(wnd seqnum.Size) int {
 
 // resetState resets the state of the handshake object such that it becomes
 // ready for a new 3-way handshake.
+// resetState将handshake对象重置，使其准备好进入新的三次握手状态
 func (h *handshake) resetState() *tcpip.Error {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
@@ -131,6 +135,7 @@ func (h *handshake) effectiveRcvWndScale() uint8 {
 
 // resetToSynRcvd resets the state of the handshake object to the SYN-RCVD
 // state.
+// resetToSynRcvd将handshake对象重置，使其处于SYN-RCVD状态
 func (h *handshake) resetToSynRcvd(iss seqnum.Value, irs seqnum.Value, opts *header.TCPSynOptions) {
 	h.active = false
 	h.state = handshakeSynRcvd
@@ -176,6 +181,7 @@ func (h *handshake) synSentState(s *segment) *tcpip.Error {
 
 	// We are in the SYN-SENT state. We only care about segments that have
 	// the SYN flag.
+	// 我们处于SYN-SENT状态，因此我们只关心SYN segment
 	if !s.flagIsSet(flagSyn) {
 		return nil
 	}
@@ -194,6 +200,7 @@ func (h *handshake) synSentState(s *segment) *tcpip.Error {
 
 	// If this is a SYN ACK response, we only need to acknowledge the SYN
 	// and the handshake is completed.
+	// 收到的是一个SYN-ACK，则我们只需要ACK，整个握手就完成了
 	if s.flagIsSet(flagAck) {
 		h.state = handshakeCompleted
 		h.ep.sendRaw(nil, flagAck, h.iss+1, h.ackNum, h.rcvWnd>>h.effectiveRcvWndScale())
@@ -203,6 +210,7 @@ func (h *handshake) synSentState(s *segment) *tcpip.Error {
 	// A SYN segment was received, but no ACK in it. We acknowledge the SYN
 	// but resend our own SYN and wait for it to be acknowledged in the
 	// SYN-RCVD state.
+	// 收到了一个没有ACK的SYN，我们ACK这个SYN并且重新发送我们的SYN，并且状态变为handshakeSynRcvd
 	h.state = handshakeSynRcvd
 	synOpts := header.TCPSynOptions{
 		WS:    h.rcvWndScale,
@@ -235,6 +243,8 @@ func (h *handshake) synRcvdState(s *segment) *tcpip.Error {
 		// We received two SYN segments with different sequence
 		// numbers, so we reset this and restart the whole
 		// process, except that we don't reset the timer.
+		// 如果收到了两个sequence number不同的SYN，重置并且重新开始
+		// 整个过程
 		ack := s.sequenceNumber.Add(s.logicalLen())
 		seq := seqnum.Value(0)
 		if s.flagIsSet(flagAck) {
@@ -261,6 +271,7 @@ func (h *handshake) synRcvdState(s *segment) *tcpip.Error {
 
 	// We have previously received (and acknowledged) the peer's SYN. If the
 	// peer acknowledges our SYN, the handshake is completed.
+	// 收到ACK则握手完成
 	if s.flagIsSet(flagAck) {
 
 		// If the timestamp option is negotiated and the segment does
@@ -283,6 +294,7 @@ func (h *handshake) synRcvdState(s *segment) *tcpip.Error {
 
 // processSegments goes through the segment queue and processes up to
 // maxSegmentsPerWake (if they're available).
+// processSegments遍历segment queue并且最多遍历maxSegmentsPerWake个segment
 func (h *handshake) processSegments() *tcpip.Error {
 	for i := 0; i < maxSegmentsPerWake; i++ {
 		s := h.ep.segmentQueue.dequeue()
@@ -310,6 +322,7 @@ func (h *handshake) processSegments() *tcpip.Error {
 		// We stop processing packets once the handshake is completed,
 		// otherwise we may process packets meant to be processed by
 		// the main protocol goroutine.
+		// 握手完成之后退出循环
 		if h.state == handshakeCompleted {
 			break
 		}
@@ -343,6 +356,7 @@ func (h *handshake) execute() *tcpip.Error {
 
 	// Send the initial SYN segment and loop until the handshake is
 	// completed.
+	// 发送初始SYN segment，并且循环直到握手完成
 	synOpts := header.TCPSynOptions{
 		WS:    h.rcvWndScale,
 		TS:    true,
@@ -359,6 +373,7 @@ func (h *handshake) execute() *tcpip.Error {
 	for h.state != handshakeCompleted {
 		switch index, _ := s.Fetch(true); index {
 		case wakerForResend:
+			// 超时之后将超时时间翻倍，直到超过60秒
 			timeOut *= 2
 			if timeOut > 60*time.Second {
 				return tcpip.ErrTimeout
@@ -397,6 +412,7 @@ func sendSynTCP(r *stack.Route, id stack.TransportEndpointID, flags byte, seq, a
 	// places and we don't want every call point being embedded with the MSS
 	// calculation. So we just do it here and ignore the MSS value passed in
 	// the opts.
+	// 本函数可能在多个地方被调用，因此忽略opts中的MSS
 	mss := r.MTU() - header.TCPMinimumSize
 	options := []byte{
 		// Initialize the MSS option.
@@ -573,8 +589,11 @@ func (e *endpoint) completeWorker() {
 
 // handleSegments pulls segments from the queue and processes them. It returns
 // true if the protocol loop should continue, false otherwise.
+// handleSegments从queue中获取segment并进行处理。如果protocol loop需要继续，则返回true
+// 否则返回false
 func (e *endpoint) handleSegments() bool {
 	checkRequeue := true
+	// 最多处理maxSegmentsPerWake个segments
 	for i := 0; i < maxSegmentsPerWake; i++ {
 		s := e.segmentQueue.dequeue()
 		if s == nil {
@@ -588,6 +607,7 @@ func (e *endpoint) handleSegments() bool {
 				// except SYN-SENT, all reset (RST) segments are
 				// validated by checking their SEQ-fields." So
 				// we only process it if it's acceptable.
+				// 除了SYN-SENT状态以外，其它所有的reset segment都要检查它们的SEQ field
 				s.decRef()
 				e.mu.Lock()
 				e.state = stateError
@@ -603,6 +623,7 @@ func (e *endpoint) handleSegments() bool {
 			// If the timestamp option is negotiated and the segment
 			// does not carry a timestamp option then the segment
 			// must be dropped as per
+			// 如果是有timestamp选项的，但是segment中没有timestamp选项，则该segment被丢弃
 			// https://tools.ietf.org/html/rfc7323#section-3.2.
 			if e.sendTSOk && !s.parsedOptions.TS {
 				atomic.AddUint64(&e.stack.MutableStats().DroppedPackets, 1)
@@ -626,6 +647,8 @@ func (e *endpoint) handleSegments() bool {
 	}
 
 	// Send an ACK for all processed packets if needed.
+	// 如果我们下一个要接收的seq number不等于已发送的最大的ack number
+	// 则发送ACK
 	if e.rcv.rcvNxt != e.snd.maxSentAck {
 		e.snd.sendAck()
 	}
@@ -737,6 +760,7 @@ func (e *endpoint) protocolMainLoop(passive bool) *tcpip.Error {
 				}
 
 				if n&notifyReceiveWindowChanged != 0 {
+					// 将rcvBufSize转变为pendingBufSize
 					e.rcv.pendingBufSize = seqnum.Size(e.receiveBufferSize())
 				}
 

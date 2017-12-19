@@ -27,10 +27,12 @@ import (
 
 // Sandbox contains all resources associated with the sandbox. All methods to
 // mutate the internal state are thread safe.
+// Sandbox包含了和sandbox有关的所有资源，所有改变内部状态的方法都是线程安全的
 type Sandbox struct {
 	// Metadata is the metadata of the sandbox, it is immutable after created.
 	Metadata
 	// Container is the containerd sandbox container client
+	// Container是container相关的接口
 	Container containerd.Container
 	// CNI network namespace client
 	NetNS *NetNS
@@ -39,6 +41,7 @@ type Sandbox struct {
 // Store stores all sandboxes.
 type Store struct {
 	lock      sync.RWMutex
+	// 就是一个简单的map用于存储所有的sandbox信息
 	sandboxes map[string]Sandbox
 	idIndex   *truncindex.TruncIndex
 }

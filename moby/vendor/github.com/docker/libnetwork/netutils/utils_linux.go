@@ -67,6 +67,9 @@ func GenerateIfaceName(nlh *netlink.Handle, prefix string, len int) (string, err
 // If the interface does not exist, it chooses from a predefined
 // list the first IPv4 address which does not conflict with other
 // interfaces on the system.
+// ElectInterfaceAddress查询指定名称的interface并以CIDR的形式返回所有的IPv4和IPv6地址
+// 如果在获取地址的过程中遇到错误或者没有找到任何IPv4地址，那么返回一个error
+// 如果interface不存在，则从预先定义的IPv4地址中选取一个和其它interface都不冲突的地址
 func ElectInterfaceAddresses(name string) ([]*net.IPNet, []*net.IPNet, error) {
 	var (
 		v4Nets []*net.IPNet
@@ -95,6 +98,7 @@ func ElectInterfaceAddresses(name string) ([]*net.IPNet, []*net.IPNet, error) {
 
 	if link == nil || len(v4Nets) == 0 {
 		// Choose from predefined broad networks
+		// 从预先定义的network中选取
 		v4Net, err := FindAvailableNetwork(ipamutils.PredefinedBroadNetworks)
 		if err != nil {
 			return nil, nil, err

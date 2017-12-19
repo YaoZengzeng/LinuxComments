@@ -432,7 +432,7 @@ func (daemon *Daemon) updateContainerNetworkSettings(container *container.Contai
 
 	networkName := mode.NetworkName()
 	if mode.IsDefault() {
-		// networkName为bridges
+		// 从controller中读取默认network，networkName为bridges
 		networkName = daemon.netController.Config().Daemon.DefaultNetwork
 	}
 
@@ -446,6 +446,7 @@ func (daemon *Daemon) updateContainerNetworkSettings(container *container.Contai
 	}
 
 	if container.NetworkSettings == nil {
+		// 如果container.NetworkSettings为空，则创建一个空的&network.Settings{}
 		container.NetworkSettings = &network.Settings{}
 	}
 

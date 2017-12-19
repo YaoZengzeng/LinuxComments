@@ -36,6 +36,7 @@ const (
 )
 
 // ContainerdConfig contains config related to containerd
+// containerd的配置
 type ContainerdConfig struct {
 	// RootDir is the root directory path for containerd.
 	RootDir string `toml:"root_dir" json:"rootDir,omitempty"`
@@ -52,14 +53,17 @@ type ContainerdConfig struct {
 	RuntimeEngine string `toml:"runtime_engine" json:"runtimeEngine,omitempty"`
 	// RuntimeRoot is the directory used by containerd for runtime state.
 	// Containerd default should be "/run/containerd/runc"
+	// RuntimeRoot是containerd用于存储运行时信息的
 	RuntimeRoot string `toml:"runtime_root" json:"runtimeRoot,omitempty"`
 }
 
 // CniConfig contains config related to cni
 type CniConfig struct {
 	// NetworkPluginBinDir is the directory in which the binaries for the plugin is kept.
+	// NetworkPluginBinDir用于存储network plugin的binary
 	NetworkPluginBinDir string `toml:"bin_dir" json:"binDir,omitempty"`
 	// NetworkPluginConfDir is the directory in which the admin places a CNI conf.
+	// NetworkPluginConfDir用于存储CNI的配置文件
 	NetworkPluginConfDir string `toml:"conf_dir" json:"confDir,omitempty"`
 }
 
@@ -73,8 +77,10 @@ type Config struct {
 	SocketPath string `toml:"socket_path" json:"socketPath,omitempty"`
 	// RootDir is the root directory path for managing cri-containerd files
 	// (metadata checkpoint etc.)
+	// RootDir用于存储管理cri-containerd的文件（元数据以及checkpoint等）
 	RootDir string `toml:"root_dir" json:"rootDir,omitempty"`
 	// StreamServerAddress is the ip address streaming server is listening on.
+	// StreamServerAddress是streaming server监听的地址
 	StreamServerAddress string `toml:"stream_server_address" json:"streamServerAddress,omitempty"`
 	// StreamServerPort is the port streaming server is listening on.
 	StreamServerPort string `toml:"stream_server_port" json:"streamServerPort,omitempty"`
@@ -85,6 +91,7 @@ type Config struct {
 	// SandboxImage is the image used by sandbox container.
 	SandboxImage string `toml:"sandbox_image" json:"sandboxImage,omitempty"`
 	// StatsCollectPeriod is the period (in seconds) of snapshots stats collection.
+	// StatsCollectPeriod是收集snapshots数据的间隔时间
 	StatsCollectPeriod int `toml:"stats_collect_period" json:"statsCollectPeriod,omitempty"`
 	// SystemdCgroup enables systemd cgroup support.
 	SystemdCgroup bool `toml:"systemd_cgroup" json:"systemdCgroup,omitempty"`
@@ -201,6 +208,7 @@ func AddGRPCFlags(fs *pflag.FlagSet) (*string, *time.Duration) {
 }
 
 // defaultConfig returns default configurations of cri-containerd.
+// defaultConfig用于返回cri-containerd的各种配置
 func defaultConfig() Config {
 	return Config{
 		ContainerdConfig: ContainerdConfig{
@@ -219,6 +227,7 @@ func defaultConfig() Config {
 		RootDir:             "/var/lib/cri-containerd",
 		StreamServerAddress: "",
 		StreamServerPort:    "10010",
+		// 默认CgroupPath为空
 		CgroupPath:          "",
 		EnableSelinux:       false,
 		SandboxImage:        "gcr.io/google_containers/pause:3.0",

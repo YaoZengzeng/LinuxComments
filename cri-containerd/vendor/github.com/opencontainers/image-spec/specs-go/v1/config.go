@@ -21,6 +21,7 @@ import (
 )
 
 // ImageConfig defines the execution parameters which should be used as a base when running a container using an image.
+// 利用镜像运行容器时定义的执行参数
 type ImageConfig struct {
 	// User defines the username or UID which the process in the container should run as.
 	User string `json:"User,omitempty"`
@@ -38,15 +39,18 @@ type ImageConfig struct {
 	Cmd []string `json:"Cmd,omitempty"`
 
 	// Volumes is a set of directories describing where the process is likely write data specific to a container instance.
+	// Volumes是用于描述特定容器实例可能写数据的一系列文件夹
 	Volumes map[string]struct{} `json:"Volumes,omitempty"`
 
 	// WorkingDir sets the current working directory of the entrypoint process in the container.
+	// 容器的entrypoint process的当前目录
 	WorkingDir string `json:"WorkingDir,omitempty"`
 
 	// Labels contains arbitrary metadata for the container.
 	Labels map[string]string `json:"Labels,omitempty"`
 
 	// StopSignal contains the system call signal that will be sent to the container to exit.
+	// StopSignal包含了用于发送结束容器的系统调用信号
 	StopSignal string `json:"StopSignal,omitempty"`
 }
 

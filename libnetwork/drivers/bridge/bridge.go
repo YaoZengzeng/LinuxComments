@@ -503,6 +503,7 @@ func parseNetworkOptions(id string, option options.Generic) (*networkConfigurati
 	)
 
 	// Parse generic label first, config will be re-assigned
+	// 首先解析generic label
 	if genData, ok := option[netlabel.GenericData]; ok && genData != nil {
 		if config, err = parseNetworkGenericOptions(genData); err != nil {
 			return nil, err
@@ -597,6 +598,7 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 	d.Unlock()
 
 	// Parse and validate the config. It should not be conflict with existing networks' config
+	// 解析并且验证配置
 	config, err := parseNetworkOptions(id, option)
 	if err != nil {
 		return err
@@ -620,6 +622,7 @@ func (d *driver) createNetwork(config *networkConfiguration) error {
 	defer osl.InitOSContext()()
 
 	networkList := d.getNetworks()
+	// 是否和已有配置产生冲突
 	for i, nw := range networkList {
 		nw.Lock()
 		nwConfig := nw.config
@@ -673,6 +676,7 @@ func (d *driver) createNetwork(config *networkConfiguration) error {
 	d.Unlock()
 
 	// Create or retrieve the bridge L3 interface
+	// 如果network不存在，则bridgeIface为nil
 	bridgeIface, err := newInterface(d.nlh, config)
 	if err != nil {
 		return err
@@ -708,6 +712,7 @@ func (d *driver) createNetwork(config *networkConfiguration) error {
 	// by creating a new device and assigning it an IPv4 address.
 	bridgeAlreadyExists := bridgeIface.exists()
 	if !bridgeAlreadyExists {
+		// queueStep用于将一个个初始化函数加入队列
 		bridgeSetup.queueStep(setupDevice)
 	}
 

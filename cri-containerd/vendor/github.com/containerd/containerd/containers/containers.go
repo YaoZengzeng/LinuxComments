@@ -11,6 +11,7 @@ import (
 // noted, the resources here are considered in use by the container.
 //
 // The resources specified in this object are used to create tasks from the container.
+// 这个对象中声明的资源用于创建容器中的task
 type Container struct {
 	// ID uniquely identifies the container in a nameapace.
 	//
@@ -20,11 +21,14 @@ type Container struct {
 	// Labels provide metadata extension for a contaienr.
 	//
 	// These are optional and fully mutable.
+	// Labels是对容器元数据的扩展
+	// 它们都是可选的并且完全可修改
 	Labels map[string]string
 
 	// Image specifies the image reference used for a container.
 	//
 	// This property is optional but immutable.
+	// 容器使用的image，该特性是可选的，但是不能改变
 	Image string
 
 	// Runtime specifies which runtime should be used when launching container

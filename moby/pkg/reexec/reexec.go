@@ -10,7 +10,9 @@ import (
 var registeredInitializers = make(map[string]func())
 
 // Register adds an initialization func under the specified name
+// Register将一个初始化函数放在特定的name下面
 func Register(name string, initializer func()) {
+	// 如果name对应的初始化函数已经存在了，则panic
 	if _, exists := registeredInitializers[name]; exists {
 		panic(fmt.Sprintf("reexec func already registered under name %q", name))
 	}

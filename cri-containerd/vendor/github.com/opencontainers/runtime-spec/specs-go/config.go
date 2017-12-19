@@ -9,16 +9,20 @@ type Spec struct {
 	// Process configures the container process.
 	Process *Process `json:"process,omitempty"`
 	// Root configures the container's root filesystem.
+	// Root为容器的根文件系统
 	Root *Root `json:"root,omitempty"`
 	// Hostname configures the container's hostname.
 	Hostname string `json:"hostname,omitempty"`
 	// Mounts configures additional mounts (on top of Root).
 	Mounts []Mount `json:"mounts,omitempty"`
 	// Hooks configures callbacks for container lifecycle events.
+	// Hooks包含了容器生命周期中各个事件的callback
 	Hooks *Hooks `json:"hooks,omitempty" platform:"linux,solaris"`
 	// Annotations contains arbitrary metadata for the container.
+	// Annotations中包含了container中任意的元数据
 	Annotations map[string]string `json:"annotations,omitempty"`
 
+	// Linux, Solaris, Windows都是平台相关的配置
 	// Linux is platform-specific configuration for Linux based containers.
 	Linux *Linux `json:"linux,omitempty" platform:"linux"`
 	// Solaris is platform-specific configuration for Solaris based containers.
@@ -43,12 +47,16 @@ type Process struct {
 	// relative to the container's root.
 	Cwd string `json:"cwd"`
 	// Capabilities are Linux capabilities that are kept for the process.
+	// Capabilities用于记录process的Linux capabilities
 	Capabilities *LinuxCapabilities `json:"capabilities,omitempty" platform:"linux"`
 	// Rlimits specifies rlimit options to apply to the process.
+	// Rlimits用于processr的rlimit options
 	Rlimits []POSIXRlimit `json:"rlimits,omitempty" platform:"linux,solaris"`
 	// NoNewPrivileges controls whether additional privileges could be gained by processes in the container.
+	// NoNewPrivileges用于控制容器中的进程是否能获取额外的特权
 	NoNewPrivileges bool `json:"noNewPrivileges,omitempty" platform:"linux"`
 	// ApparmorProfile specifies the apparmor profile for the container.
+	// ApparmorProfile用于指定容器的apparmor profile
 	ApparmorProfile string `json:"apparmorProfile,omitempty" platform:"linux"`
 	// Specify an oom_score_adj for the container.
 	OOMScoreAdj *int `json:"oomScoreAdj,omitempty" platform:"linux"`
@@ -58,6 +66,7 @@ type Process struct {
 
 // LinuxCapabilities specifies the whitelist of capabilities that are kept for a process.
 // http://man7.org/linux/man-pages/man7/capabilities.7.html
+// LinuxCapabilities用于指定进程capabilities的白名单
 type LinuxCapabilities struct {
 	// Bounding is the set of capabilities checked by the kernel.
 	Bounding []string `json:"bounding,omitempty" platform:"linux"`
@@ -94,8 +103,10 @@ type User struct {
 // Root contains information about the container's root filesystem on the host.
 type Root struct {
 	// Path is the absolute path to the container's root filesystem.
+	// 容器的根文件系统的绝对路径
 	Path string `json:"path"`
 	// Readonly makes the root filesystem for the container readonly before the process is executed.
+	// Readonly在进程执行之前让容器的根文件系统变得只读
 	Readonly bool `json:"readonly,omitempty"`
 }
 
@@ -122,16 +133,20 @@ type Hook struct {
 // Hooks for container setup and teardown
 type Hooks struct {
 	// Prestart is a list of hooks to be run before the container process is executed.
+	// PreStart是一系列在容器进程执行之前运行的钩子
 	Prestart []Hook `json:"prestart,omitempty"`
 	// Poststart is a list of hooks to be run after the container process is started.
+	// Poststart是一系列在容器进程启动之后运行的苟泽
 	Poststart []Hook `json:"poststart,omitempty"`
 	// Poststop is a list of hooks to be run after the container process exits.
+	// Poststop是一系列在容器进程退出之后运行的钩子
 	Poststop []Hook `json:"poststop,omitempty"`
 }
 
 // Linux contains platform-specific configuration for Linux based containers.
 type Linux struct {
 	// UIDMapping specifies user mappings for supporting user namespaces.
+	// UIDMapping指定了user namespace的user mappings
 	UIDMappings []LinuxIDMapping `json:"uidMappings,omitempty"`
 	// GIDMapping specifies group mappings for supporting user namespaces.
 	GIDMappings []LinuxIDMapping `json:"gidMappings,omitempty"`
@@ -139,14 +154,17 @@ type Linux struct {
 	Sysctl map[string]string `json:"sysctl,omitempty"`
 	// Resources contain cgroup information for handling resource constraints
 	// for the container
+	// Resources包含了cgroup信息用于处理容器的资源限制
 	Resources *LinuxResources `json:"resources,omitempty"`
 	// CgroupsPath specifies the path to cgroups that are created and/or joined by the container.
 	// The path is expected to be relative to the cgroups mountpoint.
 	// If resources are specified, the cgroups at CgroupsPath will be updated based on resources.
+	// CgroupsPath用于指定容器创建或加入的cgroups的路径
 	CgroupsPath string `json:"cgroupsPath,omitempty"`
 	// Namespaces contains the namespaces that are created and/or joined by the container
 	Namespaces []LinuxNamespace `json:"namespaces,omitempty"`
 	// Devices are a list of device nodes that are created for the container
+	// 一系列为容器创建的设备节点
 	Devices []LinuxDevice `json:"devices,omitempty"`
 	// Seccomp specifies the seccomp security settings for the container.
 	Seccomp *LinuxSeccomp `json:"seccomp,omitempty"`
@@ -160,6 +178,7 @@ type Linux struct {
 	MountLabel string `json:"mountLabel,omitempty"`
 	// IntelRdt contains Intel Resource Director Technology (RDT) information
 	// for handling resource constraints (e.g., L3 cache) for the container
+	// Intel RDT信息用于处理容器的资源限制
 	IntelRdt *LinuxIntelRdt `json:"intelRdt,omitempty"`
 }
 
@@ -169,6 +188,7 @@ type LinuxNamespace struct {
 	Type LinuxNamespaceType `json:"type"`
 	// Path is a path to an existing namespace persisted on disk that can be joined
 	// and is of the same type
+	// Path是已经在磁盘上存在的可以加入并且是同种类型的namespace路径
 	Path string `json:"path,omitempty"`
 }
 
@@ -349,6 +369,7 @@ type LinuxDevice struct {
 	// Minor is the device's minor number.
 	Minor int64 `json:"minor"`
 	// FileMode permission bits for the device.
+	// 设备的权限位
 	FileMode *os.FileMode `json:"fileMode,omitempty"`
 	// UID of the device.
 	UID *uint32 `json:"uid,omitempty"`

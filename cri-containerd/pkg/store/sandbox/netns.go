@@ -52,6 +52,8 @@ func NewNetNS() (*NetNS, error) {
 
 // LoadNetNS loads existing network namespace. It returns ErrClosedNetNS
 // if the network namespace has already been closed.
+// LoadNetNS加载已经存在的network namespace，如果network namespace已经关闭了，则返回
+// ErrClosedNetNS
 func LoadNetNS(path string) (*NetNS, error) {
 	ns, err := cnins.GetNS(path)
 	if err != nil {

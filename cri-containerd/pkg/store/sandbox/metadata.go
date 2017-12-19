@@ -43,6 +43,7 @@ type versionedMetadata struct {
 type metadataInternal Metadata
 
 // Metadata is the unversioned sandbox metadata.
+// Metadata是和版本无关的sandbox的元数据
 type Metadata struct {
 	// ID is the sandbox id.
 	ID string

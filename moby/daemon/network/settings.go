@@ -11,6 +11,7 @@ import (
 
 // Settings stores configuration details about the daemon network config
 // TODO Windows. Many of these fields can be factored out.,
+// Settings包含了daemon network配置的细节
 type Settings struct {
 	Bridge                 string
 	SandboxID              string

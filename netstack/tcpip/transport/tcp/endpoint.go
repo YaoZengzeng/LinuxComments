@@ -41,7 +41,7 @@ const (
 )
 
 // DefaultBufferSize is the default size of the receive and send buffers.
-const DefaultBufferSize = 208 * 1024
+const DefaultBufferSize = 1024
 
 // endpoint represents a TCP endpoint. This struct serves as the interface
 // between users of the endpoint and the protocol implementation; it is legal to
@@ -71,6 +71,8 @@ type endpoint struct {
 	// The following fields are used to manage the receive queue. The
 	// protocol goroutine adds ready-for-delivery segments to rcvList,
 	// which are returned by Read() calls to users.
+	// 下面的字段用来管理receive queue，protocol goroutine将ready-for-delivery
+	// segment放入rcvList中，它们之后会通过Read()发送给用户
 	//
 	// Once the peer has closed the its send side, rcvClosed is set to true
 	// to indicate to users that no more data is coming.
@@ -336,6 +338,7 @@ func (e *endpoint) Read(*tcpip.FullAddress) (buffer.View, *tcpip.Error) {
 
 	// The endpoint can be read if it's connected, or if it's already closed
 	// but has some pending unread data.
+	// 如果endpoint处于连接状态或者虽然已经closed但仍然有数据pending，则endpoint是可读的
 	if s := e.state; s != stateConnected && s != stateClosed {
 		e.mu.RUnlock()
 		if s == stateError {
@@ -354,6 +357,7 @@ func (e *endpoint) Read(*tcpip.FullAddress) (buffer.View, *tcpip.Error) {
 }
 
 func (e *endpoint) readLocked() (buffer.View, *tcpip.Error) {
+	// 如果endpoint还没有接收数据
 	if e.rcvBufUsed == 0 {
 		if e.rcvClosed || e.state != stateConnected {
 			return buffer.View{}, tcpip.ErrClosedForReceive
@@ -361,11 +365,15 @@ func (e *endpoint) readLocked() (buffer.View, *tcpip.Error) {
 		return buffer.View{}, tcpip.ErrWouldBlock
 	}
 
+	// 从receive list中获取一个segment
 	s := e.rcvList.Front()
+	// 从segment中提取出views
 	views := s.data.Views()
+	// 从views中取出一个view
 	v := views[s.viewToDeliver]
 	s.viewToDeliver++
 
+	// 若view已经用完了，则将segment从receive list中移除
 	if s.viewToDeliver >= len(views) {
 		e.rcvList.Remove(s)
 		s.decRef()
@@ -390,6 +398,7 @@ func (e *endpoint) Write(v buffer.View, to *tcpip.FullAddress) (uintptr, *tcpip.
 	defer e.mu.RUnlock()
 
 	// The endpoint cannot be written to if it's not connected.
+	// 如果endpoint的状态不是connected，则不能写
 	if e.state != stateConnected {
 		switch e.state {
 		case stateError:
@@ -407,12 +416,14 @@ func (e *endpoint) Write(v buffer.View, to *tcpip.FullAddress) (uintptr, *tcpip.
 	e.sndBufMu.Lock()
 
 	// Check if the connection has already been closed for sends.
+	// 根据sndBufSize确认写操作是否已经关闭
 	if e.sndBufSize < 0 {
 		e.sndBufMu.Unlock()
 		return 0, tcpip.ErrClosedForSend
 	}
 
 	// Check if we're already over the limit.
+	// 确认是否还有可用的发送空间
 	avail := e.sndBufSize - e.sndBufUsed
 	if avail <= 0 {
 		e.sndBufMu.Unlock()
@@ -422,6 +433,8 @@ func (e *endpoint) Write(v buffer.View, to *tcpip.FullAddress) (uintptr, *tcpip.
 	// If writing would put us over the size limit, create a smaller view
 	// with the maximum available size and copy into it. We also return
 	// ErrWouldBlock in this case.
+	// 如果完全写入会超过size limit，新建一个view使其在不超过limit的情况下能尽量多地写入数据
+	// 在这种情况下，我们也会返回ErrWouldBlock
 	sizedView := v
 	var err *tcpip.Error
 	if len(sizedView) > avail {
@@ -429,9 +442,11 @@ func (e *endpoint) Write(v buffer.View, to *tcpip.FullAddress) (uintptr, *tcpip.
 		err = tcpip.ErrWouldBlock
 	}
 	l := len(sizedView)
+	// 根据sizedView构建segment
 	s := newSegmentFromView(&e.route, e.id, sizedView)
 
 	// Add data to the send queue.
+	// 将数据加入send queue中
 	e.sndBufUsed += l
 	e.sndBufInQueue += seqnum.Size(l)
 	e.sndQueue.PushBack(s)
@@ -444,6 +459,7 @@ func (e *endpoint) Write(v buffer.View, to *tcpip.FullAddress) (uintptr, *tcpip.
 		e.workMu.Unlock()
 	} else {
 		// Let the protocol goroutine do the work.
+		// 让protocol goroutine完成写操作
 		e.sndWaker.Assert()
 	}
 	return uintptr(l), err
@@ -508,6 +524,7 @@ func (e *endpoint) Peek(vec [][]byte) (uintptr, *tcpip.Error) {
 
 // zeroReceiveWindow checks if the receive window to be announced now would be
 // zero, based on the amount of available buffer and the receive window scaling.
+// 根据可用的buffer的数量以及receive window scaling确认receive widndow是否为0
 //
 // It must be called with rcvListMu held.
 func (e *endpoint) zeroReceiveWindow(scale uint8) bool {
@@ -916,6 +933,7 @@ func (e *endpoint) Accept() (tcpip.Endpoint, *waiter.Queue, *tcpip.Error) {
 	defer e.mu.RUnlock()
 
 	// Endpoint must be in listen state before it can accept connections.
+	// 在进行accept之前，必须是Listen状态
 	if e.state != stateListen {
 		return nil, nil, tcpip.ErrInvalidEndpointState
 	}
@@ -923,6 +941,7 @@ func (e *endpoint) Accept() (tcpip.Endpoint, *waiter.Queue, *tcpip.Error) {
 	// Get the new accepted endpoint.
 	var n *endpoint
 	select {
+	// 从acceptedChan中获取最新accept的endpoint
 	case n = <-e.acceptedChan:
 	default:
 		return nil, nil, tcpip.ErrWouldBlock
@@ -1078,6 +1097,8 @@ func (e *endpoint) updateSndBufferUsage(v int) {
 // readyToRead is called by the protocol goroutine when a new segment is ready
 // to be read, or when the connection is closed for receiving (in which case
 // s will be nil).
+// readyToRead会被protocol goroutine调用，当一个segment已经准备好被读取时或者connection
+// 被关闭时（在这种情况下，s会为nil）
 func (e *endpoint) readyToRead(s *segment) {
 	e.rcvListMu.Lock()
 	if s != nil {
@@ -1089,6 +1110,7 @@ func (e *endpoint) readyToRead(s *segment) {
 	}
 	e.rcvListMu.Unlock()
 
+	// 通知有数据到达
 	e.waiterQueue.Notify(waiter.EventIn)
 }
 
@@ -1103,6 +1125,7 @@ func (e *endpoint) receiveBufferAvailable() int {
 
 	// We may use more bytes than the buffer size when the receive buffer
 	// shrinks.
+	// 我们可能使用比buffer size更多的内存，当接收缓存抖动的时候
 	if used >= size {
 		return 0
 	}

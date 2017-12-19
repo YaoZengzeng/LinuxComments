@@ -25,6 +25,7 @@ import (
 )
 
 // instrumentedService wraps service and logs each operation.
+// instrumentedService对service进行了包裹并对每个操作都记录日志
 type instrumentedService struct {
 	*criContainerdService
 }

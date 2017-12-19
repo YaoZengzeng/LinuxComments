@@ -1102,6 +1102,7 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		return nil, err
 	}
 
+	// 如果sb.config.useDefaultSandBox为true，则使用default sandbox
 	if sb.config.useDefaultSandBox {
 		c.sboxOnce.Do(func() {
 			c.defOsSbox, err = osl.NewSandbox(sb.Key(), false, false)
@@ -1115,7 +1116,9 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		sb.osSbox = c.defOsSbox
 	}
 
+	// 创建一个新的sandbox
 	if sb.osSbox == nil && !sb.config.useExternalKey {
+		// sb.Key()是一个目录文件，位于/var/run/docker/netns/
 		if sb.osSbox, err = osl.NewSandbox(sb.Key(), !sb.config.useDefaultSandBox, false); err != nil {
 			return nil, fmt.Errorf("failed to create new osl sandbox: %v", err)
 		}

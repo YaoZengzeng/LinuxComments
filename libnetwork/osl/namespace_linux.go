@@ -41,6 +41,8 @@ var (
 // The networkNamespace type is the linux implementation of the Sandbox
 // interface. It represents a linux network namespace, and moves an interface
 // into it when called on method AddInterface or sets the gateway etc.
+// networkNamespace代表了Sandbox interface的linux实现，它代表了一个linux network namespace
+// 可以通过AddInterface将一个interface移入其中
 type networkNamespace struct {
 	path         string
 	iFaces       []*nwIface
@@ -64,6 +66,7 @@ func init() {
 	reexec.Register("netns-create", reexecCreateNamespace)
 }
 
+// /var/run/docker/netns
 func basePath() string {
 	return filepath.Join(prefix, "netns")
 }
@@ -149,6 +152,7 @@ func GC() {
 
 // GenerateKey generates a sandbox key based on the passed
 // container id.
+// 根据传入的container id创建一个sandbox key
 func GenerateKey(containerID string) string {
 	maxLen := 12
 	// Read sandbox key from host for overlay
@@ -193,8 +197,10 @@ func GenerateKey(containerID string) string {
 
 // NewSandbox provides a new sandbox instance created in an os specific way
 // provided a key which uniquely identifies the sandbox
+// isRestore为false
 func NewSandbox(key string, osCreate, isRestore bool) (Sandbox, error) {
 	if !isRestore {
+		// 创建新的network namespace
 		err := createNetworkNamespace(key, osCreate)
 		if err != nil {
 			return nil, err
@@ -229,6 +235,7 @@ func NewSandbox(key string, osCreate, isRestore bool) (Sandbox, error) {
 		}
 	}
 
+	// 打开network namespace中的loop device
 	if err = n.loopbackUp(); err != nil {
 		n.nlHandle.Delete()
 		return nil, err
@@ -294,6 +301,7 @@ func reexecCreateNamespace() {
 	if len(os.Args) < 2 {
 		logrus.Fatal("no namespace path provided")
 	}
+	// 将当前的进程的network namespace，即/proc/self/ns/net挂载到/var/run/docker/netns/$$$目录
 	if err := mountNetworkNamespace("/proc/self/ns/net", os.Args[1]); err != nil {
 		logrus.Fatal(err)
 	}
@@ -304,6 +312,8 @@ func createNetworkNamespace(path string, osCreate bool) error {
 		return err
 	}
 
+	// exec.Cmd相当于起了另一个独立的进程，然后通过reexecCreateNamespace()将该进程的
+	// network namespace挂载到/var/run/docker/netns/目录之下
 	cmd := &exec.Cmd{
 		Path:   reexec.Self(),
 		Args:   append([]string{"netns-create"}, path),
@@ -330,6 +340,7 @@ func unmountNamespaceFile(path string) {
 func createNamespaceFile(path string) (err error) {
 	var f *os.File
 
+	// 创建/var/run/docker/netns
 	once.Do(createBasePath)
 	// Remove it from garbage collection list if present
 	removeFromGarbagePaths(path)

@@ -55,6 +55,7 @@ var (
 	mssTable = []uint16{536, 1300, 1440, 1460}
 )
 
+// 返回的是mss的索引值
 func encodeMSS(mss uint16) uint32 {
 	for i := len(mssTable) - 1; i > 0; i-- {
 		if mss >= mssTable[i] {
@@ -293,11 +294,13 @@ func (e *endpoint) handleSynSegment(ctx *listenContext, s *segment, opts *header
 	defer decSynRcvdCount()
 	defer s.decRef()
 
+	// 如果收到SYN包，先创建新的endpoint，然后再进行三次握手
 	n, err := ctx.createEndpointAndPerformHandshake(s, opts)
 	if err != nil {
 		return
 	}
 
+	// 之后将握手完的endpoint加入通道accepteChan中
 	e.deliverAccepted(n)
 }
 

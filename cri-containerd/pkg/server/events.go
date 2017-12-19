@@ -29,6 +29,7 @@ import (
 
 // eventMonitor monitors containerd event and updates internal state correspondingly.
 // TODO(random-liu): [P1] Is it possible to drop event during containerd is running?
+// eventMonitor用于监听来自containerd的事件并且据此更新状态
 type eventMonitor struct {
 	c       *criContainerdService
 	ch      <-chan *events.Envelope
@@ -39,6 +40,7 @@ type eventMonitor struct {
 
 // Create new event monitor. New event monitor will start subscribing containerd event. All events
 // happen after it should be monitored.
+// newEventMonitor用于监听来自containerd的事件
 func newEventMonitor(c *criContainerdService) *eventMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch, errCh := c.client.Subscribe(ctx)
@@ -53,6 +55,8 @@ func newEventMonitor(c *criContainerdService) *eventMonitor {
 
 // start starts the event monitor which monitors and handles all container events. It returns
 // a channel for the caller to wait for the event monitor to stop.
+// start启动event monitor，它会监听并处理所有的container event，它会返回一个channel给调用者
+// 使其能确认event monitor何时停止
 func (em *eventMonitor) start() <-chan struct{} {
 	go func() {
 		for {

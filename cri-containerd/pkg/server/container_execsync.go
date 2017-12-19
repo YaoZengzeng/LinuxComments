@@ -38,6 +38,7 @@ import (
 
 // ExecSync executes a command in the container, and returns the stdout output.
 // If command exits with a non-zero exit code, an error is returned.
+// ExecSync在container中执行一条命令，并且返回stdout output
 func (c *criContainerdService) ExecSync(ctx context.Context, r *runtime.ExecSyncRequest) (*runtime.ExecSyncResponse, error) {
 	var stdout, stderr bytes.Buffer
 	exitCode, err := c.execInContainer(ctx, r.GetContainerId(), execOptions{
@@ -78,6 +79,7 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 	defer cancel()
 
 	// Get container from our container store.
+	// 从container store中获取container
 	cntr, err := c.containerStore.Get(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find container %q in store: %v", id, err)
@@ -90,6 +92,7 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 	}
 
 	container := cntr.Container
+	// 获取container spec
 	spec, err := container.Spec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container spec: %v", err)

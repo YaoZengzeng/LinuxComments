@@ -14,6 +14,7 @@ type ContainerCreateConfig struct {
 	Name             string
 	Config           *container.Config
 	HostConfig       *container.HostConfig
+	// NetworkingConfig就是一个map，用来映射network和对应的endpoint的配置
 	NetworkingConfig *network.NetworkingConfig
 	AdjustCPUShares  bool
 }

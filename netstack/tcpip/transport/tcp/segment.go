@@ -103,6 +103,8 @@ func (s *segment) incRef() {
 
 // logicalLen is the segment length in the sequence number space. It's defined
 // as the data length plus one for each of the SYN and FIN bits set.
+// logicalLen是在sequence number space空间中的segment length，即data length加上一个
+// SYN或者FIN的长度
 func (s *segment) logicalLen() seqnum.Size {
 	l := seqnum.Size(s.data.Size())
 	if s.flagIsSet(flagSyn) {

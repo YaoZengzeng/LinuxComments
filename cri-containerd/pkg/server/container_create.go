@@ -88,6 +88,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	// Generate unique id and name for the container and reserve the name.
 	// Reserve the container name to avoid concurrent `CreateContainer` request creating
 	// the same container.
+	// 创建container ID和container name
 	id := util.GenerateID()
 	name := makeContainerName(config.GetMetadata(), sandboxConfig.GetMetadata())
 	glog.V(4).Infof("Generated id %q for container %q", id, name)
@@ -121,6 +122,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	}
 
 	// Create container root directory.
+	// 创建container的root目录
 	containerRootDir := getContainerRootDir(c.config.RootDir, id)
 	if err = c.os.MkdirAll(containerRootDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create container root directory %q: %v",
@@ -150,6 +152,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	glog.V(4).Infof("Container %q spec: %#+v", id, spew.NewFormatter(spec))
 
 	// Set snapshotter before any other options.
+	// 首先设置snapshotter
 	opts := []containerd.NewContainerOpts{
 		containerd.WithSnapshotter(c.config.ContainerdConfig.Snapshotter),
 		customopts.WithImageUnpack(image.Image),
@@ -188,6 +191,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 		}
 	}()
 
+	// 创建SpecOpts
 	var specOpts []containerd.SpecOpts
 	securityContext := config.GetLinux().GetSecurityContext()
 	// Set container username. This could only be done by containerd, because it needs
@@ -221,6 +225,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	if seccompSpecOpts != nil {
 		specOpts = append(specOpts, seccompSpecOpts)
 	}
+	// containerKindContainer是常量"container"，代表的是创建application container
 	containerLabels := buildLabels(config.Labels, containerKindContainer)
 
 	opts = append(opts,
@@ -234,6 +239,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 		containerd.WithContainerLabels(containerLabels),
 		containerd.WithContainerExtension(containerMetadataExtension, &meta))
 	var cntr containerd.Container
+	// 调用containerd创建新的container
 	if cntr, err = c.client.NewContainer(ctx, id, opts...); err != nil {
 		return nil, fmt.Errorf("failed to create containerd container: %v", err)
 	}
@@ -723,6 +729,7 @@ func setOCINamespaces(g *generate.Generator, namespaces *runtime.NamespaceOption
 // defaultRuntimeSpec returns a default runtime spec used in cri-containerd.
 func defaultRuntimeSpec(id string) (*runtimespec.Spec, error) {
 	// GenerateSpec needs namespace.
+	// k8sContainerdNamespace中表示的是我们用于连接containerd使用的namespace
 	ctx := namespaces.WithNamespace(context.Background(), k8sContainerdNamespace)
 	spec, err := containerd.GenerateSpec(ctx, nil, &containers.Container{ID: id})
 	if err != nil {
@@ -731,6 +738,7 @@ func defaultRuntimeSpec(id string) (*runtimespec.Spec, error) {
 
 	// Remove `/run` mount
 	// TODO(random-liu): Mount tmpfs for /run and handle copy-up.
+	// 去除`/run`的mount
 	var mounts []runtimespec.Mount
 	for _, mount := range spec.Mounts {
 		if mount.Destination == "/run" {
@@ -741,6 +749,7 @@ func defaultRuntimeSpec(id string) (*runtimespec.Spec, error) {
 	spec.Mounts = mounts
 
 	// Make sure no default seccomp/apparmor is specified
+	// 确保不指定默认的seccomp/apparmor
 	if spec.Process != nil {
 		spec.Process.ApparmorProfile = ""
 	}

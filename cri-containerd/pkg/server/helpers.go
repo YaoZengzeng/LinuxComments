@@ -70,6 +70,8 @@ const (
 	// sandboxesDir contains all sandbox root. A sandbox root is the running
 	// directory of the sandbox, all files created for the sandbox will be
 	// placed under this directory.
+	// sandboxesDir包含了所有的sandbox root。sandbox root是sandbox的运行目录，
+	// 为sandbox创建的所有文件都会放在该目录下
 	sandboxesDir = "sandboxes"
 	// containersDir contains all container root.
 	containersDir = "containers"
@@ -96,6 +98,7 @@ const (
 	// criContainerdPrefix is common prefix for cri-containerd
 	criContainerdPrefix = "io.cri-containerd"
 	// containerKindLabel is a label key indicating container is sandbox container or application container
+	// containerKindLabel是一个label key，用来表示container是sandbox container还是application container
 	containerKindLabel = criContainerdPrefix + ".kind"
 	// containerKindSandbox is a label value indicating container is sandbox container
 	containerKindSandbox = "sandbox"
@@ -144,6 +147,7 @@ func getCgroupsPath(cgroupsParent, id string, systemdCgroup bool) string {
 
 // getSandboxRootDir returns the root directory for managing sandbox files,
 // e.g. named pipes.
+// /rootDir/
 func getSandboxRootDir(rootDir, id string) string {
 	return filepath.Join(rootDir, sandboxesDir, id)
 }
@@ -205,6 +209,7 @@ func getRepoDigestAndTag(namedRef reference.Named, digest imagedigest.Digest, sc
 
 // localResolve resolves image reference locally and returns corresponding image metadata. It returns
 // nil without error if the reference doesn't exist.
+// 如果镜像不存在，则返回nil而不是error
 func (c *criContainerdService) localResolve(ctx context.Context, ref string) (*imagestore.Image, error) {
 	_, err := imagedigest.Parse(ref)
 	if err != nil {
@@ -267,6 +272,7 @@ func (c *criContainerdService) ensureImageExists(ctx context.Context, ref string
 		return image, nil
 	}
 	// Pull image to ensure the image exists
+	// 如果镜像不存在则pull镜像
 	resp, err := c.PullImage(ctx, &runtime.PullImageRequest{Image: &runtime.ImageSpec{Image: ref}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull image %q: %v", ref, err)
@@ -275,6 +281,7 @@ func (c *criContainerdService) ensureImageExists(ctx context.Context, ref string
 	newImage, err := c.imageStore.Get(imageID)
 	if err != nil {
 		// It's still possible that someone removed the image right after it is pulled.
+		// 可能有人在镜像被pull之后就将它删除了
 		return nil, fmt.Errorf("failed to get image %q metadata after pulling: %v", imageID, err)
 	}
 	return &newImage, nil
@@ -388,6 +395,7 @@ func buildLabels(configLabels map[string]string, containerType string) map[strin
 	for k, v := range configLabels {
 		labels[k] = v
 	}
+	// containerKindLabel的值为io.cri-containerd.kind
 	labels[containerKindLabel] = containerType
 	return labels
 }

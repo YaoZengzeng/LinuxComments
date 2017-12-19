@@ -51,9 +51,12 @@ func newReceiver(ep *endpoint, irs seqnum.Value, rcvWnd seqnum.Size, rcvWndScale
 func (r *receiver) acceptable(segSeq seqnum.Value, segLen seqnum.Size) bool {
 	rcvWnd := r.rcvNxt.Size(r.rcvAcc)
 	if rcvWnd == 0 {
+		// 当接受窗口的大小为零时，segment的大小为零且该segment就是要接收的下一个segment，返回true
 		return segLen == 0 && segSeq == r.rcvNxt
 	}
 
+	// 如果seq在(r.rcvNxt, rcvWnd)构成的窗口内或者(r.rcvNxt, rcvWnd)和(segSeq, segLen)
+	// 有交集则返回true
 	return segSeq.InWindow(r.rcvNxt, rcvWnd) ||
 		seqnum.Overlap(r.rcvNxt, rcvWnd, segSeq, segLen)
 }
@@ -64,10 +67,12 @@ func (r *receiver) getSendParams() (rcvNxt seqnum.Value, rcvWnd seqnum.Size) {
 	// Calculate the window size based on the current buffer size.
 	n := r.ep.receiveBufferAvailable()
 	acc := r.rcvNxt.Add(seqnum.Size(n))
+	// r.rcvAcc只会递增而不会减小，因此即使窗口减小也不会让已经接收到的数据失效
 	if r.rcvAcc.LessThan(acc) {
 		r.rcvAcc = acc
 	}
 
+	// 而窗口大小是通过r.rcvAcc - r.rcvNxt获得的
 	return r.rcvNxt, r.rcvNxt.Size(r.rcvAcc) >> r.rcvWndScale
 }
 
@@ -88,19 +93,24 @@ func (r *receiver) nonZeroWindow() {
 // consumeSegment attemps to consume a segment that was received by r. The
 // segment may have just been received or may have been received earlier but
 // wasn't ready to be consumed then.
+// consumeSegment用于消费由r接收到的segment，该segment可能是刚刚接收的，也可能是之前接收
+// 但是还没有准备好被接收的
 //
 // Returns true if the segment was consumed, false if it cannot be consumed
 // yet because of a missing segment.
+// 如果segment能够被消费，则返回true，否则返回false，因为中间有遗漏的segment
 func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum.Size) bool {
 	if segLen > 0 {
 		// If the segment doesn't include the seqnum we're expecting to
 		// consume now, we're missing a segment. We cannot proceed until
 		// we receive that segment though.
+		// 如果该segment不包含我们想要消费的segment，则丢弃它
 		if !r.rcvNxt.InWindow(segSeq, segLen) {
 			return false
 		}
 
 		// Trim segment to eliminate already acknowledged data.
+		// 截断之前已经ACK的数据
 		if segSeq.LessThan(r.rcvNxt) {
 			diff := segSeq.Size(r.rcvNxt)
 			segLen -= diff
@@ -110,6 +120,7 @@ func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum
 		}
 
 		// Move segment to ready-to-deliver list. Wakeup any waiters.
+		// 将segment移动到接收队列中，并且唤醒waiters
 		r.ep.readyToRead(s)
 
 	} else if segSeq != r.rcvNxt {
@@ -117,7 +128,9 @@ func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum
 	}
 
 	// Update the segment that we're expecting to consume.
+	// 更新我们希望接收到的sequence number
 	r.rcvNxt = segSeq.Add(segLen)
+	// 当收到的为Fin包时
 	if s.flagIsSet(flagFin) {
 		r.rcvNxt++
 
@@ -159,16 +172,19 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 
 	// If the sequence number range is outside the acceptable range, just
 	// send an ACK. This is according to RFC 793, page 37.
+	// 如果接收到的sequence number超出了可以接受的范围，则直接发送一个ACK
 	if !r.acceptable(segSeq, segLen) {
 		r.ep.snd.sendAck()
 		return
 	}
 
 	// Defer segment processing if it can't be consumed now.
+	// 如果segment不能现在被消费，则推迟对它的处理
 	if !r.consumeSegment(s, segSeq, segLen) {
 		if segLen > 0 || s.flagIsSet(flagFin) {
 			// We only store the segment if it's within our buffer
 			// size limit.
+			// 如果pendingBuf还有空间可用，则将其加入pendingRcvdSegments
 			if r.pendingBufUsed < r.pendingBufSize {
 				r.pendingBufUsed += s.logicalLen()
 				s.incRef()
@@ -177,6 +193,7 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 
 			// Immediately send an ack so that the peer knows it may
 			// have to retransmit.
+			// 立即返回ACK，好让对端知道也许可以进行重传了
 			r.ep.snd.sendAck()
 		}
 		return
@@ -185,6 +202,8 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 	// By consuming the current segment, we may have filled a gap in the
 	// sequence number domain that allows pending segments to be consumed
 	// now. So try to do it.
+	// 通过消耗current segment，我们可能已经填补了sequence number之间的gap，因此
+	// 可以尝试发送pending segment
 	for !r.closed && r.pendingRcvdSegments.Len() > 0 {
 		s := r.pendingRcvdSegments[0]
 		segLen := seqnum.Size(s.data.Size())

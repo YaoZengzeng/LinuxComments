@@ -1129,6 +1129,7 @@ func (n *network) CreateEndpoint(name string, options ...EndpointOption) (Endpoi
 		}
 	}()
 
+	// 调用driver创建endpoint
 	if err = n.addEndpoint(ep); err != nil {
 		return nil, err
 	}

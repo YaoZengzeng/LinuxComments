@@ -693,6 +693,7 @@ func (container *Container) UpdateJoinInfo(n named, ep libnetwork.Endpoint) erro
 }
 
 // UpdateSandboxNetworkSettings updates the sandbox ID and Key.
+// UpdateSandboxNetworkSettings更新sandbox ID和Key
 func (container *Container) UpdateSandboxNetworkSettings(sb libnetwork.Sandbox) error {
 	container.NetworkSettings.SandboxID = sb.ID()
 	container.NetworkSettings.SandboxKey = sb.Key()

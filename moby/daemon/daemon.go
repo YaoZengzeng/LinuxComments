@@ -88,6 +88,7 @@ type Daemon struct {
 	uploadManager         *xfer.LayerUploadManager
 	trustKey              libtrust.PrivateKey
 	idIndex               *truncindex.TruncIndex
+	// configStore用于保存配置信息
 	configStore           *config.Config
 	statsCollector        *stats.Collector
 	defaultLogConfig      containertypes.LogConfig
@@ -358,6 +359,7 @@ func (daemon *Daemon) restore() error {
 		}(c)
 	}
 	wg.Wait()
+	// 初始化network controller
 	daemon.netController, err = daemon.initNetworkController(daemon.configStore, activeSandboxes)
 	if err != nil {
 		return fmt.Errorf("Error initializing network controller: %v", err)
@@ -895,6 +897,7 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 		return nil, err
 	}
 
+	// daemon restore，其中调用了initNetworkController
 	if err := d.restore(); err != nil {
 		return nil, err
 	}

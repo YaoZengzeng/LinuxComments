@@ -16,6 +16,7 @@ import (
 type DeleteOpts func(ctx context.Context, client *Client, c containers.Container) error
 
 // NewContainerOpts allows the caller to set additional options when creating a container
+// NewContainerOpts允许调用者在创建容器时设置额外的选项
 type NewContainerOpts func(ctx context.Context, client *Client, c *containers.Container) error
 
 // UpdateContainerOpts allows the caller to set additional options when updating a container

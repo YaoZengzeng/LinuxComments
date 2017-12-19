@@ -96,6 +96,7 @@ type sender struct {
 	sndWndScale uint8
 
 	// maxSentAck is the maxium acknowledgement actually sent.
+	// maxSentAck是已经发送的最大的acknowledgement
 	maxSentAck seqnum.Value
 }
 
@@ -435,6 +436,7 @@ func (s *sender) updateCwnd(packetsAcked int) {
 
 // handleRcvdSegment is called when a segment is received; it is responsible for
 // updating the send-related state.
+// 当收到一个新的segment时，handleRcvdSegment用于负责更新send相关的状态
 func (s *sender) handleRcvdSegment(seg *segment) {
 	// Check if we can extract an RTT measurement from this ack.
 	if s.rttMeasureSeqNum.LessThan(seg.ackNumber) {

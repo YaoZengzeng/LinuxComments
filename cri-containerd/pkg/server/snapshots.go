@@ -32,6 +32,7 @@ import (
 // should both use cached result here.
 // TODO(random-liu): Benchmark with high workload. We may need a statsSyncer instead if
 // benchmark result shows that container cpu/memory stats also need to be cached.
+// snapshotsSyncer会阶段性地同步snapshot的数据，imagefs info和container stats都需要使用这里的缓存数据
 type snapshotsSyncer struct {
 	store       *snapshotstore.Store
 	snapshotter snapshot.Snapshotter
@@ -58,6 +59,7 @@ func (s *snapshotsSyncer) start() {
 		// TODO(random-liu): This is expensive. We should do benchmark to
 		// check the resource usage and optimize this.
 		for {
+			// 没个s.syncPeriod秒同步一次
 			if err := s.sync(); err != nil {
 				glog.Errorf("Failed to sync snapshot stats: %v", err)
 			}

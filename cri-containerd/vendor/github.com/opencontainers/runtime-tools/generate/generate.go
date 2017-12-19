@@ -214,6 +214,7 @@ func New() Generator {
 }
 
 // NewFromSpec creates a spec Generator from a given spec.
+// 根据给定的spec创建一个spec Generator
 func NewFromSpec(spec *rspec.Spec) Generator {
 	return Generator{
 		spec: spec,

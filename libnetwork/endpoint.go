@@ -436,11 +436,13 @@ func (ep *endpoint) Join(sbox Sandbox, options ...EndpointOption) error {
 }
 
 func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) (err error) {
+	// 获取network
 	n, err := ep.getNetworkFromStore()
 	if err != nil {
 		return fmt.Errorf("failed to get network from store during join: %v", err)
 	}
 
+	// 从network中获取endpoint
 	ep, err = n.getEndpointFromStore(ep.ID())
 	if err != nil {
 		return fmt.Errorf("failed to get endpoint from store during join: %v", err)
@@ -473,6 +475,7 @@ func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) (err error) {
 		return fmt.Errorf("failed to get driver during join: %v", err)
 	}
 
+	// 调用driver进行具体的Join操作
 	err = d.Join(nid, epid, sb.Key(), ep, sb.Labels())
 	if err != nil {
 		return err

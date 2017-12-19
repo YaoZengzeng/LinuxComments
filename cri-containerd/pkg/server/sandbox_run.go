@@ -61,6 +61,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 	defer func() {
 		// Release the name if the function returns with an error.
+		// 如果有错误，则将保留的sandbox name删除
 		if retErr != nil {
 			c.sandboxNameIndex.ReleaseByName(name)
 		}
@@ -76,6 +77,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 
 	// Ensure sandbox container image snapshot.
+	// ensureImageExists用来返回镜像的元数据，如果镜像不存在的话，会自动下载镜像
 	image, err := c.ensureImageExists(ctx, c.config.SandboxImage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sandbox image %q: %v", c.config.SandboxImage, err)
@@ -88,6 +90,8 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		// handle. NetNSPath in sandbox metadata and NetNS is non empty only for non host network
 		// namespaces. If the pod is in host network namespace then both are empty and should not
 		// be used.
+		// 如果sandbox不是在host network namespace中，则创建一个namespace，其中NetNSPath和NetNS都不为空
+		// 如果sandbox位于host nentwork namespace中，则NetNSPath和NetNS都为空且不被使用
 		sandbox.NetNS, err = sandboxstore.NewNetNS()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create network namespace for sandbox %q: %v", id, err)
@@ -104,8 +108,10 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		// Setup network for sandbox.
 		podNetwork := ocicni.PodNetwork{
 			Name:         config.GetMetadata().GetName(),
+			// Namespace是sandbox所在的namespace
 			Namespace:    config.GetMetadata().GetNamespace(),
 			ID:           id,
+			// NetNS是sandbox network namespace所在的path
 			NetNS:        sandbox.NetNSPath,
 			PortMappings: toCNIPortMappings(config.GetPortMappings()),
 		}
@@ -129,11 +135,14 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 	glog.V(4).Infof("Sandbox container spec: %+v", spec)
 
+	// specOpts包含用于修改container spec相关的选项
 	var specOpts []containerd.SpecOpts
+	// user id相关的SpecOpts
 	if uid := securityContext.GetRunAsUser(); uid != nil {
 		specOpts = append(specOpts, containerd.WithUserID(uint32(uid.GetValue())))
 	}
 
+	// 生成seccomp相关的SpecOpts
 	seccompSpecOpts, err := generateSeccompSpecOpts(
 		securityContext.GetSeccompProfilePath(),
 		securityContext.GetPrivileged(),
@@ -145,6 +154,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		specOpts = append(specOpts, seccompSpecOpts)
 	}
 
+	// containerKindSandbox是一个常量"sandbox"，表示container是一个sandbox container
 	sandboxLabels := buildLabels(config.Labels, containerKindSandbox)
 
 	opts := []containerd.NewContainerOpts{
@@ -154,6 +164,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		containerd.WithSpec(spec, specOpts...),
 		containerd.WithContainerLabels(sandboxLabels),
 		containerd.WithContainerExtension(sandboxMetadataExtension, &sandbox.Metadata),
+		// runtime相关的选项
 		containerd.WithRuntime(
 			c.config.ContainerdConfig.Runtime,
 			&runcopts.RuncOptions{
@@ -161,6 +172,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 				RuntimeRoot:   c.config.ContainerdConfig.RuntimeRoot,
 				SystemdCgroup: c.config.SystemdCgroup})} // TODO (mikebrow): add CriuPath when we add support for pause
 
+	// 调用containerd client创建container
 	container, err := c.client.NewContainer(ctx, id, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create containerd container: %v", err)
@@ -174,6 +186,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}()
 
 	// Create sandbox container root directory.
+	// c.config.RootDir默认为/var/lib/cri-containerd
 	sandboxRootDir := getSandboxRootDir(c.config.RootDir, id)
 	if err := c.os.MkdirAll(sandboxRootDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create sandbox root directory %q: %v",
@@ -190,6 +203,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}()
 
 	// Setup sandbox /dev/shm, /etc/hosts and /etc/resolv.conf.
+	// 创建sandbox的/dev/shm，/etc/hosts和/etc/resolv.conf文件
 	if err = c.setupSandboxFiles(sandboxRootDir, config); err != nil {
 		return nil, fmt.Errorf("failed to setup sandbox files: %v", err)
 	}
@@ -206,6 +220,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	glog.V(5).Infof("Create sandbox container (id=%q, name=%q).",
 		id, name)
 	// We don't need stdio for sandbox container.
+	// 启动容器内的进程
 	task, err := container.NewTask(ctx, containerd.NullIO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task for sandbox %q: %v", id, err)
@@ -225,6 +240,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 
 	// Add sandbox into sandbox store.
+	// 将sandbox加入sandbox store
 	sandbox.Container = container
 	if err := c.sandboxStore.Add(sandbox); err != nil {
 		return nil, fmt.Errorf("failed to add sandbox %+v into store: %v", sandbox, err)
@@ -233,10 +249,12 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	return &runtime.RunPodSandboxResponse{PodSandboxId: id}, nil
 }
 
+// ImageConfig定义了用镜像启动一个容器使用的执行参数
 func (c *criContainerdService) generateSandboxContainerSpec(id string, config *runtime.PodSandboxConfig,
 	imageConfig *imagespec.ImageConfig, nsPath string) (*runtimespec.Spec, error) {
 	// Creates a spec Generator with the default spec.
 	// TODO(random-liu): [P1] Compare the default settings with docker and containerd default.
+	// 创建一个cri-containerd默认的spec
 	spec, err := defaultRuntimeSpec(id)
 	if err != nil {
 		return nil, err
@@ -244,6 +262,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	g := generate.NewFromSpec(spec)
 
 	// Apply default config from image config.
+	// 应用image config的默认配置，添加环境变量
 	if err := addImageEnvs(&g, imageConfig.Env); err != nil {
 		return nil, err
 	}
@@ -260,6 +279,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	g.SetProcessArgs(append(imageConfig.Entrypoint, imageConfig.Cmd...))
 
 	// Set relative root path.
+	// relativeRootfsPath是值为"rootfs"的常量
 	g.SetRootPath(relativeRootfsPath)
 
 	// Make root of sandbox container read-only.
@@ -281,6 +301,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	// TODO(random-liu): [P2] Set default cgroup path if cgroup parent is not specified.
 
 	// Set namespace options.
+	// 设置namespaec选项
 	securityContext := config.GetLinux().GetSecurityContext()
 	nsOptions := securityContext.GetNamespaceOptions()
 	if nsOptions.GetHostNetwork() {
@@ -321,6 +342,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	g.SetLinuxResourcesCPUShares(uint64(defaultSandboxCPUshares))
 	g.SetProcessOOMScoreAdj(int(defaultSandboxOOMAdj))
 
+	// 返回根据镜像配置以及其他一些默认参数修改后的spec
 	return g.Spec(), nil
 }
 
@@ -329,6 +351,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime.PodSandboxConfig) error {
 	// TODO(random-liu): Consider whether we should maintain /etc/hosts and /etc/resolv.conf in kubelet.
 	sandboxEtcHosts := getSandboxHosts(rootDir)
+	// etcHosts是"/etc/hosts"
 	if err := c.os.CopyFile(etcHosts, sandboxEtcHosts, 0644); err != nil {
 		return fmt.Errorf("failed to generate sandbox hosts file %q: %v", sandboxEtcHosts, err)
 	}
@@ -336,6 +359,7 @@ func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime
 	// Set DNS options. Maintain a resolv.conf for the sandbox.
 	var err error
 	resolvContent := ""
+	// 将config中的dns config转换为resolvContent
 	if dnsConfig := config.GetDnsConfig(); dnsConfig != nil {
 		resolvContent, err = parseDNSOptions(dnsConfig.Servers, dnsConfig.Searches, dnsConfig.Options)
 		if err != nil {
@@ -343,8 +367,10 @@ func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime
 		}
 	}
 	resolvPath := getResolvPath(rootDir)
+	// 如果在配置中指定了dns，即resolvContent不为""，则将其写入resolvPath，否则直接将宿主机的/etc/resolv.conf写入
 	if resolvContent == "" {
 		// copy host's resolv.conf to resolvPath
+		// resolvConfPath为"/etc/resolv.conf"
 		err = c.os.CopyFile(resolvConfPath, resolvPath, 0644)
 		if err != nil {
 			return fmt.Errorf("failed to copy host's resolv.conf to %q: %v", resolvPath, err)
@@ -357,6 +383,7 @@ func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime
 	}
 
 	// Setup sandbox /dev/shm.
+	// 设置sandbox的/dev/shm
 	if config.GetLinux().GetSecurityContext().GetNamespaceOptions().GetHostIpc() {
 		if _, err := c.os.Stat(devShm); err != nil {
 			return fmt.Errorf("host %q is not available for host ipc: %v", devShm, err)
@@ -366,6 +393,7 @@ func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime
 		if err := c.os.MkdirAll(sandboxDevShm, 0700); err != nil {
 			return fmt.Errorf("failed to create sandbox shm: %v", err)
 		}
+		// defaultShmSize为64M
 		shmproperty := fmt.Sprintf("mode=1777,size=%d", defaultShmSize)
 		if err := c.os.Mount("shm", sandboxDevShm, "tmpfs", uintptr(unix.MS_NOEXEC|unix.MS_NOSUID|unix.MS_NODEV), shmproperty); err != nil {
 			return fmt.Errorf("failed to mount sandbox shm: %v", err)

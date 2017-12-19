@@ -47,6 +47,7 @@ func (v Value) Add(s Size) Value {
 }
 
 // Size calculates the size of the window defined by [v, w).
+// 计算[v, w)定义的window
 func (v Value) Size(w Value) Size {
 	return Size(w - v)
 }
