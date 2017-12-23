@@ -43,9 +43,11 @@ type eventMonitor struct {
 // newEventMonitor用于监听来自containerd的事件
 func newEventMonitor(c *criContainerdService) *eventMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
+	// 向containerd订阅事件
 	ch, errCh := c.client.Subscribe(ctx)
 	return &eventMonitor{
 		c:       c,
+		// 事件能够从ch中获取
 		ch:      ch,
 		errCh:   errCh,
 		closeCh: make(chan struct{}),
@@ -63,6 +65,7 @@ func (em *eventMonitor) start() <-chan struct{} {
 			select {
 			case e := <-em.ch:
 				glog.V(4).Infof("Received container event timestamp - %v, namespace - %q, topic - %q", e.Timestamp, e.Namespace, e.Topic)
+				// 从ch中获取事件并交由handleEvent处理
 				em.handleEvent(e)
 			case err := <-em.errCh:
 				glog.Errorf("Failed to handle event stream: %v", err)
@@ -93,6 +96,7 @@ func (em *eventMonitor) handleEvent(evt *events.Envelope) {
 	// fine to leave out that case for now.
 	// TODO(random-liu): [P2] Handle containerd-shim exit.
 	case *events.TaskExit:
+		// task退出事件
 		e := any.(*events.TaskExit)
 		glog.V(2).Infof("TaskExit event %+v", e)
 		cntr, err := c.containerStore.Get(e.ContainerID)
@@ -103,11 +107,13 @@ func (em *eventMonitor) handleEvent(evt *events.Envelope) {
 			glog.Errorf("Failed to get container %q: %v", e.ContainerID, err)
 			return
 		}
+		// 如果退出的进程不是init-process，则不做处理
 		if e.Pid != cntr.Status.Get().Pid {
 			// Non-init process died, ignore the event.
 			return
 		}
 		// Attach container IO so that `Delete` could cleanup the stream properly.
+		// 连接container IO，从而能让`Delete`更好地清除stream
 		task, err := cntr.Container.Task(context.Background(),
 			func(*containerd.FIFOSet) (containerd.IO, error) {
 				return cntr.IO, nil
@@ -120,6 +126,7 @@ func (em *eventMonitor) handleEvent(evt *events.Envelope) {
 			}
 		} else {
 			// TODO(random-liu): [P1] This may block the loop, we may want to spawn a worker
+			// 此处可能会对循环造成阻塞，所以我们可能要生成一个worker来处理
 			if _, err = task.Delete(context.Background()); err != nil {
 				// TODO(random-liu): [P0] Enqueue the event and retry.
 				if !errdefs.IsNotFound(err) {
@@ -129,6 +136,7 @@ func (em *eventMonitor) handleEvent(evt *events.Envelope) {
 				// Move on to make sure container status is updated.
 			}
 		}
+		// 更新container的状态
 		err = cntr.Status.UpdateSync(func(status containerstore.Status) (containerstore.Status, error) {
 			// If FinishedAt has been set (e.g. with start failure), keep as
 			// it is.
@@ -155,6 +163,7 @@ func (em *eventMonitor) handleEvent(evt *events.Envelope) {
 			}
 			glog.Errorf("Failed to get container %q: %v", e.ContainerID, err)
 		}
+		// 从container store中获取container，并且同步status
 		err = cntr.Status.UpdateSync(func(status containerstore.Status) (containerstore.Status, error) {
 			status.Reason = oomExitReason
 			return status, nil

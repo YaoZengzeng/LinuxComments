@@ -8,6 +8,7 @@ import (
 
 var ErrNotAConsole = errors.New("provided file is not a console")
 
+// Console是一个接口，包括了对console的读写以及一些console相关的方法
 type Console interface {
 	io.Reader
 	io.Writer
@@ -54,7 +55,9 @@ func Current() Console {
 }
 
 // ConsoleFromFile returns a console using the provided file
+// 根据给定的文件描述符返回一个Console
 func ConsoleFromFile(f *os.File) (Console, error) {
+	// 检查给定的文件描述符是不是一个console
 	if err := checkConsole(f); err != nil {
 		return nil, err
 	}

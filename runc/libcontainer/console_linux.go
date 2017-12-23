@@ -23,6 +23,7 @@ func mountConsole(slavePath string) error {
 
 // dupStdio opens the slavePath for the console and dups the fds to the current
 // processes stdio, fd 0,1,2.
+// dupStdio打开console的slavePath并且复制fd到当前进程的stdio，文件描述符0, 1, 2
 func dupStdio(slavePath string) error {
 	fd, err := unix.Open(slavePath, unix.O_RDWR, 0)
 	if err != nil {

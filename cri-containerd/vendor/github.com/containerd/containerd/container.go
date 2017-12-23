@@ -25,6 +25,7 @@ type Container interface {
 	// Delete removes the container
 	Delete(context.Context, ...DeleteOpts) error
 	// NewTask creates a new task based on the container metadata
+	// NewTask根据container的元数据创建一个新的task
 	NewTask(context.Context, IOCreation, ...NewTaskOpts) (Task, error)
 	// Spec returns the OCI runtime specification
 	Spec(context.Context) (*specs.Spec, error)
@@ -35,6 +36,9 @@ type Container interface {
 	//
 	// Clients must make sure that only one reader is attached to the task and consuming
 	// the output from the task's fifos
+	// Task会返回容器当前的task
+	// 如果指定了IOAttach选项，客户端会重连running task的IO，如果容器已经没有task了，则返回NotFound
+	// 客户端必须确保只有一个reader连接到task用于获取task的fifos的输出
 	Task(context.Context, IOAttach) (Task, error)
 	// Image returns the image that the container is based on
 	Image(context.Context) (Image, error)
@@ -43,6 +47,7 @@ type Container interface {
 	// SetLabels sets the provided labels for the container and returns the final label set
 	SetLabels(context.Context, map[string]string) (map[string]string, error)
 	// Extensions returns the extensions set on the container
+	// Extensions返回存放在容器中的extensions set
 	Extensions(context.Context) (map[string]prototypes.Any, error)
 	// Update a container
 	Update(context.Context, ...UpdateContainerOpts) error

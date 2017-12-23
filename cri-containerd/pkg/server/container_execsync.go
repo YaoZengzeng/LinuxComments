@@ -71,6 +71,7 @@ type execOptions struct {
 
 // execInContainer executes a command inside the container synchronously, and
 // redirects stdio stream properly.
+// execInContainer在容器里同步地执行一条命令，并且适当地对stdio进行重定向
 func (c *criContainerdService) execInContainer(ctx context.Context, id string, opts execOptions) (*uint32, error) {
 	// Cancel the context before returning to ensure goroutines are stopped.
 	// This is important, because if `Start` returns error, `Wait` will hang
@@ -97,10 +98,12 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container spec: %v", err)
 	}
+	// 获取container的task service
 	task, err := container.Task(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load task: %v", err)
 	}
+	// 如果设置了tty，添加TERM为xterm的环境变量
 	if opts.tty {
 		g := generate.NewFromSpec(spec)
 		g.AddProcessEnv("TERM", "xterm")
@@ -116,13 +119,16 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 	if opts.stderr == nil {
 		opts.stderr = cio.NewDiscardLogger()
 	}
+	// 创建exec id
 	execID := util.GenerateID()
 	glog.V(4).Infof("Generated exec id %q for container %q", execID, id)
 	rootDir := getContainerRootDir(c.config.RootDir, id)
 	var execIO *cio.ExecIO
+	// 调用task exec创建一个进程
 	process, err := task.Exec(ctx, execID, pspec,
 		func(id string) (containerd.IO, error) {
 			var err error
+			// 创建新的execIO
 			execIO, err = cio.NewExecIO(id, rootDir, opts.tty, opts.stdin != nil)
 			return execIO, err
 		},
@@ -136,10 +142,12 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 		}
 	}()
 
+	// 等待进程结束
 	exitCh, err := process.Wait(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for process %q: %v", execID, err)
 	}
+	// 启动进程
 	if err := process.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start exec %q: %v", execID, err)
 	}
@@ -150,7 +158,9 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 		}
 	})
 
+	// 调用execIO的attach
 	attachDone := execIO.Attach(cio.AttachOptions{
+		// 将reader，writer连接到容器
 		Stdin:     opts.stdin,
 		Stdout:    opts.stdout,
 		Stderr:    opts.stderr,
@@ -172,13 +182,16 @@ func (c *criContainerdService) execInContainer(ctx context.Context, id string, o
 	case <-timeoutCh:
 		//TODO(Abhi) Use context.WithDeadline instead of timeout.
 		// Ignore the not found error because the process may exit itself before killing.
+		// 超时直接杀死进程	
 		if err := process.Kill(ctx, unix.SIGKILL); err != nil && !errdefs.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to kill exec %q: %v", execID, err)
 		}
 		// Wait for the process to be killed.
+		// 等待进程被杀死
 		exitRes := <-exitCh
 		glog.V(2).Infof("Timeout received while waiting for exec process kill %q code %d and error %v",
 			execID, exitRes.ExitCode(), exitRes.Error())
+		// 等待attach结束
 		<-attachDone
 		glog.V(4).Infof("Stream pipe for exec process %q done", execID)
 		return nil, fmt.Errorf("timeout %v exceeded", opts.timeout)

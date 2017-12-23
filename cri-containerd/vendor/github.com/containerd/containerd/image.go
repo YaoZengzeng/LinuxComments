@@ -23,6 +23,7 @@ type Image interface {
 	// Target descriptor for the image content
 	Target() ocispec.Descriptor
 	// Unpack unpacks the image's content into a snapshot
+	// Unpack将镜像的内容unpack到一个snapshot
 	Unpack(context.Context, string) error
 	// RootFS returns the unpacked diffids that make up images rootfs.
 	RootFS(ctx context.Context) ([]digest.Digest, error)

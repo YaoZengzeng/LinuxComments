@@ -181,10 +181,12 @@ func (l *linuxStandardInit) Init() error {
 	// user process. We open it through /proc/self/fd/$fd, because the fd that
 	// was given to us was an O_PATH fd to the fifo itself. Linux allows us to
 	// re-open an O_PATH fd through /proc.
+	// 在exec用户进程之前等待对端打开FIFO，默认是阻塞打开
 	fd, err := unix.Open(fmt.Sprintf("/proc/self/fd/%d", l.fifoFd), unix.O_WRONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return newSystemErrorWithCause(err, "open exec fifo")
 	}
+	// 向fifo中写入一个字节，阻塞，等待父进程读取，如果父进程读取了，说明执行了start，则本进程执行exec
 	if _, err := unix.Write(fd, []byte("0")); err != nil {
 		return newSystemErrorWithCause(err, "write 0 exec fifo")
 	}

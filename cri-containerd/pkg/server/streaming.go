@@ -38,8 +38,10 @@ func newStreamServer(c *criContainerdService, addr, port string) (streaming.Serv
 		}
 		addr = a.String()
 	}
+	// config使用streaming的DefaultConfig
 	config := streaming.DefaultConfig
 	config.Addr = net.JoinHostPort(addr, port)
+	// runtime实现了streaming server指定的Exec,Attach和PortForward三个方法
 	runtime := newStreamRuntime(c)
 	return streaming.NewServer(config, runtime)
 }
@@ -54,14 +56,15 @@ func newStreamRuntime(c *criContainerdService) streaming.Runtime {
 
 // Exec executes a command inside the container. exec.ExitError is returned if the command
 // returns non-zero exit code.
+// Exec在容器里执行一条命令，如果执行的命令返回的是非零的exit code，则返回exec.ExitError
 func (s *streamRuntime) Exec(containerID string, cmd []string, stdin io.Reader, stdout, stderr io.WriteCloser,
 	tty bool, resize <-chan remotecommand.TerminalSize) error {
 	exitCode, err := s.c.execInContainer(context.Background(), containerID, execOptions{
 		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		tty:    tty,
+		stdin:  stdin,	// true
+		stdout: stdout,	// true
+		stderr: stderr,	// false
+		tty:    tty,	// true
 		resize: resize,
 	})
 	if err != nil {

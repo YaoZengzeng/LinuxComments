@@ -71,6 +71,7 @@ type Process struct {
 	Rlimits []configs.Rlimit
 
 	// ConsoleSocket provides the masterfd console.
+	// ConsoleSocket是console的master端fd
 	ConsoleSocket *os.File
 
 	ops processOperations

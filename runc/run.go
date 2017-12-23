@@ -35,9 +35,11 @@ command(s) that get executed on start, edit the args parameter of the spec. See
 		cli.StringFlag{
 			Name:  "console-socket",
 			Value: "",
+			// 一个到AF_UNIX socket的路径，它能够收到一个文件描述符表示console的伪终端的master一端
 			Usage: "path to an AF_UNIX socket which will receive a file descriptor referencing the master end of the console's pseudoterminal",
 		},
 		cli.BoolFlag{
+			//  默认detach为false
 			Name:  "detach, d",
 			Usage: "detach from the container's process",
 		},

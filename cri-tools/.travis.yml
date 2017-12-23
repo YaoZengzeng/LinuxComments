@@ -1,0 +1,29 @@
+language: go
+sudo: required
+dist: trusty
+
+go:
+  - 1.9.x
+
+go_import_path: github.com/kubernetes-incubator/cri-tools
+
+services:
+  - docker
+
+before_install:
+  - hack/install-docker.sh
+  - hack/install-kubelet.sh
+
+install:
+  - make install.tools
+
+jobs:
+  include:
+    - stage: Static check
+      script:
+        - make lint
+        - make gofmt
+    - stage: Test
+      script: 
+        - make
+        - sudo env PATH=$PATH GOPATH=$GOPATH hack/run-critest.sh

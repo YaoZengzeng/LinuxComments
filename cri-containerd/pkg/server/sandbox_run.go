@@ -45,6 +45,7 @@ func init() {
 
 // RunPodSandbox creates and starts a pod-level sandbox. Runtimes should ensure
 // the sandbox is in ready state.
+// RunPodSandbox创建并启动一个pod-level sandbox，runtime必须确保sandbox处于ready状态
 func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (_ *runtime.RunPodSandboxResponse, retErr error) {
 	config := r.GetConfig()
 
@@ -78,6 +79,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 
 	// Ensure sandbox container image snapshot.
 	// ensureImageExists用来返回镜像的元数据，如果镜像不存在的话，会自动下载镜像
+	// 确保镜像”gcr.io/google_containers/pause:3.0"存在
 	image, err := c.ensureImageExists(ctx, c.config.SandboxImage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sandbox image %q: %v", c.config.SandboxImage, err)
@@ -129,6 +131,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 
 	// Create sandbox container.
+	// 创建sandbox container
 	spec, err := c.generateSandboxContainerSpec(id, config, image.Config, sandbox.NetNSPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate sandbox container spec: %v", err)
@@ -155,14 +158,17 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}
 
 	// containerKindSandbox是一个常量"sandbox"，表示container是一个sandbox container
+	// buildLabels返回一个map[string]string结构
 	sandboxLabels := buildLabels(config.Labels, containerKindSandbox)
 
+	// 设置containrd新建容器的选项
 	opts := []containerd.NewContainerOpts{
 		containerd.WithSnapshotter(c.config.ContainerdConfig.Snapshotter),
 		customopts.WithImageUnpack(image.Image),
 		containerd.WithNewSnapshot(id, image.Image),
 		containerd.WithSpec(spec, specOpts...),
 		containerd.WithContainerLabels(sandboxLabels),
+		// 将sandbox的元数据作为extension存储
 		containerd.WithContainerExtension(sandboxMetadataExtension, &sandbox.Metadata),
 		// runtime相关的选项
 		containerd.WithRuntime(
@@ -188,6 +194,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	// Create sandbox container root directory.
 	// c.config.RootDir默认为/var/lib/cri-containerd
 	sandboxRootDir := getSandboxRootDir(c.config.RootDir, id)
+	// 创建sandbox的根目录/var/lib/cri-containerd/sandboxid/
 	if err := c.os.MkdirAll(sandboxRootDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create sandbox root directory %q: %v",
 			sandboxRootDir, err)
@@ -217,10 +224,11 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}()
 
 	// Create sandbox task in containerd.
+	// 在containerd中创建sandbox task
 	glog.V(5).Infof("Create sandbox container (id=%q, name=%q).",
 		id, name)
 	// We don't need stdio for sandbox container.
-	// 启动容器内的进程
+	// 启动容器内的进程，对于sandbox container我们需要stdio
 	task, err := container.NewTask(ctx, containerd.NullIO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task for sandbox %q: %v", id, err)
@@ -234,6 +242,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		}
 	}()
 
+	// 启动sandbox container task
 	if err = task.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start sandbox container task %q: %v",
 			id, err)
@@ -273,9 +282,11 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 
 	if len(imageConfig.Entrypoint) == 0 {
 		// Pause image must have entrypoint.
+		// Pause镜像必须有entrypoint
 		return nil, fmt.Errorf("invalid empty entrypoint in image config %+v", imageConfig)
 	}
 	// Set process commands.
+	// 添加entrypoint和Cmd
 	g.SetProcessArgs(append(imageConfig.Entrypoint, imageConfig.Cmd...))
 
 	// Set relative root path.
@@ -298,6 +309,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	}
 	// When cgroup parent is not set, containerd-shim will create container in a child cgroup
 	// of the cgroup itself is in.
+	// 如果cgroup parent没有设置，那么containerd-shim会在它所在cgroup的子cgroup中创建容器
 	// TODO(random-liu): [P2] Set default cgroup path if cgroup parent is not specified.
 
 	// Set namespace options.
@@ -351,7 +363,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 func (c *criContainerdService) setupSandboxFiles(rootDir string, config *runtime.PodSandboxConfig) error {
 	// TODO(random-liu): Consider whether we should maintain /etc/hosts and /etc/resolv.conf in kubelet.
 	sandboxEtcHosts := getSandboxHosts(rootDir)
-	// etcHosts是"/etc/hosts"
+	// etcHosts是"/etc/hosts"，将/etc/hosts复制到sandboxEtcHosts
 	if err := c.os.CopyFile(etcHosts, sandboxEtcHosts, 0644); err != nil {
 		return fmt.Errorf("failed to generate sandbox hosts file %q: %v", sandboxEtcHosts, err)
 	}

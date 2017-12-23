@@ -54,6 +54,7 @@ func loadFactory(context *cli.Context) (libcontainer.Factory, error) {
 	// We resolve the paths for {newuidmap,newgidmap} from the context of runc,
 	// to avoid doing a path lookup in the nsexec context. TODO: The binary
 	// names are not currently configurable.
+	// 在runc的context中找到{newuidmap, newgidmap}的路径，从而防止在nsexec的context中对路径进行查找
 	newuidmap, err := exec.LookPath("newuidmap")
 	if err != nil {
 		newuidmap = ""
@@ -71,6 +72,7 @@ func loadFactory(context *cli.Context) (libcontainer.Factory, error) {
 
 // getContainer returns the specified container instance by loading it from state
 // with the default factory.
+// getContainer通过从默认的factory中加载，返回容器的实例
 func getContainer(context *cli.Context) (libcontainer.Container, error) {
 	id := context.Args().First()
 	if id == "" {
@@ -97,6 +99,7 @@ func getDefaultImagePath(context *cli.Context) string {
 
 // newProcess returns a new libcontainer Process with the arguments from the
 // spec and stdio from the current process.
+// 将spec的Process转换为libcontainer的Process
 func newProcess(p specs.Process) (*libcontainer.Process, error) {
 	lp := &libcontainer.Process{
 		Args: p.Args,
@@ -143,12 +146,15 @@ func destroy(container libcontainer.Container) {
 
 // setupIO modifies the given process config according to the options.
 func setupIO(process *libcontainer.Process, rootuid, rootgid int, createTTY, detach bool, sockpath string) (*tty, error) {
+	// createTTY就是配置中的Terminal选项
 	if createTTY {
 		process.Stdin = nil
 		process.Stdout = nil
 		process.Stderr = nil
 		t := &tty{}
 		if !detach {
+			// 如果detach为false
+			// 创建一个命名管道
 			parent, child, err := utils.NewSockPair("console")
 			if err != nil {
 				return nil, err
@@ -294,11 +300,14 @@ func (r *runner) run(config *specs.Process) (int, error) {
 		return -1, err
 	}
 	var (
+		// 如果是create容器，则默认detach为true
 		detach = r.detach || (r.action == CT_ACT_CREATE)
 	)
 	// Setting up IO is a two stage process. We need to modify process to deal
 	// with detaching containers, and then we get a tty after the container has
 	// started.
+	// 设置IO分为两步进行，我们需要需改process使其能处理detaching container，在容器
+	// 启动了之后得到tty
 	handler := newSignalHandler(r.enableSubreaper, r.notifySocket)
 	// 根据是否进入到容器终端来配置tty，标准输入，标准输出和标准错误输出
 	tty, err := setupIO(process, rootuid, rootgid, config.Terminal, detach, r.consoleSocket)
@@ -315,6 +324,7 @@ func (r *runner) run(config *specs.Process) (int, error) {
 	case CT_ACT_RESTORE:
 		err = r.container.Restore(process, r.criuOpts)
 	case CT_ACT_RUN:
+		// run和create的不同是，run会在container.Start之后再调用container.Exec
 		err = r.container.Run(process)
 	default:
 		panic("Unknown action")
@@ -323,6 +333,7 @@ func (r *runner) run(config *specs.Process) (int, error) {
 		r.destroy()
 		return -1, err
 	}
+	// 当consoleC有数据传来，准备关闭console
 	if err := tty.waitConsole(); err != nil {
 		r.terminate(process)
 		r.destroy()
@@ -366,9 +377,11 @@ func (r *runner) checkTerminal(config *specs.Process) error {
 	// 如果设置了detach或者是create命令则detach为true
 	detach := r.detach || (r.action == CT_ACT_CREATE)
 	// Check command-line for sanity.
+	// 如果是detach，consoleSocket也为空，但是设置了terminal，则报错
 	if detach && config.Terminal && r.consoleSocket == "" {
 		return fmt.Errorf("cannot allocate tty if runc will detach without setting console socket")
 	}
+	// 如果设置了consoleSocket，但是没有设置detach，或者没有设置终端，则报错
 	if (!detach || !config.Terminal) && r.consoleSocket != "" {
 		return fmt.Errorf("cannot use console socket if runc will not detach or allocate tty")
 	}
@@ -436,6 +449,7 @@ func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOp
 		container:       container,
 		listenFDs:       listenFDs,
 		notifySocket:    notifySocket,
+		// 默认consoleSocket为空
 		consoleSocket:   context.String("console-socket"),
 		detach:          context.Bool("detach"),
 		pidFile:         context.String("pid-file"),

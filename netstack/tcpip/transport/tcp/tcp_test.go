@@ -624,6 +624,7 @@ func TestScaledWindowConnect(t *testing.T) {
 	// Set the window size greater than the maximum non-scaled window.
 	opt := tcpip.ReceiveBufferSizeOption(65535 * 3)
 	c.CreateConnectedWithRawOptions(789, 30000, &opt, []byte{
+		// 第二个字节为长度，TCPOptionWS的长度为3
 		header.TCPOptionWS, 3, 0, header.TCPOptionNOP,
 	})
 

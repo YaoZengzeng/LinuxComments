@@ -196,6 +196,7 @@ func (h *handshake) synSentState(s *segment) *tcpip.Error {
 	h.ackNum = s.sequenceNumber + 1
 	h.flags |= flagAck
 	h.mss = rcvSynOpts.MSS
+	// 设置sndWndScale
 	h.sndWndScale = rcvSynOpts.WS
 
 	// If this is a SYN ACK response, we only need to acknowledge the SYN
@@ -476,6 +477,7 @@ func sendTCP(r *stack.Route, id stack.TransportEndpointID, data buffer.View, fla
 	// Allocate a buffer for the TCP header.
 	hdr := buffer.NewPrependable(header.TCPMinimumSize + int(r.MaxHeaderLength()))
 
+	// 如果接收窗口大于0xffff，则将其设置为0xffff
 	if rcvWnd > 0xffff {
 		rcvWnd = 0xffff
 	}
@@ -705,6 +707,8 @@ func (e *endpoint) protocolMainLoop(passive bool) *tcpip.Error {
 		e.snd = newSender(e, h.iss, h.ackNum-1, h.sndWnd, h.mss, h.sndWndScale)
 
 		e.rcvListMu.Lock()
+		// 调用h.effectiveRcvWndScale()获取有效的RcvWndScale
+		// 如果对端没有设置rcvWndScale，则本端的rcvWndScale就为0
 		e.rcv = newReceiver(e, h.ackNum-1, h.rcvWnd, h.effectiveRcvWndScale())
 		e.rcvListMu.Unlock()
 	}

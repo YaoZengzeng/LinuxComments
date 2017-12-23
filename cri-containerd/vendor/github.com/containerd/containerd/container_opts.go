@@ -85,6 +85,7 @@ func WithSnapshot(id string) NewContainerOpts {
 
 // WithNewSnapshot allocates a new snapshot to be used by the container as the
 // root filesystem in read-write mode
+// WithNewSnapshot申请一个新的snapshot被容器用作可读写的根文件系统
 func WithNewSnapshot(id string, i Image) NewContainerOpts {
 	return func(ctx context.Context, client *Client, c *containers.Container) error {
 		diffIDs, err := i.(*image).i.RootFS(ctx, client.ContentStore(), platforms.Default())

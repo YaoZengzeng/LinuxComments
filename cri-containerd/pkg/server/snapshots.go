@@ -114,6 +114,7 @@ func (s *snapshotsSyncer) sync() error {
 			continue
 		}
 		// Delete the snapshot stats if it's not updated this time.
+		// 将没有更新的snapshot stats删除
 		s.store.Delete(sn.Key)
 	}
 	return nil

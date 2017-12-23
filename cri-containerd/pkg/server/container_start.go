@@ -32,6 +32,7 @@ import (
 
 // StartContainer starts the container.
 func (c *criContainerdService) StartContainer(ctx context.Context, r *runtime.StartContainerRequest) (retRes *runtime.StartContainerResponse, retErr error) {
+	// 根据container id获取container
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
 		return nil, fmt.Errorf("an error occurred when try to find container %q: %v", r.GetContainerId(), err)
@@ -42,6 +43,7 @@ func (c *criContainerdService) StartContainer(ctx context.Context, r *runtime.St
 	if err := container.Status.UpdateSync(func(status containerstore.Status) (containerstore.Status, error) {
 		// Always apply status change no matter startContainer fails or not. Because startContainer
 		// may change container state no matter it fails or succeeds.
+		// 不管startContainer成功或失败，总是要更新状态
 		startErr = c.startContainer(ctx, container, &status)
 		return status, nil
 	}); startErr != nil {
@@ -89,6 +91,7 @@ func (c *criContainerdService) startContainer(ctx context.Context,
 	}
 	sandboxID := meta.SandboxID
 	// Make sure sandbox is running.
+	// 首先确保sandbox container处于running状态
 	s, err := sandbox.Container.Task(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get sandbox container %q info: %v", sandboxID, err)
@@ -103,6 +106,7 @@ func (c *criContainerdService) startContainer(ctx context.Context,
 		return fmt.Errorf("sandbox container %q is not running", sandboxID)
 	}
 
+	// 创建ioCreation
 	ioCreation := func(id string) (_ containerd.IO, err error) {
 		stdoutWC, stderrWC, err := createContainerLoggers(meta.LogPath, config.GetTty())
 		if err != nil {
@@ -125,6 +129,7 @@ func (c *criContainerdService) startContainer(ctx context.Context,
 		return cntr.IO, nil
 	}
 
+	// 启动一个新的task
 	task, err := container.NewTask(ctx, ioCreation)
 	if err != nil {
 		return fmt.Errorf("failed to create containerd task: %v", err)

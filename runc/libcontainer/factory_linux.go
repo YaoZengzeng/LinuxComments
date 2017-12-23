@@ -299,6 +299,7 @@ func (l *LinuxFactory) StartInitialization() (err error) {
 		if err != nil {
 			return fmt.Errorf("unable to convert _LIBCONTAINER_CONSOLE=%s to int: %s", envConsole, err)
 		}
+		// 获取console socket
 		consoleSocket = os.NewFile(uintptr(console), "console-socket")
 		defer consoleSocket.Close()
 	}

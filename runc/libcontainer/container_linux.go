@@ -54,6 +54,7 @@ type linuxContainer struct {
 }
 
 // State represents a running container's state
+// State代表了一个运行容器的状态
 type State struct {
 	BaseState
 
@@ -276,6 +277,7 @@ func (c *linuxContainer) Exec() error {
 }
 
 func (c *linuxContainer) exec() error {
+	// execFifoFilename为常量"exec.fifo"
 	path := filepath.Join(c.root, execFifoFilename)
 	f, err := os.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
@@ -287,6 +289,7 @@ func (c *linuxContainer) exec() error {
 		return err
 	}
 	if len(data) > 0 {
+		// 如果能从exec.fifo中读出数据则成功返回
 		os.Remove(path)
 		return nil
 	}
@@ -310,6 +313,7 @@ func (c *linuxContainer) start(process *Process, isInit bool) error {
 	// generate a timestamp indicating when the container was started
 	c.created = time.Now().UTC()
 	if isInit {
+		// 将容器的状态改为Created
 		c.state = &createdState{
 			c: c,
 		}
@@ -369,6 +373,7 @@ func (c *linuxContainer) createExecFifo() error {
 		return fmt.Errorf("exec fifo %s already exists", fifoName)
 	}
 	oldMask := unix.Umask(0000)
+	// 创建exec.fifo文件
 	if err := unix.Mkfifo(fifoName, 0622); err != nil {
 		unix.Umask(oldMask)
 		return err

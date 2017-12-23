@@ -33,9 +33,11 @@ type Snapshot struct {
 	// Size is the size of the snapshot in bytes.
 	Size uint64
 	// Inodes is the number of inodes used by the snapshot
+	// snapshot使用的inode数目
 	Inodes uint64
 	// Timestamp is latest update time (in nanoseconds) of the snapshot
 	// information.
+	// Timestamp是上次snapshot信息更新的时间
 	Timestamp int64
 }
 

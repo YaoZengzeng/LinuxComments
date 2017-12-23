@@ -101,10 +101,12 @@ const (
 	// containerKindLabel是一个label key，用来表示container是sandbox container还是application container
 	containerKindLabel = criContainerdPrefix + ".kind"
 	// containerKindSandbox is a label value indicating container is sandbox container
+	// containerKindSandbox是一个label value，用来表示容器是sandbox container
 	containerKindSandbox = "sandbox"
 	// containerKindContainer is a label value indicating container is application container
 	containerKindContainer = "container"
 	// sandboxMetadataExtension is an extension name that identify metadata of sandbox in CreateContainerRequest
+	// sandboxMetadataExtension是一个extension name用于在CreateContainerRequest中标识sandbox的metadata
 	sandboxMetadataExtension = criContainerdPrefix + ".sandbox.metadata"
 	// containerMetadataExtension is an extension name that identify metadata of container in CreateContainerRequest
 	containerMetadataExtension = criContainerdPrefix + ".container.metadata"
@@ -112,13 +114,14 @@ const (
 
 // makeSandboxName generates sandbox name from sandbox metadata. The name
 // generated is unique as long as sandbox metadata is unique.
+// makeSandboxName根据sandbox的元数据产生sandbox name
 func makeSandboxName(s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		s.Name,      // 0
 		s.Namespace, // 1
 		s.Uid,       // 2
 		fmt.Sprintf("%d", s.Attempt), // 3
-	}, nameDelimiter)
+	}, nameDelimiter)	// nameDelimiter为"_"
 }
 
 // makeContainerName generates container name from sandbox and container metadata.
@@ -131,7 +134,7 @@ func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetada
 		s.Namespace, // 2: sandbox namespace
 		s.Uid,       // 3: sandbox uid
 		fmt.Sprintf("%d", c.Attempt), // 4
-	}, nameDelimiter)
+	}, nameDelimiter)	// nameDelimiter为"_"
 }
 
 // getCgroupsPath generates container cgroups path.
@@ -232,6 +235,7 @@ func (c *criContainerdService) localResolve(ctx context.Context, ref string) (*i
 		ref = desc.Digest.String()
 	}
 	imageID := ref
+	// 先从cri-containerd的imageStore获取镜像
 	image, err := c.imageStore.Get(imageID)
 	if err != nil {
 		if err == store.ErrNotExist {
@@ -263,7 +267,9 @@ func getUserFromImage(user string) (*int64, string) {
 
 // ensureImageExists returns corresponding metadata of the image reference, if image is not
 // pulled yet, the function will pull the image.
+// ensureImageExists返回相应的imageref的元数据，如果镜像还没被拉下来，本函数会自动拉取镜像
 func (c *criContainerdService) ensureImageExists(ctx context.Context, ref string) (*imagestore.Image, error) {
+	// 先检查在image store中是否缓存了镜像
 	image, err := c.localResolve(ctx, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve image %q: %v", ref, err)
@@ -316,6 +322,7 @@ type imageInfo struct {
 }
 
 // getImageInfo gets image info from containerd.
+// getImageInfo从containerd中获取镜像信息
 func getImageInfo(ctx context.Context, image containerd.Image, provider content.Provider) (*imageInfo, error) {
 	// Get image information.
 	diffIDs, err := image.RootFS(ctx)

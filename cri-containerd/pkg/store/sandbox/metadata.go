@@ -46,12 +46,15 @@ type metadataInternal Metadata
 // Metadata是和版本无关的sandbox的元数据
 type Metadata struct {
 	// ID is the sandbox id.
+	// sandbox的id
 	ID string
 	// Name is the sandbox name.
+	// sandbox的name
 	Name string
 	// Config is the CRI sandbox config.
 	Config *runtime.PodSandboxConfig
 	// NetNSPath is the network namespace used by the sandbox.
+	// NetNSPath是sandbox使用的network namespace
 	NetNSPath string
 }
 

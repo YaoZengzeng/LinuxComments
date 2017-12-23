@@ -42,23 +42,32 @@ import (
 )
 
 // NOTE: The recovery logic has following assumption: when cri-containerd is down:
+// recovery的逻辑有以下假设：当cri-containerd挂掉了之后
 // 1) Files (e.g. root directory, netns) and checkpoint maintained by cri-containerd MUST NOT be
 // touched. Or else, recovery logic for those containers/sandboxes may return error.
+// (1)、cri-containerd维护的文件（root directory, netns）以及checkpoint都不能被修改，否则containes/sandboxes
+// 的recovery可能会报错
 // 2) Containerd containers may be deleted, but SHOULD NOT be added. Or else, recovery logic
 // for the newly added container/sandbox will return error, because there is no corresponding root
 // directory created.
+// (2)、Containerd containers可以被删除，但不能添加。否则对于新添加的container/sandbox的recovery logic会报错
+// 因为没有它们对应的根目录
 // 3) Containerd container tasks may exit or be stoppped, deleted. Even though current logic could
 // tolerant tasks being created or started, we prefer that not to happen.
+// (3)、Containerd的container task可能会退出或停止，删除。虽然现在的逻辑可以容忍task的创建和启动，但是我们更希望
+// 这样的事情不要发生
 
 // recover recovers system state from containerd and status checkpoint.
 // recover用于在cri-containerd重启时，从containerd和status checkpoint中恢复状态
 func (c *criContainerdService) recover(ctx context.Context) error {
 	// Recover all sandboxes.
+	// 从containerd获取所有的sandbox类型的容器
 	sandboxes, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindSandbox))
 	if err != nil {
 		return fmt.Errorf("failed to list sandbox containers: %v", err)
 	}
 	for _, sandbox := range sandboxes {
+		// 将从containerd中获取的sandbox封装成sandboxStore能存储的格式
 		sb, err := loadSandbox(ctx, sandbox)
 		if err != nil {
 			glog.Errorf("Failed to load sandbox %q: %v", sandbox.ID(), err)
@@ -74,11 +83,13 @@ func (c *criContainerdService) recover(ctx context.Context) error {
 	}
 
 	// Recover all containers.
+	// 从containerd中恢复所有container类型的容器
 	containers, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindContainer))
 	if err != nil {
 		return fmt.Errorf("failed to list containers: %v", err)
 	}
 	for _, container := range containers {
+		// 获取容器根目录/var/lib/cri-containerd/ID
 		containerDir := getContainerRootDir(c.config.RootDir, container.ID())
 		cntr, err := loadContainer(ctx, container, containerDir)
 		if err != nil {
@@ -113,6 +124,8 @@ func (c *criContainerdService) recover(ctx context.Context) error {
 	// It's possible that containerd containers are deleted unexpectedly. In that case,
 	// we can't even get metadata, we should cleanup orphaned sandbox/container directories
 	// with best effort.
+	// 可能containerd container已经意外删除了，在这种情况下，我们甚至都得不到元数据
+	// 所以我们应该尽量删除孤儿sandbox/container文件
 
 	// Cleanup orphaned sandbox directories without corresponding containerd container.
 	if err := cleanupOrphanedSandboxDirs(sandboxes, filepath.Join(c.config.RootDir, "sandboxes")); err != nil {
@@ -132,6 +145,7 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 	id := cntr.ID()
 	var container containerstore.Container
 	// Load container metadata.
+	// 加载容器的元数据
 	exts, err := cntr.Extensions(ctx)
 	if err != nil {
 		return container, fmt.Errorf("failed to get container extensions: %v", err)
@@ -192,6 +206,7 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 	if notFound {
 		// Task is not created or has been deleted, use the checkpointed status
 		// to generate container status.
+		// 如果Tack没有被创建或者已经被删除了，使用checkpoint的status去创建container status
 		switch status.State() {
 		case runtime.ContainerState_CONTAINER_CREATED:
 			// NOTE: Another possibility is that we've tried to start the container, but
@@ -206,6 +221,8 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 		case runtime.ContainerState_CONTAINER_RUNNING:
 			// Container was in running state, but its task has been deleted,
 			// set unknown exited state. Container io is not needed in this case.
+			// 容器处于运行状态，但是它的task已经被删除了，将退出状态设置为unknown exited state
+			// 此时不再需要container io
 			status.FinishedAt = time.Now().UnixNano()
 			status.ExitCode = unknownExitCode
 			status.Reason = unknownExitReason
@@ -214,11 +231,15 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 		}
 	} else {
 		// Task status is found. Update container status based on the up-to-date task status.
+		// 找到了task，则根据当前的task status更新container status
+		// s为task的状态
 		switch s.Status {
 		case containerd.Created:
 			// Task has been created, but not started yet. This could only happen if cri-containerd
 			// gets restarted during container start.
 			// Container must be in `CREATED` state.
+			// Task已经被创建，但还没有启动，这只有在cri-containerd在容器启动的过程中重启才会发生
+			// 此时容器必须处于CREATE状态
 			if _, err := t.Delete(ctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
 				return container, fmt.Errorf("failed to delete task: %v", err)
 			}
@@ -228,6 +249,8 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 		case containerd.Running:
 			// Task is running. Container must be in `RUNNING` state, based on our assuption that
 			// "task should not be started when cri-containerd is down".
+			// 如果task是running状态，那么Container必须处于RUNNING状态，这基于我们的假设：
+			// task不会在cri-containerd挂掉的时候启动
 			switch status.State() {
 			case runtime.ContainerState_CONTAINER_EXITED:
 				return container, fmt.Errorf("unexpected container state for running task: %q", status.State())
@@ -235,11 +258,13 @@ func loadContainer(ctx context.Context, cntr containerd.Container, containerDir 
 			default:
 				// This may happen if cri-containerd gets restarted after task is started, but
 				// before status is checkpointed.
+				// 这可能是因为cri-containerd在task启动之后挂了，但是status还没有做快照
 				status.StartedAt = time.Now().UnixNano()
 				status.Pid = t.Pid()
 			}
 		case containerd.Stopped:
 			// Task is stopped. Updata status and delete the task.
+			// 如果task已经停止了，更新status并且删除task
 			if _, err := t.Delete(ctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
 				return container, fmt.Errorf("failed to delete task: %v", err)
 			}
@@ -281,6 +306,7 @@ func unknownContainerStatus() containerstore.Status {
 func loadSandbox(ctx context.Context, cntr containerd.Container) (sandboxstore.Sandbox, error) {
 	var sandbox sandboxstore.Sandbox
 	// Load sandbox metadata.
+	// 加载sandbox的元数据
 	exts, err := cntr.Extensions(ctx)
 	if err != nil {
 		return sandbox, fmt.Errorf("failed to get sandbox container extensions: %v", err)
@@ -302,8 +328,10 @@ func loadSandbox(ctx context.Context, cntr containerd.Container) (sandboxstore.S
 	// Load network namespace.
 	if meta.Config.GetLinux().GetSecurityContext().GetNamespaceOptions().GetHostNetwork() {
 		// Don't need to load netns for host network sandbox.
+		// 如果sandbox的netns是host network，则直接返回
 		return sandbox, nil
 	}
+	// 根据meta中的NetNSPath加载相应的network namespace
 	netNS, err := sandboxstore.LoadNetNS(meta.NetNSPath)
 	if err != nil {
 		if err != sandboxstore.ErrClosedNetNS {
@@ -316,12 +344,15 @@ func loadSandbox(ctx context.Context, cntr containerd.Container) (sandboxstore.S
 	// It doesn't matter whether task is running or not. If it is running, sandbox
 	// status will be `READY`; if it is not running, sandbox status will be `NOT_READY`,
 	// kubelet will stop the sandbox which will properly cleanup everything.
+	// task是否是running并不重要，如果它是running，则sandbox的状态会是`READY`，如果它不是running
+	// 那么sandbox的状态会变为`NOT_READY`，kubelet会停止该sandbox，这样所有都会被清除
 	return sandbox, nil
 }
 
 // loadImages loads images from containerd.
 // TODO(random-liu): Check whether image is unpacked, because containerd put image reference
 // into store before image is unpacked.
+// loadImages从containerd中加载镜像
 func loadImages(ctx context.Context, cImages []containerd.Image, provider content.Provider,
 	snapshotter string) ([]imagestore.Image, error) {
 	// Group images by image id.

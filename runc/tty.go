@@ -72,6 +72,7 @@ func inheritStdio(process *libcontainer.Process) error {
 }
 
 func (t *tty) recvtty(process *libcontainer.Process, socket *os.File) error {
+	// 从容器中获取一个fd
 	f, err := utils.RecvFd(socket)
 	if err != nil {
 		return err
@@ -90,11 +91,14 @@ func (t *tty) recvtty(process *libcontainer.Process, socket *os.File) error {
 		return err
 	}
 	go epoller.Wait()
+	// 将标准输入输出和epollConsole相连
+	// Copy将数据从os.Stdin传输到epollConsole
 	go io.Copy(epollConsole, os.Stdin)
 	t.wg.Add(1)
 	go t.copyIO(os.Stdout, epollConsole)
 
 	// set raw mode to stdin and also handle interrupt
+	// 将stdin设置为raw mode
 	stdin, err := console.ConsoleFromFile(os.Stdin)
 	if err != nil {
 		return err
@@ -128,6 +132,7 @@ func (t *tty) waitConsole() error {
 
 // ClosePostStart closes any fds that are provided to the container and dup2'd
 // so that we no longer have copy in our process.
+// ClosePostStart关闭所有传给容器的文件描述符
 func (t *tty) ClosePostStart() error {
 	for _, c := range t.postStart {
 		c.Close()

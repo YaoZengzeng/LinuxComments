@@ -72,6 +72,9 @@ type IOCreation func(id string) (IO, error)
 // There should only be one reader for a task's IO set
 // because fifo's can only be read from one reader or the output
 // will be sent only to the first reads
+// IOAttach允许caller重连running task
+// 对于task的IO set，只能有一个reader，因为fifo只能从一个reader中读或者
+// 输出只会被送到第一个reader
 type IOAttach func(*FIFOSet) (IO, error)
 
 // NewIO returns an IOCreation that will provide IO sets without a terminal

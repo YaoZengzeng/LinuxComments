@@ -49,14 +49,19 @@ type Metadata struct {
 	// Name is the container name.
 	Name string
 	// SandboxID is the sandbox id the container belongs to.
+	// 容器所属的sandbox的SandboxID
 	SandboxID string
 	// Config is the CRI container config.
 	// NOTE(random-liu): Resource limits are updatable, the source
 	// of truth for resource limits are in containerd.
+	// 容器的配置，由于Resource limits是可以更新的，因此关于容器resource limit
+	// 真实的来源应该参考containerd
 	Config *runtime.ContainerConfig
 	// ImageRef is the reference of image used by the container.
+	// 容器使用的镜像
 	ImageRef string
 	// LogPath is the container log path.
+	// 容器的日志目录
 	LogPath string
 }
 

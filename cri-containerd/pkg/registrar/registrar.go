@@ -24,6 +24,8 @@ import (
 // Registrar stores one-to-one name<->key mappings.
 // Names and keys must be unique.
 // Registrar is safe for concurrent access.
+// Registrar是一对一的name和key的映射，name和key都必须是唯一的
+// Registrar是并发安全的
 type Registrar struct {
 	lock      sync.Mutex
 	nameToKey map[string]string
@@ -44,6 +46,7 @@ func NewRegistrar() *Registrar {
 // Attempting to reserve a conflict key<->name mapping results
 // in an error.
 // A name<->key reservation is globally unique.
+// Reserve用于保存一个name<->key的唯一映射，如果保存的映射有冲突，就会报错
 func (r *Registrar) Reserve(name, key string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()

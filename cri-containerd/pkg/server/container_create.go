@@ -71,14 +71,17 @@ func init() {
 }
 
 // CreateContainer creates a new container in the given PodSandbox.
+// 在给定的sandbox内创建一个新的容器
 func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.CreateContainerRequest) (_ *runtime.CreateContainerResponse, retErr error) {
 	config := r.GetConfig()
+	// 获取容器所属的sandbox的配置
 	sandboxConfig := r.GetSandboxConfig()
 	sandbox, err := c.sandboxStore.Get(r.GetPodSandboxId())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find sandbox id %q: %v", r.GetPodSandboxId(), err)
 	}
 	sandboxID := sandbox.ID
+	// 获取sandbox container的task
 	s, err := sandbox.Container.Task(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sandbox container task: %v", err)
@@ -103,6 +106,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	}()
 
 	// Create initial internal container metadata.
+	// 创建容器的元数据
 	meta := containerstore.Metadata{
 		ID:        id,
 		Name:      name,
@@ -112,6 +116,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 
 	// Prepare container image snapshot. For container, the image should have
 	// been pulled before creating the container, so do not ensure the image.
+	// 准备容器镜像的snapshot，对于容器，镜像需要在容器创建之前就已经被拉取
 	imageRef := config.GetImage().GetImage()
 	image, err := c.localResolve(ctx, imageRef)
 	if err != nil {
@@ -122,7 +127,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	}
 
 	// Create container root directory.
-	// 创建container的root目录
+	// 创建container的root目录，/var/lib/cri-containerd/containers/id
 	containerRootDir := getContainerRootDir(c.config.RootDir, id)
 	if err = c.os.MkdirAll(containerRootDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create container root directory %q: %v",
@@ -145,6 +150,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	// Generate container runtime spec.
 	mounts := c.generateContainerMounts(getSandboxRootDir(c.config.RootDir, sandboxID), config)
 
+	// 创建container spec
 	spec, err := c.generateContainerSpec(id, sandboxPid, config, sandboxConfig, image.Config, append(mounts, volumeMounts...))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate container %q spec: %v", id, err)
@@ -161,6 +167,9 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 		// the runtime (runc) a chance to modify (e.g. to create mount
 		// points corresponding to spec.Mounts) before making the
 		// rootfs readonly (requested by spec.Root.Readonly).
+		// 准备容器的rootfs，因为我们希望它总是可写的，即使容器只想要一个可读的rootfs
+		// 因为我们想让runtime有机会在让容器rootfs可读之前进行修改，比如创建spec.Mounts
+		// 对应的挂载点
 		containerd.WithNewSnapshot(id, image.Image),
 	}
 
@@ -178,6 +187,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 		meta.LogPath = filepath.Join(sandbox.Config.GetLogDirectory(), config.GetLogPath())
 	}
 
+	// 创建容器io，io是独立创建的
 	containerIO, err := cio.NewContainerIO(id,
 		cio.WithNewFIFOs(containerRootDir, config.GetTty(), config.GetStdin()))
 	if err != nil {
@@ -229,6 +239,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	containerLabels := buildLabels(config.Labels, containerKindContainer)
 
 	opts = append(opts,
+		// specOpts通过WithSpec加入spec中
 		containerd.WithSpec(spec, specOpts...),
 		containerd.WithRuntime(
 			c.config.ContainerdConfig.Runtime,
@@ -252,9 +263,12 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	}()
 
 	status := containerstore.Status{CreatedAt: time.Now().UnixNano()}
+	// 创建containerstore的container对象
 	container, err := containerstore.NewContainer(meta,
+		// 将status写入文件
 		containerstore.WithStatus(status, containerRootDir),
 		containerstore.WithContainer(cntr),
+		// 容器io独立创建并保存
 		containerstore.WithContainerIO(containerIO),
 	)
 	if err != nil {
@@ -378,12 +392,14 @@ func (c *criContainerdService) generateContainerSpec(id string, sandboxPid uint3
 // generateVolumeMounts sets up image volumes for container. Rely on the removal of container
 // root directory to do cleanup. Note that image volume will be skipped, if there is criMounts
 // specified with the same destination.
+// generateVolumeMounts设置容器的image volumes，依赖容器的根目录的删除来进行清除操作
 func (c *criContainerdService) generateVolumeMounts(containerRootDir string, criMounts []*runtime.Mount, config *imagespec.ImageConfig) []*runtime.Mount {
 	if len(config.Volumes) == 0 {
 		return nil
 	}
 	var mounts []*runtime.Mount
 	for dst := range config.Volumes {
+		// 如果criMounts中也有指定了，则跳过image里的volume
 		if isInCRIMounts(dst, criMounts) {
 			// Skip the image volume, if there is CRI defined volume mapping.
 			// TODO(random-liu): This should be handled by Kubelet in the future.

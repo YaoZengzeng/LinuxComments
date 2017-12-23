@@ -31,6 +31,7 @@ type Spec struct {
 // Process contains information to start a specific application inside the container.
 type Process struct {
 	// Terminal creates an interactive terminal for the container.
+	// 是否为容器生成一个交互式的终端
 	Terminal bool `json:"terminal,omitempty"`
 	// ConsoleSize specifies the size of the console.
 	ConsoleSize *Box `json:"consoleSize,omitempty"`

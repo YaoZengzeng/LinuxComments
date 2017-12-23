@@ -28,14 +28,19 @@ import (
 
 // Container contains all resources associated with the container. All methods to
 // mutate the internal state are thread-safe.
+// Container存储了和容器相关的所有资源，所有用于改变它内部状态的方法都是线程安全的
 type Container struct {
 	// Metadata is the metadata of the container, it is **immutable** after created.
+	// Metadata是容器的元数据，在创建之后就不能改变
 	Metadata
 	// Status stores the status of the container.
+	// Status是容器的状态，并且将它放在存储后端中
 	Status StatusStorage
 	// Container is the containerd container client.
+	// Container是容器的contained client
 	Container containerd.Container
 	// Container IO
+	// 容器IO
 	IO *cio.ContainerIO
 	// TODO(random-liu): Add stop channel to get rid of stop poll waiting.
 }
@@ -72,6 +77,7 @@ func WithStatus(status Status, root string) Opts {
 }
 
 // NewContainer creates an internally used container type.
+// NewContainer创建一个内部使用的container type
 func NewContainer(metadata Metadata, opts ...Opts) (Container, error) {
 	c := Container{
 		Metadata: metadata,

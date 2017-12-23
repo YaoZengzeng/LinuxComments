@@ -41,17 +41,21 @@ type versionedStatus struct {
 
 // Status is the status of a container.
 type Status struct {
+	// Pid是容器的init进程的pid
 	// Pid is the init process id of the container.
 	Pid uint32
+	// 容器创建，启动，结束的时间点
 	// CreatedAt is the created timestamp.
 	CreatedAt int64
 	// StartedAt is the started timestamp.
 	StartedAt int64
 	// FinishedAt is the finished timestamp.
 	FinishedAt int64
+	// 容器的退出码
 	// ExitCode is the container exit code.
 	ExitCode int32
 	// CamelCase string explaining why container is in its current state.
+	// 容器处于当前状态的原因
 	Reason string
 	// Human-readable message indicating details about why container is in its
 	// current state.
@@ -129,7 +133,9 @@ func StoreStatus(root, id string, status Status) (StatusStorage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode status: %v", err)
 	}
+	// path为/var/lib/cri-containerd/ID/status
 	path := filepath.Join(root, "status")
+	// 将状态数据编码后写入
 	if err := ioutils.AtomicWriteFile(path, data, 0600); err != nil {
 		return nil, fmt.Errorf("failed to checkpoint status to %q: %v", path, err)
 	}
@@ -141,6 +147,7 @@ func StoreStatus(root, id string, status Status) (StatusStorage, error) {
 
 // LoadStatus loads container status from checkpoint. There shouldn't be threads
 // writing to the file during loading.
+// LoadStatus从checkpoint中加载容器的status，在进行加载的时候，不能有线程写文件
 func LoadStatus(root, id string) (Status, error) {
 	path := filepath.Join(root, "status")
 	data, err := ioutil.ReadFile(path)

@@ -493,6 +493,8 @@ void join_namespaces(char *nslist)
 	 * we join the mnt namespace we might no longer be able to
 	 * access the paths.
 	 */
+	// 我们需要首先打开文件描述符，因为当我们加入mnt namespace之后
+	// 我们就不能访问这些路径了
 	do {
 		int fd;
 		char *path;
@@ -514,6 +516,7 @@ void join_namespaces(char *nslist)
 		if (fd < 0)
 			bail("failed to open %s", path);
 
+		// fd为namespace文件的文件描述符
 		ns->fd = fd;
 		ns->ns = nsflag(namespace);
 		strncpy(ns->path, path, PATH_MAX);
@@ -525,6 +528,7 @@ void join_namespaces(char *nslist)
 	 * from the container_linux.go side of this, so we're just going to
 	 * follow the order given to us.
 	 */
+	// 加入namespace的顺序是非常重要的，我们总是首先加入user namespace
 
 	for (i = 0; i < num; i++) {
 		struct namespace_t ns = namespaces[i];
@@ -659,6 +663,7 @@ void nsexec(void)
 			prctl(PR_SET_NAME, (unsigned long) "runc:[0:PARENT]", 0, 0, 0);
 
 			/* Start the process of getting a container. */
+			// 启动一个进程创建容器
 			child = clone_parent(&env, JUMP_CHILD);
 			if (child < 0)
 				bail("unable to fork: child_func");
@@ -675,6 +680,7 @@ void nsexec(void)
 				enum sync_t s;
 				int ret;
 
+				// sync_child_pipe用于父进程和子进程的相互通信
 				syncfd = sync_child_pipe[1];
 				close(sync_child_pipe[0]);
 
@@ -719,6 +725,7 @@ void nsexec(void)
 						first_child = child;
 
 						/* Get the init_func pid. */
+						// 从子进程中读取孙子进程的pid
 						if (read(syncfd, &child, sizeof(child)) != sizeof(child)) {
 							kill(first_child, SIGKILL);
 							bail("failed to sync with child: read(childpid)");
@@ -726,6 +733,7 @@ void nsexec(void)
 
 						/* Send ACK. */
 						s = SYNC_RECVPID_ACK;
+						// 给孙子进程发送ack
 						if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
 							kill(first_child, SIGKILL);
 							kill(child, SIGKILL);
@@ -734,6 +742,7 @@ void nsexec(void)
 					}
 					break;
 				case SYNC_CHILD_READY:
+					// 和子进程同步完成
 					ready = true;
 					break;
 				default:
@@ -752,6 +761,7 @@ void nsexec(void)
 				close(sync_grandchild_pipe[0]);
 
 				s = SYNC_GRANDCHILD;
+				// 给孙子进程发送SYNC_GRADNCHILD,让它继续
 				if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
 					kill(child, SIGKILL);
 					bail("failed to sync with child: write(SYNC_GRANDCHILD)");
@@ -781,6 +791,7 @@ void nsexec(void)
 			 * We need to send both back because we can't reap the first child we created (CLONE_PARENT).
 			 * It becomes the responsibility of our parent to reap the first child.
 			 */
+			// 返回子进程和孙子进程的pid
 			len = snprintf(buf, JSON_MAX, "{\"pid\": %d, \"pid_first\": %d}\n", child, first_child);
 			if (len < 0) {
 				kill(child, SIGKILL);
@@ -791,6 +802,7 @@ void nsexec(void)
 				bail("unable to send child pid to bootstrapper");
 			}
 
+			// 父进程直接退出
 			exit(0);
 		}
 
@@ -824,6 +836,7 @@ void nsexec(void)
 			 * [stage 2: JUMP_INIT]) would be meaningless). We could send it
 			 * using cmsg(3) but that's just annoying.
 			 */
+			// 在此处调用setns
 			if (config.namespaces)
 				join_namespaces(config.namespaces);
 
@@ -845,6 +858,8 @@ void nsexec(void)
 			 * affect our ability to unshare other namespaces and are used as
 			 * context for privilege checks.
 			 */
+			// 首先处理user namespace，它们非常特别，因为它们影响我们unshare其他的namespace
+			// 并且会用于privilege的检查
 			if (config.cloneflags & CLONE_NEWUSER) {
 				/*
 				 * We don't have the privileges to do any mapping here (see the
@@ -882,23 +897,28 @@ void nsexec(void)
 			 * which would break many applications and libraries, so we must fork
 			 * to actually enter the new PID namespace.
 			 */
+			// 我们再一次fork因为pid namespace，setns或unshare不能改变调用进程的pid namespace
+			// 因为这样会搞乱调用者对自己pid的设想，从而会破坏很多的应用和库，因此我们需要fork从而
+			// 真正进入新的pid namespace
 			child = clone_parent(&env, JUMP_INIT);
 			if (child < 0)
 				bail("unable to fork: init_func");
 
 			/* Send the child to our parent, which knows what it's doing. */
 			s = SYNC_RECVPID_PLS;
+			// 让父进程准备接受pid
 			if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
 				kill(child, SIGKILL);
 				bail("failed to sync with parent: write(SYNC_RECVPID_PLS)");
 			}
+			// 将孙子进程的pid写给父进程
 			if (write(syncfd, &child, sizeof(child)) != sizeof(child)) {
 				kill(child, SIGKILL);
 				bail("failed to sync with parent: write(childpid)");
 			}
 
 			/* ... wait for parent to get the pid ... */
-
+			// 等待父进程的ack
 			if (read(syncfd, &s, sizeof(s)) != sizeof(s)) {
 				kill(child, SIGKILL);
 				bail("failed to sync with parent: read(SYNC_RECVPID_ACK)");
@@ -909,12 +929,14 @@ void nsexec(void)
 			}
 
 			s = SYNC_CHILD_READY;
+			// 告诉父进程我们已经准备完毕，接下来的事情交给孙子进程
 			if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
 				kill(child, SIGKILL);
 				bail("failed to sync with parent: write(SYNC_CHILD_READY)");
 			}
 
 			/* Our work is done. [Stage 2: JUMP_INIT] is doing the rest of the work. */
+			// 子进程也直接退出
 			exit(0);
 		}
 
@@ -961,6 +983,7 @@ void nsexec(void)
 			}
 
 			s = SYNC_CHILD_READY;
+			// 告诉父进程，孙子进程准备完毕
 			if (write(syncfd, &s, sizeof(s)) != sizeof(s))
 				bail("failed to sync with patent: write(SYNC_CHILD_READY)");
 

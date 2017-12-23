@@ -60,6 +60,8 @@ func NewEpoller() (*Epoller, error) {
 // be registered with EPOLLET (i.e. using edge-triggered notification) and its
 // file descriptor will be set to non-blocking mode. After this, user should use
 // the return console to perform I/O.
+// Add会基于提供的console建立一个epoll console，这个console的文件描述符会被置为非阻塞模式
+// 在这之后，用户可以通过返回的console来进行IO操作
 func (e *Epoller) Add(console Console) (*EpollConsole, error) {
 	sysfd := int(console.Fd())
 	// Set sysfd to non-blocking mode

@@ -129,12 +129,14 @@ func NewCRIContainerdService(config options.Config) (CRIContainerdService, error
 		return nil, fmt.Errorf("failed to initialize containerd client with endpoint %q: %v",
 			config.ContainerdConfig.Endpoint, err)
 	}
+	// 默认CgroupPath为空
 	if config.CgroupPath != "" {
 		_, err := loadCgroup(config.CgroupPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load cgroup for cgroup path %v: %v", config.CgroupPath, err)
 		}
 	}
+	// 默认的OOMScore为-999
 	if config.OOMScore != 0 {
 		// 对于给定的pid设置out of memmory score
 		if err := sys.SetOOMScore(os.Getpid(), config.OOMScore); err != nil {
@@ -147,6 +149,7 @@ func NewCRIContainerdService(config options.Config) (CRIContainerdService, error
 		apparmorEnabled:     runcapparmor.IsEnabled(),
 		seccompEnabled:      runcseccomp.IsEnabled(),
 		os:                  osinterface.RealOS{},
+		// 构建sandbox，container，image，snapshot四个store
 		sandboxStore:        sandboxstore.NewStore(),
 		containerStore:      containerstore.NewStore(),
 		imageStore:          imagestore.NewStore(),
@@ -160,8 +163,8 @@ func NewCRIContainerdService(config options.Config) (CRIContainerdService, error
 		client:              client,
 	}
 
-	// RootDir默认是"/var/lib/cri-containerd",Snapshotter默认是"overlayfs"
-	// 本函数仅仅返回"/var/lib/cri-containerd/io.containerd.snapshotter.v1/overlayfs"这一路径信息
+	// RootDir默认是"/var/lib/containerd",Snapshotter默认是"overlayfs"
+	// 本函数仅仅返回"/var/lib/containerd/io.containerd.snapshotter.v1/overlayfs"这一路径信息
 	imageFSPath := imageFSPath(config.ContainerdConfig.RootDir, config.ContainerdConfig.Snapshotter)
 	c.imageFSUUID, err = c.getDeviceUUID(imageFSPath)
 	if err != nil {
@@ -169,6 +172,7 @@ func NewCRIContainerdService(config options.Config) (CRIContainerdService, error
 	}
 	glog.V(2).Infof("Get device uuid %q for image filesystem %q", c.imageFSUUID, imageFSPath)
 
+	// 初始化CNI接口
 	c.netPlugin, err = ocicni.InitCNI(config.NetworkPluginConfDir, config.NetworkPluginBinDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cni plugin: %v", err)
@@ -185,12 +189,14 @@ func NewCRIContainerdService(config options.Config) (CRIContainerdService, error
 	c.eventMonitor = newEventMonitor(c)
 
 	// Create the grpc server and register runtime and image services.
+	// 创建grpc server，并且注册runtime和image服务
 	c.server = grpc.NewServer()
 	instrumented := newInstrumentedService(c)
 	// 第二个参数为RuntimeServiceServer，因为instrumented代表的接口CRIContainerdService包含了
 	// RuntimeServiceServer，因此可传递
 	runtime.RegisterRuntimeServiceServer(c.server, instrumented)
 	runtime.RegisterImageServiceServer(c.server, instrumented)
+	// 注册cri-containerd的服务，例如load image
 	api.RegisterCRIContainerdServiceServer(c.server, instrumented)
 
 	return newInstrumentedService(c), nil
@@ -216,6 +222,7 @@ func (c *criContainerdService) Run() error {
 	snapshotsSyncer := newSnapshotsSyncer(
 		c.snapshotStore,
 		c.client.SnapshotService(c.config.ContainerdConfig.Snapshotter),
+		// 默认StatsCollectPeriod为10秒
 		time.Duration(c.config.StatsCollectPeriod)*time.Second,
 	)
 	snapshotsSyncer.start()
@@ -239,12 +246,14 @@ func (c *criContainerdService) Run() error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to unlink socket file %q: %v", c.config.SocketPath, err)
 	}
+	// 启动对/var/run/cri-containerd.sock的监听
 	l, err := net.Listen(unixProtocol, c.config.SocketPath)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %q: %v", c.config.SocketPath, err)
 	}
 	grpcServerCloseCh := make(chan struct{})
 	go func() {
+		// 启动grpc server
 		if err := c.server.Serve(l); err != nil {
 			glog.Errorf("Failed to serve grpc grpc request: %v", err)
 		}

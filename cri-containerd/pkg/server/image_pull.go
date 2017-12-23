@@ -39,9 +39,12 @@ import (
 // 1) We have an in-memory metadata index to:
 //   a. Maintain ImageID -> RepoTags, ImageID -> RepoDigset relationships; ImageID
 //   is the digest of image config, which conforms to oci image spec.
+//	 ImageID是image config的digest，符合OCI标准
 //   b. Cache constant and useful information such as image chainID, config etc.
+//	 缓存常量以及有效的信息例如image chainID，config等等
 //   c. An image will be added into the in-memory metadata only when it's successfully
 //   pulled and unpacked.
+//	 一个镜像只有被成功拉取并且unpack之后才能加入内存中的元数据
 //
 // 2) We use containerd image metadata store and content store:
 //   a. To resolve image reference (digest/tag) locally. During pulling image, we
@@ -50,8 +53,11 @@ import (
 //   we'll access the in-memory metadata index directly; if image reference is
 //   provided, we'll normalize it, resolve it in containerd image metadata store
 //   to get the image id.
+//	 如果提供的是image id，我们会直接从内存中的元数据进行读取，如果提供的是image reference，我们会normalize它
+//	 并且从containerd的metadata store获取image id
 //   b. As the backup of in-memory metadata in 1). During startup, the in-memory
 //   metadata could be re-constructed from image metadata store + content store.
+//	 作为内存元数据的备份，当启动时，内存中的元数据可以根据image metadata store和content store获取
 //
 // Several problems with current approach:
 // 1) An entry in containerd image metadata store doesn't mean a "READY" (successfully
@@ -75,6 +81,7 @@ import (
 
 // PullImage pulls an image with authentication config.
 func (c *criContainerdService) PullImage(ctx context.Context, r *runtime.PullImageRequest) (*runtime.PullImageResponse, error) {
+	// imageRef一般就是镜像名，例如busybox
 	imageRef := r.GetImage().GetImage()
 	namedRef, err := util.NormalizeImageRef(imageRef)
 	if err != nil {
@@ -158,6 +165,9 @@ func (c *criContainerdService) PullImage(ctx context.Context, r *runtime.PullIma
 	// by someone else anytime, before/during/after we create the metadata. We should always
 	// check the actual state in containerd before using the image or returning status of the
 	// image.
+	// 即使我们有in-memory的image store，最终还是以containerd中的状态为准，因为镜像可能在我们创建镜像之前，之中
+	// 或之后被删除
+	// 我们在使用镜像或者返回镜像的状态之前都要先检查一下containerd中的真实状态
 	return &runtime.PullImageResponse{ImageRef: img.ID}, err
 }
 

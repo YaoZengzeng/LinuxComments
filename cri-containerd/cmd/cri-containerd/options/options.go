@@ -159,6 +159,7 @@ func (c *CRIContainerdOptions) AddFlags(fs *pflag.FlagSet) {
 		defaults.SystemdCgroup, "Enables systemd cgroup support. By default not enabled.")
 	fs.IntVar(&c.OOMScore, "oom-score",
 		defaults.OOMScore, "Adjust the cri-containerd's oom score.")
+	// Profiling是应用画像的意思，用于描述cpu的使用状况，内存的使用状况等等
 	fs.BoolVar(&c.EnableProfiling, "profiling",
 		defaults.EnableProfiling, "Enable profiling via web interface host:port/debug/pprof/.")
 	fs.StringVar(&c.ProfilingPort, "profiling-port",
@@ -213,6 +214,7 @@ func defaultConfig() Config {
 	return Config{
 		ContainerdConfig: ContainerdConfig{
 			RootDir:       "/var/lib/containerd",
+			// linux上默认的snapshotter为"overlayfs"
 			Snapshotter:   containerd.DefaultSnapshotter,
 			Endpoint:      "/run/containerd/containerd.sock",
 			Runtime:       "io.containerd.runtime.v1.linux",
@@ -229,11 +231,15 @@ func defaultConfig() Config {
 		StreamServerPort:    "10010",
 		// 默认CgroupPath为空
 		CgroupPath:          "",
+		// 默认禁用selinux
 		EnableSelinux:       false,
+		// 指定默认的sandbox镜像
 		SandboxImage:        "gcr.io/google_containers/pause:3.0",
 		StatsCollectPeriod:  10,
+		// 默认禁用systemd cgroup
 		SystemdCgroup:       false,
 		OOMScore:            -999,
+		// 默认启动profiling
 		EnableProfiling:     true,
 		ProfilingPort:       "10011",
 		ProfilingAddress:    "127.0.0.1",

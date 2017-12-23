@@ -28,6 +28,7 @@ import (
 
 // Image contains all resources associated with the image. All fields
 // MUST not be mutated directly after created.
+// Image包含了所有和镜像相关的信息，其中所有的字段都不能在创建后被修改
 type Image struct {
 	// Id of the image. Normally the digest of image config.
 	ID string
@@ -40,8 +41,10 @@ type Image struct {
 	// Size is the compressed size of the image.
 	Size int64
 	// Config is the oci image config of the image.
+	// 镜像的oci配置信息
 	Config *imagespec.ImageConfig
 	// Containerd image reference
+	// containerd的image接口
 	Image containerd.Image
 }
 

@@ -398,6 +398,7 @@ func (c *Context) CreateConnected(iss seqnum.Value, rcvWnd seqnum.Size, epRcvBuf
 //
 // It also sets the receive buffer for the endpoint to the specified
 // value in epRcvBuf.
+// 将endpoint的接收缓存设置为epRcvBuf中特定的值
 func (c *Context) CreateConnectedWithRawOptions(iss seqnum.Value, rcvWnd seqnum.Size, epRcvBuf *tcpip.ReceiveBufferSizeOption, options []byte) {
 	// Create TCP endpoint.
 	var err *tcpip.Error
@@ -708,10 +709,12 @@ func (c *Context) PassiveConnect(maxPayload, wndScale int, synOptions header.TCP
 // value of the window scaling option to be sent in the SYN. If synOptions.WS >
 // 0 then we send the WindowScale option.
 func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions header.TCPSynOptions) {
+	// 设置mss选项为maxPayload
 	opts := []byte{
 		header.TCPOptionMSS, 4, byte(maxPayload / 256), byte(maxPayload % 256),
 	}
 
+	// 如果WS大于等于零，则设置window scale选项
 	if synOptions.WS >= 0 {
 		opts = append(opts, []byte{
 			header.TCPOptionWS, 3, byte(synOptions.WS), header.TCPOptionNOP,
@@ -723,17 +726,20 @@ func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions
 	}
 
 	// Send a SYN request.
+	// 发送SYN请求
 	iss := seqnum.Value(testInitialSequenceNumber)
 	c.SendPacket(nil, &Headers{
 		SrcPort: TestPort,
 		DstPort: StackPort,
 		Flags:   header.TCPFlagSyn,
 		SeqNum:  iss,
+		// 在SYN请求中，直接将接收窗口设置为3000
 		RcvWnd:  30000,
 		TCPOpts: opts,
 	})
 
 	// Receive the SYN-ACK reply. Make sure MSS is present.
+	// 接收SYN-ACK，确保MSS选项出现
 	b := c.GetPacket()
 	tcp := header.TCP(header.IPv4(b).Payload())
 	c.IRS = seqnum.Value(tcp.SequenceNumber())
@@ -748,6 +754,7 @@ func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions
 
 	// If TS option was enabled in the original SYN then add a checker to
 	// validate the Timestamp option in the SYN-ACK.
+	// 如果在初始的SYN中设置了timestamp选项，则设置checker检测SYN-ACK中的Timestamp选项
 	if synOptions.TS {
 		tcpCheckers = append(tcpCheckers, checker.TCPTimestampChecker(synOptions.TS, 0, synOptions.TSVal))
 	} else {
@@ -768,6 +775,7 @@ func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions
 	// If WS was expected to be in effect then scale the advertised window
 	// correspondingly.
 	if synOptions.WS > 0 {
+		// 如果指定了WS选项，则对头部中的接收窗口进行调整
 		ackHeaders.RcvWnd = rcvWnd >> byte(synOptions.WS)
 	}
 

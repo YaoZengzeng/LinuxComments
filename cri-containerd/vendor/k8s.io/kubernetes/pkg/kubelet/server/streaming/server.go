@@ -182,6 +182,7 @@ func (s *server) GetExec(req *runtimeapi.ExecRequest) (*runtimeapi.ExecResponse,
 		return nil, err
 	}
 	return &runtimeapi.ExecResponse{
+		// 根据请求创建url
 		Url: s.buildURL("exec", token),
 	}, nil
 }

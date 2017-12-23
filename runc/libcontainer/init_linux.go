@@ -183,7 +183,8 @@ func setupConsole(socket *os.File, config *initConfig, mount bool) error {
 	// however, that setupUser (specifically fixStdioPermissions) *will* change
 	// the UID owner of the console to be the user the process will run as (so
 	// they can actually control their console).
-
+	// 在容器中创建pty对，master端通过管道传递给宿主机，slave端留在容器内
+	// 并且将master和salve都全部与stdio相连
 	pty, slavePath, err := console.NewPty()
 	if err != nil {
 		return err
@@ -214,6 +215,7 @@ func setupConsole(socket *os.File, config *initConfig, mount bool) error {
 		return err
 	}
 	// Now, dup over all the things.
+	// 将当前进程的stdio和console的slavepath相连
 	return dupStdio(slavePath)
 }
 

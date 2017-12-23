@@ -168,6 +168,7 @@ func dumpStacks() {
 func startProfilingServer(host string, port string) {
 	endpoint := net.JoinHostPort(host, port)
 	mux := http.NewServeMux()
+	// 输出cri-containerd的各类数据指标
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)

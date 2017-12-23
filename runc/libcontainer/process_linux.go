@@ -146,13 +146,16 @@ func (p *setnsProcess) execSetns() error {
 		p.cmd.Wait()
 		return newSystemError(&exec.ExitError{ProcessState: status})
 	}
+	// pid结构包含了Pid和PidFirstChild
 	var pid *pid
+	// 获取子进程的pid
 	if err := json.NewDecoder(p.parentPipe).Decode(&pid); err != nil {
 		p.cmd.Wait()
 		return newSystemErrorWithCause(err, "reading pid from init pipe")
 	}
 
 	// Clean up the zombie parent process
+	// 清除僵尸进程
 	firstChildProcess, err := os.FindProcess(pid.PidFirstChild)
 	if err != nil {
 		return err
@@ -265,6 +268,7 @@ func (p *initProcess) execSetns() error {
 
 func (p *initProcess) start() error {
 	defer p.parentPipe.Close()
+	// 启动子进程
 	err := p.cmd.Start()
 	p.process.ops = p
 	p.childPipe.Close()

@@ -24,6 +24,7 @@ import (
 )
 
 // Exec prepares a streaming endpoint to execute a command in the container, and returns the address.
+// Exec准备了一个streaming endpoint用于在容器里执行命令，并且返回streaming server的地址
 func (c *criContainerdService) Exec(ctx context.Context, r *runtime.ExecRequest) (*runtime.ExecResponse, error) {
 	cntr, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
