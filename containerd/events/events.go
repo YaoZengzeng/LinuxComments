@@ -50,6 +50,7 @@ func (e *Envelope) Field(fieldpath []string) (string, bool) {
 type Event interface{}
 
 // Publisher posts the event.
+// Publisher传递event
 type Publisher interface {
 	Publish(ctx context.Context, topic string, event Event) error
 }

@@ -56,7 +56,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	glog.V(4).Infof("Generated id %q for sandbox %q", id, name)
 	// Reserve the sandbox name to avoid concurrent `RunPodSandbox` request starting the
 	// same sandbox.
-	// 保留sandbox的name和id
+	// 保留sandbox的name和id，防止并发地`RunPodSandbox`请求要求启动容器
 	if err := c.sandboxNameIndex.Reserve(name, id); err != nil {
 		return nil, fmt.Errorf("failed to reserve sandbox name %q: %v", name, err)
 	}
@@ -69,6 +69,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	}()
 
 	// Create initial internal sandbox object.
+	// 创建初始的内部的sandbox对象
 	sandbox := sandboxstore.Sandbox{
 		Metadata: sandboxstore.Metadata{
 			ID:     id,
@@ -115,6 +116,7 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 			ID:           id,
 			// NetNS是sandbox network namespace所在的path
 			NetNS:        sandbox.NetNSPath,
+			// 将CRI的port mapping转换为CNI的port mapping
 			PortMappings: toCNIPortMappings(config.GetPortMappings()),
 		}
 		if err = c.netPlugin.SetUpPod(podNetwork); err != nil {
@@ -163,7 +165,10 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 
 	// 设置containrd新建容器的选项
 	opts := []containerd.NewContainerOpts{
+		// c.config.ContainerConfig.Snapshotter默认为"overlayfs"
+		// 将容器配置的snapshotter设置为"overlayfs"
 		containerd.WithSnapshotter(c.config.ContainerdConfig.Snapshotter),
+		// WithImageUnpack用于确保容器使用的镜像是unpack的
 		customopts.WithImageUnpack(image.Image),
 		containerd.WithNewSnapshot(id, image.Image),
 		containerd.WithSpec(spec, specOpts...),
@@ -172,8 +177,10 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		containerd.WithContainerExtension(sandboxMetadataExtension, &sandbox.Metadata),
 		// runtime相关的选项
 		containerd.WithRuntime(
+			// Runtime默认为"io.containerd.runtime.v1.linux"
 			c.config.ContainerdConfig.Runtime,
 			&runcopts.RuncOptions{
+				// RuntimeEngine和RuntimeRoot的默认为""
 				Runtime:       c.config.ContainerdConfig.RuntimeEngine,
 				RuntimeRoot:   c.config.ContainerdConfig.RuntimeRoot,
 				SystemdCgroup: c.config.SystemdCgroup})} // TODO (mikebrow): add CriuPath when we add support for pause
@@ -228,7 +235,8 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 	glog.V(5).Infof("Create sandbox container (id=%q, name=%q).",
 		id, name)
 	// We don't need stdio for sandbox container.
-	// 启动容器内的进程，对于sandbox container我们需要stdio
+	// 对于sandbox container我们不需要stdio
+	// NullIO将容器的stdio导入stdio
 	task, err := container.NewTask(ctx, containerd.NullIO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task for sandbox %q: %v", id, err)
@@ -302,6 +310,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	// TODO(random-liu): [P2] Consider whether to add labels and annotations to the container.
 
 	// Set cgroups parent.
+	// 设置cgroups parent
 	if config.GetLinux().GetCgroupParent() != "" {
 		cgroupsPath := getCgroupsPath(config.GetLinux().GetCgroupParent(), id,
 			c.config.SystemdCgroup)
@@ -316,6 +325,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	// 设置namespaec选项
 	securityContext := config.GetLinux().GetSecurityContext()
 	nsOptions := securityContext.GetNamespaceOptions()
+	// 如果有namespace设置为host模式，则删除spec中相应的namespace
 	if nsOptions.GetHostNetwork() {
 		g.RemoveLinuxNamespace(string(runtimespec.NetworkNamespace)) // nolint: errcheck
 	} else {
@@ -335,15 +345,18 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 	if err != nil {
 		return nil, fmt.Errorf("failed to init selinux options %+v: %v", securityContext.GetSelinuxOptions(), err)
 	}
+	// 设置selinux的相关选项
 	g.SetProcessSelinuxLabel(processLabel)
 	g.SetLinuxMountLabel(mountLabel)
 
+	// 设置supplemental group
 	supplementalGroups := securityContext.GetSupplementalGroups()
 	for _, group := range supplementalGroups {
 		g.AddProcessAdditionalGid(uint32(group))
 	}
 
 	// Add sysctls
+	// 添加sysctl选项
 	sysctls := config.GetLinux().GetSysctls()
 	for key, value := range sysctls {
 		g.AddLinuxSysctl(key, value)
@@ -351,6 +364,7 @@ func (c *criContainerdService) generateSandboxContainerSpec(id string, config *r
 
 	// Note: LinuxSandboxSecurityContext does not currently provide an apparmor profile
 
+	// 设置sandbox的共享CPU的数目
 	g.SetLinuxResourcesCPUShares(uint64(defaultSandboxCPUshares))
 	g.SetProcessOOMScoreAdj(int(defaultSandboxOOMAdj))
 

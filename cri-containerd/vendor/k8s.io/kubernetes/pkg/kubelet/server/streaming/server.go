@@ -59,6 +59,7 @@ type Server interface {
 }
 
 // The interface to execute the commands and provide the streams.
+// 用于执行命令并且提供stream
 type Runtime interface {
 	Exec(containerID string, cmd []string, in io.Reader, out, err io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error
 	Attach(containerID string, in io.Reader, out, err io.WriteCloser, tty bool, resize <-chan remotecommand.TerminalSize) error

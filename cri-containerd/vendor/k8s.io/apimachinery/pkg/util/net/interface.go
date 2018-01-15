@@ -298,6 +298,10 @@ func chooseIPFromHostInterfaces(nw networkInterfacer) (net.IP, error) {
 // interfaces. Otherwise, it will use IPv4 and IPv6 route information to return the
 // IP of the interface with a gateway on it (with priority given to IPv4). For a node
 // with no internet connection, it returns error.
+// ChooseHostInterface是一个为daemon获取IP地址的方法
+// 如果没有和路由相关的文件，它会从系统的网卡中选择一个global IP，否则它会基于IPv4和IPv6的路由信息
+// 返回其上有网关的IP（IPv4有更高的优先级）
+// 如果一个node其上没有网络连接，则返回error
 func ChooseHostInterface() (net.IP, error) {
 	var nw networkInterfacer = networkInterface{}
 	if _, err := os.Stat(ipv4RouteFile); os.IsNotExist(err) {
@@ -380,6 +384,8 @@ func chooseHostInterfaceFromRoute(routes []Route, nw networkInterfacer) (net.IP,
 // If bind-address is usable, return it directly
 // If bind-address is not usable (unset, 0.0.0.0, or loopback), we will use the host's default
 // interface.
+// 如果bindAddress是能用的，则直接返回
+// 如果bindAddress是不能用的（未设置，0.0.0.0，或者loopback），我们会使用宿主机默认的interface
 func ChooseBindAddress(bindAddress net.IP) (net.IP, error) {
 	if bindAddress == nil || bindAddress.IsUnspecified() || bindAddress.IsLoopback() {
 		hostIP, err := ChooseHostInterface()

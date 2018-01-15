@@ -31,14 +31,17 @@ import (
 // Image包含了所有和镜像相关的信息，其中所有的字段都不能在创建后被修改
 type Image struct {
 	// Id of the image. Normally the digest of image config.
+	// 镜像的id，通常是image config的digest
 	ID string
 	// Other names by which this image is known.
+	// 镜像的别名
 	RepoTags []string
 	// Digests by which this image is known.
 	RepoDigests []string
 	// ChainID is the chainID of the image.
 	ChainID string
 	// Size is the compressed size of the image.
+	// 镜像的压缩大小
 	Size int64
 	// Config is the oci image config of the image.
 	// 镜像的oci配置信息

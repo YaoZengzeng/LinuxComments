@@ -33,6 +33,7 @@ const (
 
 // Status returns the status of the runtime.
 func (c *criContainerdService) Status(ctx context.Context, r *runtime.StatusRequest) (*runtime.StatusResponse, error) {
+	// 运行时是否ready
 	runtimeCondition := &runtime.RuntimeCondition{
 		Type:   runtime.RuntimeReady,
 		Status: true,

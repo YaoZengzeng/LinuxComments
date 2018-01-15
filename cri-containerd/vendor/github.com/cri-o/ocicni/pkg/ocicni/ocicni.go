@@ -143,6 +143,7 @@ func (plugin *cniNetworkPlugin) monitorNetDir() {
 // InitCNI takes the plugin directory and cni directories where the cni files should be searched for
 // Returns a valid plugin object and any error
 func InitCNI(pluginDir string, cniDirs ...string) (CNIPlugin, error) {
+	// 探测cni插件
 	plugin := probeNetworkPluginsWithVendorCNIDirPrefix(pluginDir, cniDirs, "")
 	var err error
 	plugin.nsenterPath, err = exec.LookPath("nsenter")
@@ -151,6 +152,7 @@ func InitCNI(pluginDir string, cniDirs ...string) (CNIPlugin, error) {
 	}
 
 	// check if a default network exists, otherwise dump the CNI search and return a noop plugin
+	// 检测默认的network是否存在，否则dump CNI检测的结果并且返回一个noop插件
 	_, err = getDefaultCNINetwork(plugin.pluginDir, plugin.cniDirs, plugin.vendorCNIDirPrefix)
 	if err != nil {
 		if err != errMissingDefaultNetwork {
@@ -174,6 +176,7 @@ func InitCNI(pluginDir string, cniDirs ...string) (CNIPlugin, error) {
 func probeNetworkPluginsWithVendorCNIDirPrefix(pluginDir string, cniDirs []string, vendorCNIDirPrefix string) *cniNetworkPlugin {
 	plugin := &cniNetworkPlugin{
 		defaultNetwork:     nil,
+		// 创建loNetwork
 		loNetwork:          getLoNetwork(cniDirs, vendorCNIDirPrefix),
 		pluginDir:          pluginDir,
 		cniDirs:            cniDirs,
@@ -189,6 +192,7 @@ func probeNetworkPluginsWithVendorCNIDirPrefix(pluginDir string, cniDirs []strin
 	return plugin
 }
 
+// 将默认的network配置转换为*cniNetwork
 func getDefaultCNINetwork(pluginDir string, cniDirs []string, vendorCNIDirPrefix string) (*cniNetwork, error) {
 	if pluginDir == "" {
 		pluginDir = DefaultNetDir
@@ -286,6 +290,7 @@ func (plugin *cniNetworkPlugin) syncNetworkConfig() error {
 		logrus.Errorf("error updating cni config: %s", err)
 		return err
 	}
+	// 将plugin.defaultNetwork设置为network
 	plugin.setDefaultNetwork(network)
 
 	return nil

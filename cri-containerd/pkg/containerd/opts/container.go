@@ -41,6 +41,7 @@ func WithImageUnpack(i containerd.Image) containerd.NewContainerOpts {
 			return nil
 		}
 		// Unpack the snapshot.
+		// 将snapshot unpack
 		if err := i.Unpack(ctx, c.Snapshotter); err != nil {
 			return errors.Wrap(err, "unpack snapshot")
 		}

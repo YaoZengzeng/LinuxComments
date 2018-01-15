@@ -30,6 +30,7 @@ import (
 )
 
 // Attach prepares a streaming endpoint to attach to a running container, and returns the address.
+// Attach准备了一个streaming endpoint用于连接正在运行的容器，并且返回地址
 func (c *criContainerdService) Attach(ctx context.Context, r *runtime.AttachRequest) (*runtime.AttachResponse, error) {
 	cntr, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {

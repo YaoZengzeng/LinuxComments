@@ -11,6 +11,7 @@ import (
 )
 
 // apply sets config settings on the server process
+// 用config对server进程进行配置
 func apply(ctx context.Context, config *Config) error {
 	if !config.NoSubreaper {
 		log.G(ctx).Info("setting subreaper...")
@@ -20,10 +21,12 @@ func apply(ctx context.Context, config *Config) error {
 	}
 	if config.OOMScore != 0 {
 		log.G(ctx).Infof("changing OOM score to %d", config.OOMScore)
+		// 设置/proc/$$/oom_score_adj
 		if err := sys.SetOOMScore(os.Getpid(), config.OOMScore); err != nil {
 			return err
 		}
 	}
+	// 默认Path为""
 	if config.Cgroup.Path != "" {
 		cg, err := cgroups.Load(cgroups.V1, cgroups.StaticPath(config.Cgroup.Path))
 		if err != nil {

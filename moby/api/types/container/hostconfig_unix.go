@@ -36,6 +36,7 @@ func (n NetworkMode) IsHost() bool {
 }
 
 // IsUserDefined indicates user-created network
+// 如果既不是default，bridge，host，none，container，就是user defined模式
 func (n NetworkMode) IsUserDefined() bool {
 	return !n.IsDefault() && !n.IsBridge() && !n.IsHost() && !n.IsNone() && !n.IsContainer()
 }

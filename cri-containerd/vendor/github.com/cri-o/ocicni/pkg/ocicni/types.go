@@ -33,14 +33,18 @@ type PodNetwork struct {
 	// Namespace is the namespace of the sandbox.
 	Namespace string
 	// ID is the id of the sandbox container.
+	// ID是sandbox container的id
 	ID string
 	// NetNS is the network namespace path of the sandbox.
+	// NetNS是sandbox的network mamespace的路径
 	NetNS string
 	// PortMappings is the port mapping of the sandbox.
+	// PortMappings是sandbox的port mapping
 	PortMappings []PortMapping
 }
 
 // CNIPlugin is the interface that needs to be implemented by a plugin
+// CNIPlugin是一个CNI插件需要实现的接口
 type CNIPlugin interface {
 	// Name returns the plugin's name. This will be used when searching
 	// for a plugin by name, e.g.

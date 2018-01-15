@@ -59,6 +59,7 @@ func containerFromRecord(client *Client, c containers.Container) *container {
 
 var _ = (Container)(&container{})
 
+// id对应的容器所有的client
 type container struct {
 	client *Client
 	id     string
@@ -192,6 +193,7 @@ func (c *container) NewTask(ctx context.Context, ioCreate cio.Creation, opts ...
 		}
 
 		// get the rootfs from the snapshotter and add it to the request
+		// 从snapshotter中获取rootfs并且将它加入请求
 		mounts, err := c.client.SnapshotService(r.Snapshotter).Mounts(ctx, r.SnapshotKey)
 		if err != nil {
 			return nil, err

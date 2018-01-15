@@ -81,6 +81,8 @@ var pullImageCommand = cli.Command{
 		if err != nil {
 			return fmt.Errorf("pulling image failed: %v", err)
 		}
+		// ImageRef的格式如下所示
+		// busybox@sha256:b82b5740006c1ab823596d2c07f081084ecdb32fd258072707b99f52a3cb8692
 		fmt.Printf("Image is update to date for %s\n", r.ImageRef)
 		return nil
 	},
@@ -149,6 +151,7 @@ var listImageCommand = cli.Command{
 				continue
 			}
 			if !verbose {
+				// 将repoDigest分为repo和digest
 				imageName, repoDigest := normalizeRepoDigest(image.RepoDigests)
 				repoTagPairs := normalizeRepoTagPair(image.RepoTags, imageName)
 				size := units.HumanSizeWithPrecision(float64(image.GetSize_()), 3)
@@ -317,6 +320,8 @@ func getAuth(creds string) (*pb.AuthConfig, error) {
 
 // Ideally repo tag should always be image:tag.
 // The repoTags is nil when pulling image by repoDigest,Then we will show image name instead.
+// 一般repo tag都表示为image:tag
+// 但是如果是用repoDigest拉取的镜像，则repoTags为nil，这时我们就展示image name
 func normalizeRepoTagPair(repoTags []string, imageName string) (repoTagPairs [][]string) {
 	if len(repoTags) == 0 {
 		repoTagPairs = append(repoTagPairs, []string{imageName, "<none>"})

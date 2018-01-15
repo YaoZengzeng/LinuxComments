@@ -65,8 +65,11 @@ var createContainerCommand = cli.Command{
 		}
 
 		opts := createOptions{
+			// pod id
 			podID:      context.Args().Get(0),
+			// container配置文件的路径
 			configPath: context.Args().Get(1),
+			// pod的配置文件的路径
 			podConfig:  context.Args().Get(2),
 		}
 
@@ -330,12 +333,14 @@ var listContainersCommand = cli.Command{
 // CreateContainer sends a CreateContainerRequest to the server, and parses
 // the returned CreateContainerResponse.
 func CreateContainer(client pb.RuntimeServiceClient, opts createOptions) error {
+	// 加载容器的配置
 	config, err := loadContainerConfig(opts.configPath)
 	if err != nil {
 		return err
 	}
 	var podConfig *pb.PodSandboxConfig
 	if opts.podConfig != "" {
+		// 加载sandbox的配置
 		podConfig, err = loadPodSandboxConfig(opts.podConfig)
 		if err != nil {
 			return err
@@ -555,6 +560,7 @@ func ListContainers(client pb.RuntimeServiceClient, opts listOptions) error {
 	}
 	st := &pb.ContainerStateValue{}
 	if !opts.all && opts.state == "" {
+		// 如果state为""，则将filter的state默认设置为RUNNING
 		st.State = pb.ContainerState_CONTAINER_RUNNING
 		filter.State = st
 	}

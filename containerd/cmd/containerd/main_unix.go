@@ -37,6 +37,7 @@ func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *se
 				log.G(ctx).WithField("signal", s).Debug("received signal")
 				switch s {
 				case unix.SIGCHLD:
+					// 子进程发来的SIGCHLD
 					if err := reaper.Reap(); err != nil {
 						log.G(ctx).WithError(err).Error("reap containerd processes")
 					}
@@ -45,10 +46,12 @@ func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *se
 				case unix.SIGPIPE:
 					continue
 				default:
+					// 其他signal，并且server未初始化，则直接关闭done
 					if server == nil {
 						close(done)
 						return
 					}
+					// 否则先关闭server，再关闭done
 					server.Stop()
 					close(done)
 				}

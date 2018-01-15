@@ -227,7 +227,9 @@ func defaultConfig() Config {
 		},
 		SocketPath:          "/var/run/cri-containerd.sock",
 		RootDir:             "/var/lib/cri-containerd",
+		// StreamServerAddress默认地址为空
 		StreamServerAddress: "",
+		// 默认StreamServer的端口为10010
 		StreamServerPort:    "10010",
 		// 默认CgroupPath为空
 		CgroupPath:          "",

@@ -84,9 +84,12 @@ func main() {
 			config  = defaultConfig()
 		)
 
+		// 把server通过管道serverC传递进去，从而能在有信号来临时关闭
 		done := handleSignals(ctx, signals, serverC)
 		// start the signal handler as soon as we can to make sure that
 		// we don't miss any signals during boot
+		// 尽快启动signal handler，从而让我们确保不会在启动期间遗漏任何的signal
+		// signals中有信号来，就会调用handledSignals
 		signal.Notify(signals, handledSignals...)
 
 		if err := server.LoadConfig(context.GlobalString("config"), config); err != nil && !os.IsNotExist(err) {
@@ -110,6 +113,7 @@ func main() {
 			return err
 		}
 		serverC <- server
+		// 设置debug service
 		if config.Debug.Address != "" {
 			l, err := sys.GetLocalListener(config.Debug.Address, config.Debug.UID, config.Debug.GID)
 			if err != nil {
@@ -117,6 +121,7 @@ func main() {
 			}
 			serve(log.WithModule(ctx, "debug"), l, server.ServeDebug)
 		}
+		// 设置metric service
 		if config.Metrics.Address != "" {
 			l, err := net.Listen("tcp", config.Metrics.Address)
 			if err != nil {
@@ -155,6 +160,7 @@ func serve(ctx context.Context, l net.Listener, serveFunc func(net.Listener) err
 func applyFlags(context *cli.Context, config *server.Config) error {
 	// the order for config vs flag values is that flags will always override
 	// the config values if they are set
+	// 如果设置有flag，那么它总能覆盖相应的config设置
 	if err := setLevel(context, config); err != nil {
 		return err
 	}

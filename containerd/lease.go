@@ -11,6 +11,8 @@ import (
 // Lease is used to hold a reference to active resources which have not been
 // referenced by a root resource. This is useful for preventing garbage
 // collection of resources while they are actively being updated.
+// Lease是用来维持那些没被root resource引用的active resources
+// 这能防止它们在更新的时候被GC
 type Lease struct {
 	id        string
 	createdAt time.Time

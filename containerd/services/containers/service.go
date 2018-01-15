@@ -17,6 +17,7 @@ import (
 )
 
 func init() {
+	// init函数自动对container plugin进行配置
 	plugin.Register(&plugin.Registration{
 		Type: plugin.GRPCPlugin,
 		ID:   "containers",
@@ -81,8 +82,10 @@ func (s *service) Create(ctx context.Context, req *api.CreateContainerRequest) (
 	var resp api.CreateContainerResponse
 
 	if err := s.withStoreUpdate(ctx, func(ctx context.Context, store containers.Store) error {
+		// 用req.Container填充containers.Container结构
 		container := containerFromProto(&req.Container)
 
+		// 对container结构进行存储
 		created, err := store.Create(ctx, container)
 		if err != nil {
 			return err

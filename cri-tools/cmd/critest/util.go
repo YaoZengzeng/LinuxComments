@@ -60,6 +60,7 @@ func build(benchmark bool) error {
 }
 
 // runCommand runs given command.
+// names是ginkgo的路径
 func runCommand(name string, args ...string) error {
 	glog.Infof("Building command: %q %q", name, strings.Join(args, " "))
 	cmd := exec.Command("sh", "-c", strings.Join(append([]string{name}, args...), " "))
@@ -84,10 +85,13 @@ func getRootDir() (string, error) {
 
 // getBuildOutputDir gets the dir which stores cri-tools binaries.
 func getBuildOutputDir() (string, error) {
+	// k8sRoot是cri-tools项目所在的目录
+	// 一般为$GOPATH/src/github.com/kubernetes-incubator/cri-tools
 	k8sRoot, err := getRootDir()
 	if err != nil {
 		return "", err
 	}
+	// buildOutputDir为$GOPATH/src/github.com/kubernetes-incubator/cri-tools/_output/bin
 	buildOutputDir := filepath.Join(k8sRoot, "_output/bin")
 	if err := os.MkdirAll(buildOutputDir, 0755); err != nil {
 		return "", err
@@ -115,6 +119,7 @@ func runTestSuite(context *cli.Context, benchmark bool) error {
 	ginkgo := filepath.Join(outputDir, "ginkgo")
 
 	if context.GlobalString("i") == "" {
+		// 如果image service address为""，则默认设置为runtime service address
 		imageServiceAddress = context.GlobalString("r")
 	} else {
 		imageServiceAddress = context.GlobalString("i")
@@ -130,6 +135,7 @@ func runTestSuite(context *cli.Context, benchmark bool) error {
 	if benchmark {
 		args = []string{ginkgoFlags, filepath.Join(outputDir, "benchmark.test"), "--", "--runtime-service-address=" + context.GlobalString("r"), "--image-service-address=" + imageServiceAddress, "--number=" + context.String("n")}
 	} else {
+		// 未指定benchmark，就跑e2e测试
 		args = []string{ginkgoFlags, filepath.Join(outputDir, "e2e.test"), "--", "--runtime-service-address=" + context.GlobalString("r"), "--image-service-address=" + imageServiceAddress}
 	}
 

@@ -1,0 +1,30 @@
+language: go
+sudo: required
+dist: xenial
+
+services:
+  - docker
+
+go:
+  - 1.9.x
+
+go_import_path: k8s.io/frakti
+
+before_install:
+  - hack/install-docker.sh
+
+install:
+  - docker run -v /usr/local/bin:/target jpetazzo/nsenter
+  - hack/install-protoc.sh
+  - hack/install-hypercontainer.sh
+  - go install -v $(go list ./... | grep -v /vendor/)
+  - make ginkgo && make frakti
+  - hack/verify-all.sh -v
+
+jobs:
+   include:
+     - stage: Unit Test
+       script: hack/test-go.sh
+     - stage: End to End Test
+       script: hack/test-e2e.sh
+

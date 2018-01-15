@@ -26,6 +26,7 @@ import (
 // ListImages lists existing images.
 // TODO(random-liu): Add image list filters after CRI defines this more clear, and kubelet
 // actually needs it.
+// 在CRI更清楚地定义image list filter之后再添加，kubelet需要它
 func (c *criContainerdService) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
 	imagesInStore := c.imageStore.List()
 

@@ -127,13 +127,16 @@ func Exec(client pb.RuntimeServiceClient, opts execOptions) error {
 		Stderr:      !opts.tty,
 	}
 	logrus.Debugf("ExecRequest: %v", request)
+	// 先发送exec request
 	r, err := client.Exec(context.Background(), request)
 	logrus.Debugf("ExecResponse: %v", r)
 	if err != nil {
 		return err
 	}
+	// 获取stream server的url
 	execURL := r.Url
 	if !strings.HasPrefix(execURL, "http") {
+		// 如果execURL不是以"http"开头，则添加kubeletURLPrefix "http://127.0.0.1:10250"
 		execURL = kubeletURLPrefix + execURL
 
 	}

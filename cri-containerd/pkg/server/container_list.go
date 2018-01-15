@@ -55,6 +55,7 @@ func toCRIContainer(container containerstore.Container) *runtime.Container {
 }
 
 func (c *criContainerdService) normalizeContainerFilter(filter *runtime.ContainerFilter) {
+	// 调整filter的container ID 和sandbox ID
 	if cntr, err := c.containerStore.Get(filter.GetId()); err == nil {
 		filter.Id = cntr.ID
 	}

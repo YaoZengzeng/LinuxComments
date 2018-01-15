@@ -17,22 +17,27 @@ type Container struct {
 	// ID uniquely identifies the container in a nameapace.
 	//
 	// This property is required and cannot be changed after creation.
+	// ID唯一代表了namespace中的一个容器
+	// 该特性是必须的，并且不能在容器创建之后改变
 	ID string
 
 	// Labels provide metadata extension for a contaienr.
 	//
 	// These are optional and fully mutable.
+	// Labels是对容器元数据的扩展，它们是可选的并且易变的
 	Labels map[string]string
 
 	// Image specifies the image reference used for a container.
 	//
 	// This property is optional but immutable.
+	// Image是容器使用的image reference，该特性是可选的并且不能改变
 	Image string
 
 	// Runtime specifies which runtime should be used when launching container
 	// tasks.
 	//
 	// This property is required and immutable.
+	// Runtime指定了在启动容器的时候使用哪种运行时，该特性是必须的并且不能改变
 	Runtime RuntimeInfo
 
 	// Spec should carry the the runtime specification used to implement the
@@ -47,6 +52,9 @@ type Container struct {
 	// task create request.
 	//
 	// This field is not required but immutable.
+	// SnapshotKey指定了容器的根文件系统使用的snapshot key
+	// 当从这个容器中启动一个task的时候，调用者要先从snapshot service中查找mounts
+	// 并且将这些添加到task create request中
 	SnapshotKey string
 
 	// Snapshotter specifies the snapshotter name used for rootfs
@@ -61,6 +69,7 @@ type Container struct {
 	UpdatedAt time.Time
 
 	// Extensions stores client-specified metadata
+	// Extensions存储了客户端特定的信息
 	Extensions map[string]types.Any
 }
 

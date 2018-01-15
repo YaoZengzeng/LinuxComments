@@ -45,27 +45,32 @@ const (
 type IpcMode string
 
 // IsPrivate indicates whether the container uses its own private ipc namespace which can not be shared.
+// IsPrivate表示容器是否使用它自己的私有的ipc namespace,该namespace不能共享
 func (n IpcMode) IsPrivate() bool {
 	return n == "private"
 }
 
 // IsHost indicates whether the container shares the host's ipc namespace.
+// IsHost表示容器是否使用宿主机的ipc namespace
 func (n IpcMode) IsHost() bool {
 	return n == "host"
 }
 
 // IsShareable indicates whether the container's ipc namespace can be shared with another container.
+// IsShareable表示容器的ipc namespace能否和其他容器共享
 func (n IpcMode) IsShareable() bool {
 	return n == "shareable"
 }
 
 // IsContainer indicates whether the container uses another container's ipc namespace.
+// IsContainer表示容器是否使用其他容器的ipc namespace
 func (n IpcMode) IsContainer() bool {
 	parts := strings.SplitN(string(n), ":", 2)
 	return len(parts) > 1 && parts[0] == "container"
 }
 
 // IsNone indicates whether container IpcMode is set to "none".
+// IpcMode是否设置为"none"
 func (n IpcMode) IsNone() bool {
 	return n == "none"
 }
@@ -76,11 +81,13 @@ func (n IpcMode) IsEmpty() bool {
 }
 
 // Valid indicates whether the ipc mode is valid.
+// 验证ipc模式是否合法
 func (n IpcMode) Valid() bool {
 	return n.IsEmpty() || n.IsNone() || n.IsPrivate() || n.IsHost() || n.IsShareable() || n.IsContainer()
 }
 
 // Container returns the name of the container ipc stack is going to be used.
+// Container返回将要使用的ipc所属的容器
 func (n IpcMode) Container() string {
 	parts := strings.SplitN(string(n), ":", 2)
 	if len(parts) > 1 && parts[0] == "container" {
@@ -103,6 +110,7 @@ func (n NetworkMode) IsDefault() bool {
 }
 
 // IsPrivate indicates whether container uses its private network stack.
+// 如果为host或者container模式，则不是private的
 func (n NetworkMode) IsPrivate() bool {
 	return !(n.IsHost() || n.IsContainer())
 }
@@ -114,6 +122,7 @@ func (n NetworkMode) IsContainer() bool {
 }
 
 // ConnectedContainer is the id of the container which network this container is connected to.
+// ConnectedContainer返回公用network的容器的id
 func (n NetworkMode) ConnectedContainer() string {
 	parts := strings.SplitN(string(n), ":", 2)
 	if len(parts) > 1 {
@@ -134,12 +143,14 @@ func (n NetworkMode) UserDefined() string {
 type UsernsMode string
 
 // IsHost indicates whether the container uses the host's userns.
+// IsHost判断容器是否使用宿主机的userns
 func (n UsernsMode) IsHost() bool {
 	return n == "host"
 }
 
 // IsPrivate indicates whether the container uses the a private userns.
 func (n UsernsMode) IsPrivate() bool {
+	// 如果不是host模式，usermode就是private的
 	return !(n.IsHost())
 }
 

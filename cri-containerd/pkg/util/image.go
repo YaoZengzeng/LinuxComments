@@ -26,6 +26,7 @@ import (
 // and digest, the function returns digested reference, e.g. docker.io/library/busybox:latest@
 // sha256:7cc4b5aefd1d0cadf8d97d4350462ba51c694ebca145b08d7d41b41acc8db5aa will be returned as
 // docker.io/library/busybox@sha256:7cc4b5aefd1d0cadf8d97d4350462ba51c694ebca145b08d7d41b41acc8db5aa.
+// 只返回tag的或digest的reference
 func NormalizeImageRef(ref string) (reference.Named, error) {
 	named, err := reference.ParseNormalizedNamed(ref)
 	if err != nil {

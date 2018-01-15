@@ -391,16 +391,21 @@ func (m *PortMapping) GetHostIp() string {
 }
 
 // Mount specifies a host volume to mount into a container.
+// Mount指定了挂载到容器中的host volume	
 type Mount struct {
 	// Path of the mount within the container.
+	// 容器中的mount 路径
 	ContainerPath string `protobuf:"bytes,1,opt,name=container_path,json=containerPath,proto3" json:"container_path,omitempty"`
 	// Path of the mount on the host.
+	// host的mount路径
 	HostPath string `protobuf:"bytes,2,opt,name=host_path,json=hostPath,proto3" json:"host_path,omitempty"`
 	// If set, the mount is read-only.
 	Readonly bool `protobuf:"varint,3,opt,name=readonly,proto3" json:"readonly,omitempty"`
 	// If set, the mount needs SELinux relabeling.
+	// 该mount是不是SELinux relabeling
 	SelinuxRelabel bool `protobuf:"varint,4,opt,name=selinux_relabel,json=selinuxRelabel,proto3" json:"selinux_relabel,omitempty"`
 	// Requested propagation mode.
+	// mount的模式
 	Propagation MountPropagation `protobuf:"varint,5,opt,name=propagation,proto3,enum=runtime.MountPropagation" json:"propagation,omitempty"`
 }
 
@@ -498,11 +503,14 @@ func (m *Int64Value) GetValue() int64 {
 // LinuxSandboxSecurityContext holds linux security configuration that will be
 // applied to a sandbox. Note that:
 // 1) It does not apply to containers in the pods.
+// 它并不应用到pod中其他的容器
 // 2) It may not be applicable to a PodSandbox which does not contain any running
 //    process.
+// 它不能应用到没有进程运行的PodSandbox中
 type LinuxSandboxSecurityContext struct {
 	// Configurations for the sandbox's namespaces.
 	// This will be used only if the PodSandbox uses namespace for isolation.
+	// namespace的配置
 	NamespaceOptions *NamespaceOption `protobuf:"bytes,1,opt,name=namespace_options,json=namespaceOptions" json:"namespace_options,omitempty"`
 	// Optional SELinux context to be applied.
 	SelinuxOptions *SELinuxOption `protobuf:"bytes,2,opt,name=selinux_options,json=selinuxOptions" json:"selinux_options,omitempty"`
@@ -518,6 +526,8 @@ type LinuxSandboxSecurityContext struct {
 	// MUST be true.
 	// This allows a sandbox to take additional security precautions if no
 	// privileged containers are expected to be run.
+	// 标注sandbox是否运行priviledged container，是则必须为true
+	// 如果没有priviledged containers要运行，则允许sandbox添加额外的security precautions
 	Privileged bool `protobuf:"varint,6,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	// Seccomp profile for the sandbox, candidate values are:
 	// * docker/default: the default profile for the docker container runtime
@@ -583,14 +593,17 @@ func (m *LinuxSandboxSecurityContext) GetSeccompProfilePath() string {
 
 // LinuxPodSandboxConfig holds platform-specific configurations for Linux
 // host platforms and Linux-based containers.
+// LinuxPodSandboxConfig包含了linux平台相关的配置
 type LinuxPodSandboxConfig struct {
 	// Parent cgroup of the PodSandbox.
 	// The cgroupfs style syntax will be used, but the container runtime can
 	// convert it to systemd semantics if needed.
 	CgroupParent string `protobuf:"bytes,1,opt,name=cgroup_parent,json=cgroupParent,proto3" json:"cgroup_parent,omitempty"`
 	// LinuxSandboxSecurityContext holds sandbox security attributes.
+	// LinuxSandboxSecurityContext包含了sandbox的安全特性
 	SecurityContext *LinuxSandboxSecurityContext `protobuf:"bytes,2,opt,name=security_context,json=securityContext" json:"security_context,omitempty"`
 	// Sysctls holds linux sysctls config for the sandbox.
+	// sandbox的sysctl config
 	Sysctls map[string]string `protobuf:"bytes,3,rep,name=sysctls" json:"sysctls,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -623,14 +636,21 @@ func (m *LinuxPodSandboxConfig) GetSysctls() map[string]string {
 // The container runtime is encouraged to expose the metadata associated with the
 // PodSandbox in its user interface for better user experience. For example,
 // the runtime can construct a unique PodSandboxName based on the metadata.
+// PodSandboxMetadata包含了构建sandbox name必须的信息
+// 为了更好的用户体验，我们鼓励容器运行时在用户接口暴露这些和PodSandbox相关的元数据
+// 例如，运行时可以根据这些元数据创建唯一的PodSandboxName
 type PodSandboxMetadata struct {
 	// Pod name of the sandbox. Same as the pod name in the PodSpec.
+	// sandbox的Pod name，和PodSpec中的pod name相同
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Pod UID of the sandbox. Same as the pod UID in the PodSpec.
+	// sandbox的Pod UID，和PodSpec中的pod UID相同
 	Uid string `protobuf:"bytes,2,opt,name=uid,proto3" json:"uid,omitempty"`
 	// Pod namespace of the sandbox. Same as the pod namespace in the PodSpec.
+	// sandbox所在的Pod namespace
 	Namespace string `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	// Attempt number of creating the sandbox. Default: 0.
+	// 创建sandbox的尝试次数，默认为0
 	Attempt uint32 `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
 }
 
@@ -668,21 +688,25 @@ func (m *PodSandboxMetadata) GetAttempt() uint32 {
 
 // PodSandboxConfig holds all the required and optional fields for creating a
 // sandbox.
+// PodSandboxConfig包含了创建一个sandbox所有必须的以及可选的选项
 type PodSandboxConfig struct {
 	// Metadata of the sandbox. This information will uniquely identify the
 	// sandbox, and the runtime should leverage this to ensure correct
 	// operation. The runtime may also use this information to improve UX, such
 	// as by constructing a readable name.
+	// sandbox的元数据，这些信息唯一地标识了一个sandbox，运行时需要利用这些信息来保证正确的操作
 	Metadata *PodSandboxMetadata `protobuf:"bytes,1,opt,name=metadata" json:"metadata,omitempty"`
 	// Hostname of the sandbox.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	// Path to the directory on the host in which container log files are
 	// stored.
+	// 容器日志所在目录的路径
 	// By default the log of a container going into the LogDirectory will be
 	// hooked up to STDOUT and STDERR. However, the LogDirectory may contain
 	// binary log files with structured logging data from the individual
 	// containers. For example, the files might be newline separated JSON
 	// structured logs, systemd-journald journal files, gRPC trace files, etc.
+	// LogDirectory可能包含来自某个单独的容器的binary log files，其中包含了结构化的日志数据
 	// E.g.,
 	//     PodSandboxConfig.LogDirectory = `/var/log/pods/<podUID>/`
 	//     ContainerConfig.LogPath = `containerName_Instance#.log`
@@ -697,25 +721,33 @@ type PodSandboxConfig struct {
 	// Port mappings for the sandbox.
 	PortMappings []*PortMapping `protobuf:"bytes,5,rep,name=port_mappings,json=portMappings" json:"port_mappings,omitempty"`
 	// Key-value pairs that may be used to scope and select individual resources.
+	// Labels是用于划分和选择独立资源的键值对
 	Labels map[string]string `protobuf:"bytes,6,rep,name=labels" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Unstructured key-value map that may be set by the kubelet to store and
 	// retrieve arbitrary metadata. This will include any annotations set on a
 	// pod through the Kubernetes API.
+	// kubelet可以使用annotations来存取任意的元数据，它包括了通过kubernetes API设置在
+	// pod中的annotations
 	//
 	// Annotations MUST NOT be altered by the runtime; the annotations stored
 	// here MUST be returned in the PodSandboxStatus associated with the pod
 	// this PodSandboxConfig creates.
+	// 运行时不能改变annotations，被存储的annotations必须能在PodSandboxStatus中返回
 	//
 	// In general, in order to preserve a well-defined interface between the
 	// kubelet and the container runtime, annotations SHOULD NOT influence
 	// runtime behaviour.
+	// 一般来说，为了保护kubelet和容器运行时直接接口的良好定义，annotations不应该影响
+	// 运行时的行为
 	//
 	// Annotations can also be useful for runtime authors to experiment with
 	// new features that are opaque to the Kubernetes APIs (both user-facing
 	// and the CRI). Whenever possible, however, runtime authors SHOULD
 	// consider proposing new typed fields for any new features instead.
+	// annotations还能被用来实验新特性
 	Annotations map[string]string `protobuf:"bytes,7,rep,name=annotations" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Optional configurations specific to Linux hosts.
+	// 和linux主机有关的可选特性
 	Linux *LinuxPodSandboxConfig `protobuf:"bytes,8,opt,name=linux" json:"linux,omitempty"`
 }
 
@@ -1199,6 +1231,8 @@ func (m *ListPodSandboxResponse) GetItems() []*PodSandbox {
 // ImageSpec is an internal representation of an image.  Currently, it wraps the
 // value of a Container's Image field (e.g. imageID or imageDigest), but in the
 // future it will include more detailed information about the different image types.
+// ImageSpec是image的内在表示方法，现在它只是容器的Image field（imageID或者imageDigest）的封装
+// 但是在未来它会包含更多关于不同的容器的细节的信息
 type ImageSpec struct {
 	Image string `protobuf:"bytes,1,opt,name=image,proto3" json:"image,omitempty"`
 }
@@ -1522,8 +1556,10 @@ func (m *LinuxContainerSecurityContext) GetNoNewPrivs() bool {
 // Linux-based containers.
 type LinuxContainerConfig struct {
 	// Resources specification for the container.
+	// 容器的资源设置
 	Resources *LinuxContainerResources `protobuf:"bytes,1,opt,name=resources" json:"resources,omitempty"`
 	// LinuxContainerSecurityContext configuration for the container.
+	// 容器的安全配置
 	SecurityContext *LinuxContainerSecurityContext `protobuf:"bytes,2,opt,name=security_context,json=securityContext" json:"security_context,omitempty"`
 }
 
@@ -1550,8 +1586,11 @@ func (m *LinuxContainerConfig) GetSecurityContext() *LinuxContainerSecurityConte
 // interface for better user experience. E.g., runtime can construct a unique
 // container name based on the metadata. Note that (name, attempt) is unique
 // within a sandbox for the entire lifetime of the sandbox.
+// ContainerMetadata包含了创建容器名的所有必要的信息，运行时可以根据这些元数据构建容器名
+// (name, attempt)在sandbox的整个生命周期内都是唯一的
 type ContainerMetadata struct {
 	// Name of the container. Same as the container name in the PodSpec.
+	// 和PodSpec中的容器名一致
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Attempt number of creating the container. Default: 0.
 	Attempt uint32 `protobuf:"varint,2,opt,name=attempt,proto3" json:"attempt,omitempty"`
@@ -1576,12 +1615,16 @@ func (m *ContainerMetadata) GetAttempt() uint32 {
 }
 
 // Device specifies a host device to mount into a container.
+// 挂载到容器中的宿主机设备
 type Device struct {
 	// Path of the device within the container.
+	// 容器中设备的路径
 	ContainerPath string `protobuf:"bytes,1,opt,name=container_path,json=containerPath,proto3" json:"container_path,omitempty"`
 	// Path of the device on the host.
+	// 宿主机中设备的路径
 	HostPath string `protobuf:"bytes,2,opt,name=host_path,json=hostPath,proto3" json:"host_path,omitempty"`
 	// Cgroups permissions of the device, candidates are one or more of
+	// 设备的Cgroups权限
 	// * r - allows container to read from the specified device.
 	// * w - allows container to write to the specified device.
 	// * m - allows container to create device files that do not yet exist.
@@ -1615,15 +1658,19 @@ func (m *Device) GetPermissions() string {
 
 // ContainerConfig holds all the required and optional fields for creating a
 // container.
+// ContainerConfig中包含了创建一个容器所有必须的以及可选的字段
 type ContainerConfig struct {
 	// Metadata of the container. This information will uniquely identify the
 	// container, and the runtime should leverage this to ensure correct
 	// operation. The runtime may also use this information to improve UX, such
 	// as by constructing a readable name.
+	// 容器的元数据，该信息用来唯一地标识容器，运行时需要利用它来确保正确的操作
 	Metadata *ContainerMetadata `protobuf:"bytes,1,opt,name=metadata" json:"metadata,omitempty"`
 	// Image to use.
+	// 使用的镜像
 	Image *ImageSpec `protobuf:"bytes,2,opt,name=image" json:"image,omitempty"`
 	// Command to execute (i.e., entrypoint for docker)
+	// 执行的命令
 	Command []string `protobuf:"bytes,3,rep,name=command" json:"command,omitempty"`
 	// Args for the Command (i.e., command for docker)
 	Args []string `protobuf:"bytes,4,rep,name=args" json:"args,omitempty"`
@@ -1636,6 +1683,7 @@ type ContainerConfig struct {
 	// Devices for the container.
 	Devices []*Device `protobuf:"bytes,8,rep,name=devices" json:"devices,omitempty"`
 	// Key-value pairs that may be used to scope and select individual resources.
+	// 用来划分和选择独立资源的键值对
 	// Label keys are of the form:
 	//     label-key ::= prefixed-name | name
 	//     prefixed-name ::= prefix '/' name
@@ -1644,17 +1692,21 @@ type ContainerConfig struct {
 	Labels map[string]string `protobuf:"bytes,9,rep,name=labels" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Unstructured key-value map that may be used by the kubelet to store and
 	// retrieve arbitrary metadata.
+	// 非结构化的键值对，kubelet用它来存取任意的元数据
 	//
 	// Annotations MUST NOT be altered by the runtime; the annotations stored
 	// here MUST be returned in the ContainerStatus associated with the container
 	// this ContainerConfig creates.
+	// Annotations不能被运行时修改，annotations必须能再ContainerStatus中返回
 	//
 	// In general, in order to preserve a well-defined interface between the
 	// kubelet and the container runtime, annotations SHOULD NOT influence
 	// runtime behaviour.
+	// 通常为了kubelet和容器运行时之间良好的接口定义，annotations不能改变运行时的行为
 	Annotations map[string]string `protobuf:"bytes,10,rep,name=annotations" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Path relative to PodSandboxConfig.LogDirectory for container to store
 	// the log (STDOUT and STDERR) on the host.
+	// 相对于PodSandboxConfig.LogDirectory的路径，用于在宿主机存储log(STDOUT和STDERR)
 	// E.g.,
 	//     PodSandboxConfig.LogDirectory = `/var/log/pods/<podUID>/`
 	//     ContainerConfig.LogPath = `containerName_Instance#.log`
@@ -1665,6 +1717,7 @@ type ContainerConfig struct {
 	// for logging as the discussion carries on.
 	LogPath string `protobuf:"bytes,11,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
 	// Variables for interactive containers, these have very specialized
+	// 用于交互式容器的变量
 	// use-cases (e.g. debugging).
 	// TODO: Determine if we need to continue supporting these fields that are
 	// part of Kubernetes's Container Spec.
@@ -1672,6 +1725,7 @@ type ContainerConfig struct {
 	StdinOnce bool `protobuf:"varint,13,opt,name=stdin_once,json=stdinOnce,proto3" json:"stdin_once,omitempty"`
 	Tty       bool `protobuf:"varint,14,opt,name=tty,proto3" json:"tty,omitempty"`
 	// Configuration specific to Linux containers.
+	// linux容器特有的一些配置
 	Linux *LinuxContainerConfig `protobuf:"bytes,15,opt,name=linux" json:"linux,omitempty"`
 }
 
@@ -1786,13 +1840,17 @@ func (m *ContainerConfig) GetLinux() *LinuxContainerConfig {
 
 type CreateContainerRequest struct {
 	// ID of the PodSandbox in which the container should be created.
+	// 创建的容器所在的sandbox的ID
 	PodSandboxId string `protobuf:"bytes,1,opt,name=pod_sandbox_id,json=podSandboxId,proto3" json:"pod_sandbox_id,omitempty"`
 	// Config of the container.
+	// 容器的配置
 	Config *ContainerConfig `protobuf:"bytes,2,opt,name=config" json:"config,omitempty"`
 	// Config of the PodSandbox. This is the same config that was passed
 	// to RunPodSandboxRequest to create the PodSandbox. It is passed again
 	// here just for easy reference. The PodSandboxConfig is immutable and
 	// remains the same throughout the lifetime of the pod.
+	// PodSandbox的配置，它和创建PodSandbox的时候传递给RunPodSandboxRequest的参数是一致的
+	// 再次传输仅仅只是为了引用方便，PodSandboxConfig在整个pod的生命周期中是不变的
 	SandboxConfig *PodSandboxConfig `protobuf:"bytes,3,opt,name=sandbox_config,json=sandboxConfig" json:"sandbox_config,omitempty"`
 }
 

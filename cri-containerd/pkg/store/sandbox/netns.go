@@ -32,6 +32,7 @@ import (
 var ErrClosedNetNS = errors.New("network namespace is closed")
 
 // NetNS holds network namespace for sandbox
+// NetNS包含了sandbox的network namespace
 type NetNS struct {
 	sync.Mutex
 	ns       cnins.NetNS
@@ -40,6 +41,7 @@ type NetNS struct {
 }
 
 // NewNetNS creates a network namespace for the sandbox
+// NewNetNS为sandbox创建一个network namespace
 func NewNetNS() (*NetNS, error) {
 	netns, err := cnins.NewNS()
 	if err != nil {

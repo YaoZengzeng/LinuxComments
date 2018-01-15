@@ -38,6 +38,7 @@ import (
 )
 
 // New creates and initializes a new containerd server
+// New创建并初始化一个新的containerd server
 func New(ctx context.Context, config *Config) (*Server, error) {
 	switch {
 	case config.Root == "":
@@ -57,6 +58,7 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 	if err := apply(ctx, config); err != nil {
 		return nil, err
 	}
+	// 加载各种plugins
 	plugins, err := loadPlugins(config)
 	if err != nil {
 		return nil, err
@@ -73,6 +75,7 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 		}
 		initialized = plugin.NewPluginSet()
 	)
+	// 加载各种plugin
 	for _, p := range plugins {
 		id := p.URI()
 		log.G(ctx).WithField("type", p.Type).Infof("loading plugin %q...", id)
@@ -110,12 +113,16 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 			continue
 		}
 		// check for grpc services that should be registered with the server
+		// 检查即将注册到server中的grpc services
 		if service, ok := instance.(plugin.Service); ok {
 			services = append(services, service)
 		}
 	}
 	// register services after all plugins have been initialized
+	// 在所有plugin都初始化之后，注册services
+	// 让所有功能，通过grpc的形式对外提供服务
 	for _, service := range services {
+		// rpc为grpc server
 		if err := service.Register(rpc); err != nil {
 			return nil, err
 		}
@@ -124,6 +131,7 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 }
 
 // Server is the containerd main daemon
+// Server是containerd的main daemon
 type Server struct {
 	rpc    *grpc.Server
 	events *exchange.Exchange

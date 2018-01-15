@@ -46,6 +46,7 @@ import (
 func init() {
 	const prefix = "types.containerd.io"
 	// register TypeUrls for commonly marshaled external types
+	// specs.VersionMajor的值为1
 	major := strconv.Itoa(specs.VersionMajor)
 	typeurl.Register(&specs.Spec{}, prefix, "opencontainers/runtime-spec", major, "Spec")
 	typeurl.Register(&specs.Process{}, prefix, "opencontainers/runtime-spec", major, "Process")
@@ -75,6 +76,7 @@ func New(address string, opts ...ClientOpt) (*Client, error) {
 	if len(copts.dialOptions) > 0 {
 		gopts = copts.dialOptions
 	}
+	// 如果指定了default ns
 	if copts.defaultns != "" {
 		unary, stream := newNSInterceptors(copts.defaultns)
 		// namespace也会成为grpc选项之一
@@ -96,6 +98,7 @@ func New(address string, opts ...ClientOpt) (*Client, error) {
 func NewWithConn(conn *grpc.ClientConn, opts ...ClientOpt) (*Client, error) {
 	return &Client{
 		conn:    conn,
+		// runtime为"io.containerd.runtime.v1.linux"
 		runtime: fmt.Sprintf("%s.%s", plugin.RuntimePlugin, runtime.GOOS),
 	}, nil
 }
@@ -211,6 +214,7 @@ func defaultRemoteContext() *RemoteContext {
 }
 
 // Pull downloads the provided content into containerd's content store
+// Pull将下载provided content并存入containerd的content store
 func (c *Client) Pull(ctx context.Context, ref string, opts ...RemoteOpt) (Image, error) {
 	pullCtx := defaultRemoteContext()
 	for _, o := range opts {

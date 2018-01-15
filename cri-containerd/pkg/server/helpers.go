@@ -66,6 +66,7 @@ const (
 	// defaultShmSize is the default size of the sandbox shm.
 	defaultShmSize = int64(1024 * 1024 * 64)
 	// relativeRootfsPath is the rootfs path relative to bundle path.
+	// relativeRootfsPath是相对于bundle path的rootfs的路径
 	relativeRootfsPath = "rootfs"
 	// sandboxesDir contains all sandbox root. A sandbox root is the running
 	// directory of the sandbox, all files created for the sandbox will be
@@ -127,6 +128,7 @@ func makeSandboxName(s *runtime.PodSandboxMetadata) string {
 // makeContainerName generates container name from sandbox and container metadata.
 // The name generated is unique as long as the sandbox container combination is
 // unique.
+// 根据sandbox和container的元数据创建容器名，容器名将是唯一的，只要sandbox和container的组合是唯一的
 func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		c.Name,      // 0
@@ -176,7 +178,9 @@ func getSandboxDevShm(sandboxRootDir string) string {
 }
 
 // getNetworkNamespace returns the network namespace of a process.
+// getNetworkNamespace返回一个process的network namespace
 func getNetworkNamespace(pid uint32) string {
+	// netNSFormat为"/proc/%s/ns/net"
 	return fmt.Sprintf(netNSFormat, pid)
 }
 
@@ -212,6 +216,7 @@ func getRepoDigestAndTag(namedRef reference.Named, digest imagedigest.Digest, sc
 
 // localResolve resolves image reference locally and returns corresponding image metadata. It returns
 // nil without error if the reference doesn't exist.
+// localResolve本地解析image reference并且返回相应的镜像的元数据
 // 如果镜像不存在，则返回nil而不是error
 func (c *criContainerdService) localResolve(ctx context.Context, ref string) (*imagestore.Image, error) {
 	_, err := imagedigest.Parse(ref)

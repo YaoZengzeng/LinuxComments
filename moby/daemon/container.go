@@ -222,6 +222,7 @@ func (daemon *Daemon) setHostConfig(container *container.Container, hostConfig *
 		return err
 	}
 
+	// 如果network为""，则将其设置为"default"
 	runconfig.SetDefaultNetModeIfBlank(hostConfig)
 	container.HostConfig = hostConfig
 	return container.CheckpointTo(daemon.containersReplica)

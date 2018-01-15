@@ -37,5 +37,9 @@ func SetSubreaper(i int) error {
 	// nearest still living ancestor subreaper will receive a SIGCHLD
 	// signal and be able to wait(2) on the process to discover its
 	// termination status.
+	// 当i不为0时，本进程就会设置为"child subreaper"，并且本进程的所有子进程以及
+	// 由此衍生的所有进程都会被标记为有一个subreaper
+	// 事实上，subreaper对于由它衍生的进程其实扮演了init进程的角色
+	// 当孤儿进程结束的时候，离它最近的subreaper就会收到SIGCHLD信号，并且等待获取该进程的状态
 	return unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, uintptr(i), 0, 0, 0)
 }

@@ -431,6 +431,8 @@ func (c *Client) NamespaceService() namespaces.Store {
 
 // ContainerService returns the underlying container Store
 func (c *Client) ContainerService() containers.Store {
+	// NewContainersClient创建ContainersClient这一接口
+	// 该接口包含了Get，List，Create，Update和Delete这些方法
 	return NewRemoteContainerStore(containersapi.NewContainersClient(c.conn))
 }
 

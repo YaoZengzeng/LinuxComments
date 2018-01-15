@@ -1128,7 +1128,9 @@ func (g *Generator) ClearLinuxNamespaces() {
 
 // AddOrReplaceLinuxNamespace adds or replaces a namespace inside
 // g.spec.Linux.Namespaces.
+// AddOrReplaceLinuxNamespace添加或者替换g.spec.Linux.Namespaces中的namespace
 func (g *Generator) AddOrReplaceLinuxNamespace(ns string, path string) error {
+	// 将ns和path转换为rspec.LinuxNamespace结构
 	namespace, err := mapStrToNamespace(ns, path)
 	if err != nil {
 		return err

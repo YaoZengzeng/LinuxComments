@@ -86,6 +86,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sandbox container task: %v", err)
 	}
+	// 获取sandbox所在容器的pid
 	sandboxPid := s.Pid()
 
 	// Generate unique id and name for the container and reserve the name.
@@ -144,6 +145,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 	}()
 
 	// Create container volumes mounts.
+	// 创建容器的volume mounts，返回的是runtime.Mount
 	// TODO(random-liu): Add cri-containerd integration test for image volume.
 	volumeMounts := c.generateVolumeMounts(containerRootDir, config.GetMounts(), image.Config)
 
@@ -295,6 +297,7 @@ func (c *criContainerdService) CreateContainer(ctx context.Context, r *runtime.C
 func (c *criContainerdService) generateContainerSpec(id string, sandboxPid uint32, config *runtime.ContainerConfig,
 	sandboxConfig *runtime.PodSandboxConfig, imageConfig *imagespec.ImageConfig, extraMounts []*runtime.Mount) (*runtimespec.Spec, error) {
 	// Creates a spec Generator with the default spec.
+	// 创建一个有默认spec的spec generator
 	spec, err := defaultRuntimeSpec(id)
 	if err != nil {
 		return nil, err
@@ -322,6 +325,7 @@ func (c *criContainerdService) generateContainerSpec(id string, sandboxPid uint3
 
 	// Apply envs from image config first, so that envs from container config
 	// can override them.
+	// 首先应用image config，从而能让container config中的env覆盖它们
 	if err := addImageEnvs(&g, imageConfig.Env); err != nil {
 		return nil, err
 	}
@@ -379,6 +383,7 @@ func (c *criContainerdService) generateContainerSpec(id string, sandboxPid uint3
 	}
 
 	// Set namespaces, share namespace with sandbox container.
+	// 设置namespaces，和其他sandbox共享container
 	setOCINamespaces(&g, securityContext.GetNamespaceOptions(), sandboxPid)
 
 	supplementalGroups := securityContext.GetSupplementalGroups()
@@ -733,10 +738,12 @@ func setOCICapabilities(g *generate.Generator, capabilities *runtime.Capability)
 
 // setOCINamespaces sets namespaces.
 func setOCINamespaces(g *generate.Generator, namespaces *runtime.NamespaceOption, sandboxPid uint32) {
+	// 共享network, ipc以及uts namespace
 	g.AddOrReplaceLinuxNamespace(string(runtimespec.NetworkNamespace), getNetworkNamespace(sandboxPid)) // nolint: errcheck
 	g.AddOrReplaceLinuxNamespace(string(runtimespec.IPCNamespace), getIPCNamespace(sandboxPid))         // nolint: errcheck
 	g.AddOrReplaceLinuxNamespace(string(runtimespec.UTSNamespace), getUTSNamespace(sandboxPid))         // nolint: errcheck
 	// Do not share pid namespace for now.
+	// 暂时先不共享pid namespace
 	if namespaces.GetHostPid() {
 		g.RemoveLinuxNamespace(string(runtimespec.PIDNamespace)) // nolint: errcheck
 	}
@@ -754,7 +761,7 @@ func defaultRuntimeSpec(id string) (*runtimespec.Spec, error) {
 
 	// Remove `/run` mount
 	// TODO(random-liu): Mount tmpfs for /run and handle copy-up.
-	// 去除`/run`的mount
+	// 去除`/run`的mount，在/run挂载tmpfs并且处理copy-up
 	var mounts []runtimespec.Mount
 	for _, mount := range spec.Mounts {
 		if mount.Destination == "/run" {

@@ -63,6 +63,7 @@ func WithContainerLabels(labels map[string]string) NewContainerOpts {
 // WithSnapshotter sets the provided snapshotter for use by the container
 //
 // This option must appear before other snapshotter options to have an effect.
+// 本选项一定要在其他snapshotter选项之前出现才能生效
 func WithSnapshotter(name string) NewContainerOpts {
 	return func(ctx context.Context, client *Client, c *containers.Container) error {
 		c.Snapshotter = name
@@ -142,6 +143,8 @@ func setSnapshotterIfEmpty(c *containers.Container) {
 // WithContainerExtension appends extension data to the container object.
 // Use this to decorate the container object with additional data for the client
 // integration.
+// WithContainerExtension对container对象添加额外的数据，用额外的数据装饰container object
+// 用于和客户端的集成
 //
 // Make sure to register the type of `extension` in the typeurl package via
 // `typeurl.Register` or container creation may fail.

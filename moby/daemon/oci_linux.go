@@ -238,6 +238,7 @@ func getUser(c *container.Container, username string) (uint32, uint32, []uint32,
 	return uid, gid, additionalGids, nil
 }
 
+// setNamespace将namespace加入spec中，如果该类型的namespace已存在，则进行替换
 func setNamespace(s *specs.Spec, ns specs.LinuxNamespace) {
 	for i, n := range s.Linux.Namespaces {
 		if n.Type == ns.Type {
@@ -266,6 +267,7 @@ func setCapabilities(s *specs.Spec, c *container.Container) error {
 	return nil
 }
 
+// setNamespace对namespace进行配置
 func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error {
 	userNS := false
 	// user
@@ -291,6 +293,7 @@ func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error 
 			ns.Path = fmt.Sprintf("/proc/%d/ns/net", nc.State.GetPID())
 			if userNS {
 				// to share a net namespace, they must also share a user namespace
+				// 如果share了net namespace，它们就必须共享user namespace
 				nsUser := specs.LinuxNamespace{Type: "user"}
 				nsUser.Path = fmt.Sprintf("/proc/%d/ns/user", nc.State.GetPID())
 				setNamespace(s, nsUser)
@@ -314,6 +317,7 @@ func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error 
 		setNamespace(s, ns)
 		if userNS {
 			// to share an IPC namespace, they must also share a user namespace
+			// 如果共享IPC namespace，就一定要共享user namespace
 			nsUser := specs.LinuxNamespace{Type: "user"}
 			nsUser.Path = fmt.Sprintf("/proc/%d/ns/user", ic.State.GetPID())
 			setNamespace(s, nsUser)
@@ -324,6 +328,7 @@ func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error 
 		// A container was created by an older version of the daemon.
 		// The default behavior used to be what is now called "shareable".
 		fallthrough
+		// private，shareableh和none都表示默认行为
 	case ipcMode.IsPrivate(), ipcMode.IsShareable(), ipcMode.IsNone():
 		ns := specs.LinuxNamespace{Type: "ipc"}
 		setNamespace(s, ns)
@@ -342,18 +347,22 @@ func setNamespaces(daemon *Daemon, s *specs.Spec, c *container.Container) error 
 		setNamespace(s, ns)
 		if userNS {
 			// to share a PID namespace, they must also share a user namespace
+			// 如果共享了PID namespace，就必须共享user namespace
 			nsUser := specs.LinuxNamespace{Type: "user"}
 			nsUser.Path = fmt.Sprintf("/proc/%d/ns/user", pc.State.GetPID())
 			setNamespace(s, nsUser)
 		}
 	} else if c.HostConfig.PidMode.IsHost() {
+		// 如果是host，则将pid namespace从spec中移除
 		oci.RemoveNamespace(s, specs.LinuxNamespaceType("pid"))
 	} else {
+		// 否则默认设置
 		ns := specs.LinuxNamespace{Type: "pid"}
 		setNamespace(s, ns)
 	}
 	// uts
 	if c.HostConfig.UTSMode.IsHost() {
+		// 如果uts是host模式，则将其从spec中移除
 		oci.RemoveNamespace(s, specs.LinuxNamespaceType("uts"))
 		s.Hostname = ""
 	}

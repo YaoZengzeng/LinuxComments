@@ -101,6 +101,7 @@ func (s *service) Create(ctx context.Context, r *api.CreateTaskRequest) (*api.Cr
 		checkpointPath string
 		err            error
 	)
+	// 当Checkpoint不为空时
 	if r.Checkpoint != nil {
 		checkpointPath, err = ioutil.TempDir("", "ctrd-checkpoint")
 		if err != nil {
@@ -120,6 +121,7 @@ func (s *service) Create(ctx context.Context, r *api.CreateTaskRequest) (*api.Cr
 		}
 	}
 
+	// 获取容器的信息
 	container, err := s.getContainer(ctx, r.ContainerID)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)

@@ -104,13 +104,18 @@ type CheckpointTaskInfo struct {
 type CheckpointTaskOpts func(*CheckpointTaskInfo) error
 
 // TaskInfo sets options for task creation
+// TaskInfo用于设置创建task的选项
 type TaskInfo struct {
 	// Checkpoint is the Descriptor for an existing checkpoint that can be used
 	// to restore a task's runtime and memory state
+	// Checkpoint是一个已经存在的checkpoint的描述符，可以被用于恢复
+	// task的运行时和内存的状态
 	Checkpoint *types.Descriptor
 	// RootFS is a list of mounts to use as the task's root filesystem
+	// RootFS是一系列的mounts，作为task的根文件系统
 	RootFS []mount.Mount
 	// Options hold runtime specific settings for task creation
+	// Options保持task创建时的运行时相关的设置
 	Options interface{}
 }
 

@@ -109,6 +109,7 @@ type criContainerdService struct {
 	// image metadata.
 	imageStoreService images.Store
 	// netPlugin is used to setup and teardown network when run/stop pod sandbox.
+	// netPlugin用于在运行以及停止sandbox时，setup以及teardown network
 	netPlugin ocicni.CNIPlugin
 	// client is an instance of the containerd client
 	// *****client是containerd的client****
@@ -124,6 +125,7 @@ type criContainerdService struct {
 func NewCRIContainerdService(config options.Config) (CRIContainerdService, error) {
 	// 启动containerd client，用于与containerd进行交互
 	// WithDefaultNamespace设置containerd client默认的namespace，如果没有额外设置，则默认都使用该namespace
+	// config.ContainerdConfig.Endpoint默认为"/run/containerd/containerd.sock"
 	client, err := containerd.New(config.ContainerdConfig.Endpoint, containerd.WithDefaultNamespace(k8sContainerdNamespace))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize containerd client with endpoint %q: %v",
@@ -297,7 +299,9 @@ func (c *criContainerdService) getDeviceUUID(path string) (string, error) {
 }
 
 // imageFSPath returns containerd image filesystem path.
+// imageFSPath返回containerd image filesystem的路径
 // Note that if containerd changes directory layout, we also needs to change this.
+// 如果containerd改变了目录的布局，我们同样需要改变它
 func imageFSPath(rootDir, snapshotter string) string {
 	return filepath.Join(rootDir, fmt.Sprintf("%s.%s", plugin.SnapshotPlugin, snapshotter))
 }

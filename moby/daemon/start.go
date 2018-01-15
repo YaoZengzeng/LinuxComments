@@ -73,6 +73,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 			container.InitDNSHostConfig()
 		}
 	} else {
+		// 在windows环境下，start的时候提供hostconfig是不允许的
 		if hostConfig != nil {
 			return validationError{errors.New("Supplying a hostconfig on start is not supported. It should be supplied on create")}
 		}
@@ -101,6 +102,8 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 // container needs, such as storage and networking, as well as links
 // between containers. The container is left waiting for a signal to
 // begin running.
+// containerStart将容器所需的所有配置都准备好，例如存储和网络，以及容器间的连接，等待容器运行
+// 容器等待信号，准备开始运行
 func (daemon *Daemon) containerStart(container *container.Container, checkpoint string, checkpointDir string, resetRestartManager bool) (err error) {
 	start := time.Now()
 	container.Lock()

@@ -20,6 +20,7 @@ type Config struct {
 	// Debug and profiling settings
 	Debug Debug `toml:"debug"`
 	// Metrics and monitoring settings
+	// 获取监听的配置
 	Metrics MetricsConfig `toml:"metrics"`
 	// Plugins provides plugin specific configuration for the initialization of a plugin
 	Plugins map[string]toml.Primitive `toml:"plugins"`
@@ -28,6 +29,7 @@ type Config struct {
 	// OOMScore adjust the containerd's oom score
 	OOMScore int `toml:"oom_score"`
 	// Cgroup specifies cgroup information for the containerd daemon process
+	// Cgroup指定了containerd daemon进程的cgroup信息
 	Cgroup CgroupConfig `toml:"cgroup"`
 
 	md toml.MetaData

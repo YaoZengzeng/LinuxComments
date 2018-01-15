@@ -270,6 +270,7 @@ func checkKernel() error {
 
 // adaptContainerSettings is called during container creation to modify any
 // settings necessary in the HostConfig structure.
+// adaptContainerSettings在容器创建阶段被调用，用于根据HostConfig修改配置
 func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConfig, adjustCPUShares bool) error {
 	if adjustCPUShares && hostConfig.CPUShares > 0 {
 		// Handle unsupported CPUShares
@@ -292,6 +293,7 @@ func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConf
 		}
 	}
 	// Set default IPC mode, if unset for container
+	// 如果容器ipc mode为空，设置为
 	if hostConfig.IpcMode.IsEmpty() {
 		m := config.DefaultIpcMode
 		if daemon.configStore != nil {
@@ -319,6 +321,8 @@ func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConf
 // adaptSharedNamespaceContainer replaces container name with its ID in hostConfig.
 // To be more precisely, it modifies `container:name` to `container:ID` of PidMode, IpcMode
 // and NetworkMode.
+// adaptSharedNamespaceContainer将hostConfig中的容器名替换为容器ID
+// 准确地说，它将PidMode，IpcMode和NetworkMode的“container:name”替换为"container:ID"
 //
 // When a container shares its namespace with another container, use ID can keep the namespace
 // sharing connection between the two containers even the another container is renamed.

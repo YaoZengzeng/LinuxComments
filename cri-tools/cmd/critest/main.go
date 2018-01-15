@@ -44,6 +44,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "ginkgo-flags, g",
+			// ginkgo-flags是传递给Ginkgo test runner，以空格分割的参数
 			Usage: "Space-separated list of arguments to pass to Ginkgo test runner.",
 		},
 		cli.StringFlag{

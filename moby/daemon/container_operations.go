@@ -887,11 +887,14 @@ func (daemon *Daemon) initializeNetworking(container *container.Container) error
 
 	if container.HostConfig.NetworkMode.IsContainer() {
 		// we need to get the hosts files from the container to join
+		// 如果网络模式是container模式，则我们首先要找到要加入的文件的hosts files
+		// 根据容器的id找到对应的namespace
 		nc, err := daemon.getNetworkedContainer(container.ID, container.HostConfig.NetworkMode.ConnectedContainer())
 		if err != nil {
 			return err
 		}
 
+		// 找到Hostname，Hosts和ResolvConf的目录
 		err = daemon.initializeNetworkingPaths(container, nc)
 		if err != nil {
 			return err
@@ -903,6 +906,7 @@ func (daemon *Daemon) initializeNetworking(container *container.Container) error
 	}
 
 	if container.HostConfig.NetworkMode.IsHost() {
+		// host模式，则将hostname指定为宿主机的hostname
 		if container.Config.Hostname == "" {
 			container.Config.Hostname, err = os.Hostname()
 			if err != nil {
@@ -924,12 +928,15 @@ func (daemon *Daemon) getNetworkedContainer(containerID, connectedContainerID st
 		return nil, err
 	}
 	if containerID == nc.ID {
+		// 不能加入自己的network
 		return nil, fmt.Errorf("cannot join own network")
 	}
 	if !nc.IsRunning() {
+		// 加入的network必须处于运行当中
 		err := fmt.Errorf("cannot join network of a non running container: %s", connectedContainerID)
 		return nil, stateConflictError{err}
 	}
+	// 如果是重启的容器也报错
 	if nc.IsRestarting() {
 		return nil, errContainerIsRestarting(connectedContainerID)
 	}

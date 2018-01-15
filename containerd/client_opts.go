@@ -12,6 +12,7 @@ type clientOpts struct {
 }
 
 // ClientOpt allows callers to set options on the containerd client
+// ClientOpt允许调用者设置containerd client的options
 type ClientOpt func(c *clientOpts) error
 
 // WithDefaultNamespace sets the default namespace on the client

@@ -122,6 +122,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 		return nil, validationError{err}
 	}
 
+	// 创建base container，只包含和平台无关的配置
 	if container, err = daemon.newContainer(params.Name, os, params.Config, params.HostConfig, imgID, managed); err != nil {
 		return nil, err
 	}
@@ -169,6 +170,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 		return nil, err
 	}
 
+	// 配置host config
 	if err := daemon.setHostConfig(container, params.HostConfig); err != nil {
 		return nil, err
 	}

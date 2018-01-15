@@ -34,6 +34,7 @@ import (
 // StreamOptions holds information pertaining to the current streaming session: supported stream
 // protocols, input/output streams, if the client is requesting a TTY, and a terminal size queue to
 // support terminal resizing.
+// StreamOptions存储了和当前streaming session有关的信息
 type StreamOptions struct {
 	Stdin             io.Reader
 	Stdout            io.Writer
@@ -43,11 +44,14 @@ type StreamOptions struct {
 }
 
 // Executor is an interface for transporting shell-style streams.
+// Executor是用于传输shell风格的流
 type Executor interface {
 	// Stream initiates the transport of the standard shell streams. It will transport any
 	// non-nil stream to a remote system, and return an error if a problem occurs. If tty
 	// is set, the stderr stream is not used (raw TTY manages stdout and stderr over the
 	// stdout stream).
+	// Stream初始化标准shell模式的流传输，它会将non-nil stream传往远程系统，并且在遇到问题时返回error
+	// 如果设置了tty，就不会使用stderr stream（raw TTY会通过stdout stream管理stdout和stderr）
 	Stream(options StreamOptions) error
 }
 
@@ -71,6 +75,7 @@ type streamExecutor struct {
 
 // NewSPDYExecutor connects to the provided server and upgrades the connection to
 // multiplexed bidirectional streams.
+// NewSPDYExecutor和提供的server相连并且将连接升级为多路复用的双向流
 func NewSPDYExecutor(config *restclient.Config, method string, url *url.URL) (Executor, error) {
 	return NewSPDYExecutorForProtocols(
 		config, method, url,
@@ -101,6 +106,7 @@ func NewSPDYExecutorForProtocols(config *restclient.Config, method string, url *
 
 // Stream opens a protocol streamer to the server and streams until a client closes
 // the connection or the server disconnects.
+// Stream 打开一个通往server的protocol streamer，保持stream直到client或者server关闭连接
 func (e *streamExecutor) Stream(options StreamOptions) error {
 	req, err := http.NewRequest(e.method, e.url.String(), nil)
 	if err != nil {
