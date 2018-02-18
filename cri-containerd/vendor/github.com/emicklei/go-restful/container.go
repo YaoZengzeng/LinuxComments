@@ -19,6 +19,8 @@ import (
 
 // Container holds a collection of WebServices and a http.ServeMux to dispatch http requests.
 // The requests are further dispatched to routes of WebServices using a RouteSelector
+// Container中包含WebServices以及一个用于分发请求的http.ServeMux，之后又利用RouteSelector
+// 将请求分发到WebServices的路由中
 type Container struct {
 	webServicesLock        sync.RWMutex
 	webServices            []*WebService
@@ -33,6 +35,7 @@ type Container struct {
 }
 
 // NewContainer creates a new Container using a new ServeMux and default router (CurlyRouter)
+// NewContainer用一个新的ServeMux以及默认的router创建一个新的Container
 func NewContainer() *Container {
 	return &Container{
 		webServices:            []*WebService{},
@@ -85,6 +88,7 @@ func (c *Container) EnableContentEncoding(enabled bool) {
 }
 
 // Add a WebService to the Container. It will detect duplicate root paths and exit in that case.
+// 增加一个WebService到Container中，它会检测重复的root path并且在这种情况下退出
 func (c *Container) Add(service *WebService) *Container {
 	c.webServicesLock.Lock()
 	defer c.webServicesLock.Unlock()

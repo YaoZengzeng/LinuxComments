@@ -14,6 +14,7 @@ import (
 )
 
 // WithProfile sets the provided apparmor profile to the spec
+// WithProfile将提供的apparmor profile指定到spec中
 func WithProfile(profile string) containerd.SpecOpts {
 	return func(_ context.Context, _ *containerd.Client, _ *containers.Container, s *specs.Spec) error {
 		s.Process.ApparmorProfile = profile

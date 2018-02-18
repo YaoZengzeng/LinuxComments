@@ -97,6 +97,7 @@ var _ = framework.KubeDescribe("Networking", func() {
 			startContainer(rc, containerID)
 
 			By("check the port mapping with only container port")
+			// false为在本地访问container port
 			checkNginxMainPage(rc, podID, false)
 		})
 
@@ -118,6 +119,7 @@ var _ = framework.KubeDescribe("Networking", func() {
 			startContainer(rc, containerID)
 
 			By("check the port mapping with host port and container port")
+			// true则直接访问hostport
 			checkNginxMainPage(rc, "", true)
 		})
 	})
@@ -189,6 +191,7 @@ func checkNginxMainPage(c internalapi.RuntimeService, podID string, localHost bo
 
 	url := "http://"
 	if localHost {
+		// 访问"127.0.0.1:8000"
 		url += "127.0.0.1:" + strconv.Itoa(int(nginxHostPort))
 	} else {
 		status := getPodSandboxStatus(c, podID)

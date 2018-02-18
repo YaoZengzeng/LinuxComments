@@ -49,6 +49,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 	if runtime.GOOS != "windows" {
 		// This is kept for backward compatibility - hostconfig should be passed when
 		// creating a container, not during start.
+		// 这里主要用于向后兼容，hostconfig应该在创建容器的时候传输，而不是start
 		if hostConfig != nil {
 			logrus.Warn("DEPRECATED: Setting host configuration options when the container starts is deprecated and has been removed in Docker 1.12")
 			oldNetworkMode := container.HostConfig.NetworkMode
@@ -128,6 +129,7 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 		if err != nil {
 			container.SetError(err)
 			// if no one else has set it, make sure we don't leave it at zero
+			// 如果没有人对exitcode进行设置，我们必须确保它不为0
 			if container.ExitCode() == 0 {
 				container.SetExitCode(128)
 			}

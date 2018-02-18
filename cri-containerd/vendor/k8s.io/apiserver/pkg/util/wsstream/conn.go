@@ -86,10 +86,12 @@ var (
 
 // IsWebSocketRequest returns true if the incoming request contains connection upgrade headers
 // for WebSockets.
+// IsWebSocketRequest返回true，如果发送来的请求包含upgrade headers for WebSocket
 func IsWebSocketRequest(req *http.Request) bool {
 	if !strings.EqualFold(req.Header.Get("Upgrade"), "websocket") {
 		return false
 	}
+	// connectionUpgradeRegex匹配任何包含upgrade的Connection header
 	return connectionUpgradeRegex.MatchString(strings.ToLower(req.Header.Get("Connection")))
 }
 

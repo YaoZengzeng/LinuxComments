@@ -311,6 +311,7 @@ func (m *VersionResponse) GetRuntimeApiVersion() string {
 }
 
 // DNSConfig specifies the DNS servers and search domains of a sandbox.
+// DNSConfig指定了sandbox的DNS server以及search domain
 type DNSConfig struct {
 	// List of DNS servers of the cluster.
 	Servers []string `protobuf:"bytes,1,rep,name=servers" json:"servers,omitempty"`
@@ -510,16 +511,20 @@ func (m *Int64Value) GetValue() int64 {
 type LinuxSandboxSecurityContext struct {
 	// Configurations for the sandbox's namespaces.
 	// This will be used only if the PodSandbox uses namespace for isolation.
-	// namespace的配置
+	// sandbox的namespace配置，这只有在PodSandbox使用namespace进行隔离时使用
 	NamespaceOptions *NamespaceOption `protobuf:"bytes,1,opt,name=namespace_options,json=namespaceOptions" json:"namespace_options,omitempty"`
 	// Optional SELinux context to be applied.
+	// 可选的SELinux context
 	SelinuxOptions *SELinuxOption `protobuf:"bytes,2,opt,name=selinux_options,json=selinuxOptions" json:"selinux_options,omitempty"`
 	// UID to run sandbox processes as, when applicable.
+	// 运行sandbox processes的UID
 	RunAsUser *Int64Value `protobuf:"bytes,3,opt,name=run_as_user,json=runAsUser" json:"run_as_user,omitempty"`
 	// If set, the root filesystem of the sandbox is read-only.
+	// 如果ReadonlyRootfs设置为true，则sandbox的根文件系统设置为read-only
 	ReadonlyRootfs bool `protobuf:"varint,4,opt,name=readonly_rootfs,json=readonlyRootfs,proto3" json:"readonly_rootfs,omitempty"`
 	// List of groups applied to the first process run in the sandbox, in
 	// addition to the sandbox's primary GID.
+	// 在sandbox的primary GID上，添加到sandbox中第一个运行的进程的一系列groups
 	SupplementalGroups []int64 `protobuf:"varint,5,rep,packed,name=supplemental_groups,json=supplementalGroups" json:"supplemental_groups,omitempty"`
 	// Indicates whether the sandbox will be asked to run a privileged
 	// container. If a privileged container is to be executed within it, this
@@ -530,6 +535,8 @@ type LinuxSandboxSecurityContext struct {
 	// 如果没有priviledged containers要运行，则允许sandbox添加额外的security precautions
 	Privileged bool `protobuf:"varint,6,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	// Seccomp profile for the sandbox, candidate values are:
+	// sandbox的Seccomp配置，可能的选项为：docker/default, unconfined, localhost/<full-path-profile>
+	// 默认为""，和unconfined意义相同
 	// * docker/default: the default profile for the docker container runtime
 	// * unconfined: unconfined profile, ie, no seccomp sandboxing
 	// * localhost/<full-path-to-profile>: the profile installed on the node.
@@ -598,6 +605,8 @@ type LinuxPodSandboxConfig struct {
 	// Parent cgroup of the PodSandbox.
 	// The cgroupfs style syntax will be used, but the container runtime can
 	// convert it to systemd semantics if needed.
+	// PodSandbox的Parent cgroup
+	// 会使用cgroupfs style syntax，但是容器运行时如果需要的话，可以将其转换成systemd semantics
 	CgroupParent string `protobuf:"bytes,1,opt,name=cgroup_parent,json=cgroupParent,proto3" json:"cgroup_parent,omitempty"`
 	// LinuxSandboxSecurityContext holds sandbox security attributes.
 	// LinuxSandboxSecurityContext包含了sandbox的安全特性
@@ -717,8 +726,10 @@ type PodSandboxConfig struct {
 	// for logging as the discussion carries on.
 	LogDirectory string `protobuf:"bytes,3,opt,name=log_directory,json=logDirectory,proto3" json:"log_directory,omitempty"`
 	// DNS config for the sandbox.
+	// sandbox的DNS配置
 	DnsConfig *DNSConfig `protobuf:"bytes,4,opt,name=dns_config,json=dnsConfig" json:"dns_config,omitempty"`
 	// Port mappings for the sandbox.
+	// sandbox的port mapping
 	PortMappings []*PortMapping `protobuf:"bytes,5,rep,name=port_mappings,json=portMappings" json:"port_mappings,omitempty"`
 	// Key-value pairs that may be used to scope and select individual resources.
 	// Labels是用于划分和选择独立资源的键值对
@@ -1273,6 +1284,7 @@ func (m *KeyValue) GetValue() string {
 
 // LinuxContainerResources specifies Linux specific configuration for
 // resources.
+// LinuxContainerResources包含了Linux特定的资源配置
 // TODO: Consider using Resources from opencontainers/runtime-spec/specs-go
 // directly.
 type LinuxContainerResources struct {
@@ -1346,6 +1358,7 @@ func (m *LinuxContainerResources) GetCpusetMems() string {
 }
 
 // SELinuxOption are the labels to be applied to the container.
+// SELinuxOption是要应用到容器的labels
 type SELinuxOption struct {
 	User  string `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
 	Role  string `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
@@ -1386,6 +1399,7 @@ func (m *SELinuxOption) GetLevel() string {
 }
 
 // Capability contains the container capabilities to add or drop
+// Capability中包含了将要增加或删除的container capabilities
 type Capability struct {
 	// List of capabilities to add.
 	AddCapabilities []string `protobuf:"bytes,1,rep,name=add_capabilities,json=addCapabilities" json:"add_capabilities,omitempty"`
@@ -1412,16 +1426,20 @@ func (m *Capability) GetDropCapabilities() []string {
 }
 
 // LinuxContainerSecurityContext holds linux security configuration that will be applied to a container.
+// LinuxContainerSecurityContext包含了将应用到容器中的linux安全配置
 type LinuxContainerSecurityContext struct {
 	// Capabilities to add or drop.
 	Capabilities *Capability `protobuf:"bytes,1,opt,name=capabilities" json:"capabilities,omitempty"`
 	// If set, run container in privileged mode.
+	// 如果Privileged设置为true，则容器将处于privileged mode
 	// Privileged mode is incompatible with the following options. If
 	// privileged is set, the following features MAY have no effect:
 	// 1. capabilities
 	// 2. selinux_options
 	// 4. seccomp
 	// 5. apparmor
+	// 如果容器设置为priviledged mode则和以下选项不兼容，如果priviledged设置为true
+	// 则：capabilities，selinux_options，seccomp以及apparmor都将失效
 	//
 	// Privileged mode implies the following specific options are applied:
 	// 1. All capabilities are added.
@@ -1432,6 +1450,15 @@ type LinuxContainerSecurityContext struct {
 	// 6. The device cgroup does not restrict access to any devices.
 	// 7. All devices from the host's /dev are available within the container.
 	// 8. SELinux restrictions are not applied (e.g. label=disabled).
+	// 在priviledged模式下，以下特定的选项都将被应用：
+	// 1、所有的capability都将被添加
+	// 2、sensitive path，例如sysfs中的kernel module path都不会被隐藏
+	// 3、所有的sysfs以及procfs都将以读写模式被挂载
+	// 4、apparmor confinement不会被应用
+	// 5、Seccomp restrictions不会被应用
+	// 6、device cgroup不会限制对任何设备的访问
+	// 7、宿主机/dev中的所有设备都是在容器中可访问的
+	// 8、SELinux的限制都不会生效
 	Privileged bool `protobuf:"varint,2,opt,name=privileged,proto3" json:"privileged,omitempty"`
 	// Configurations for the container's namespaces.
 	// Only used if the container uses namespace for isolation.
@@ -1456,6 +1483,10 @@ type LinuxContainerSecurityContext struct {
 	// * localhost/<profile_name>: profile loaded on the node
 	//    (localhost) by name. The possible profile names are detailed at
 	//    http://wiki.apparmor.net/index.php/AppArmor_Core_Policy_Reference
+	// AppArmor profile for the container有如下候选值：
+	// 		* runtime/default: 等同于没有指定profile
+	//		* unconfined: 没有加载profile
+	//		* localhost/<profile_name>: 加载在node中的profile
 	ApparmorProfile string `protobuf:"bytes,9,opt,name=apparmor_profile,json=apparmorProfile,proto3" json:"apparmor_profile,omitempty"`
 	// Seccomp profile for the container, candidate values are:
 	// * docker/default: the default profile for the docker container runtime
@@ -1466,6 +1497,7 @@ type LinuxContainerSecurityContext struct {
 	SeccompProfilePath string `protobuf:"bytes,10,opt,name=seccomp_profile_path,json=seccompProfilePath,proto3" json:"seccomp_profile_path,omitempty"`
 	// no_new_privs defines if the flag for no_new_privs should be set on the
 	// container.
+	// no_new_privs用于定义容器的no_new_privs是否应该被设置
 	NoNewPrivs bool `protobuf:"varint,11,opt,name=no_new_privs,json=noNewPrivs,proto3" json:"no_new_privs,omitempty"`
 }
 
@@ -1554,6 +1586,7 @@ func (m *LinuxContainerSecurityContext) GetNoNewPrivs() bool {
 
 // LinuxContainerConfig contains platform-specific configuration for
 // Linux-based containers.
+// LinuxContainerConfig包含了对于基于Linux的容器的平台相关的配置
 type LinuxContainerConfig struct {
 	// Resources specification for the container.
 	// 容器的资源设置
@@ -1717,7 +1750,7 @@ type ContainerConfig struct {
 	// for logging as the discussion carries on.
 	LogPath string `protobuf:"bytes,11,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
 	// Variables for interactive containers, these have very specialized
-	// 用于交互式容器的变量
+	// 用于交互式容器的变量，它们有专门的用途，例如调试
 	// use-cases (e.g. debugging).
 	// TODO: Determine if we need to continue supporting these fields that are
 	// part of Kubernetes's Container Spec.
@@ -2475,9 +2508,11 @@ type ExecRequest struct {
 	// Command to execute.
 	Cmd []string `protobuf:"bytes,2,rep,name=cmd" json:"cmd,omitempty"`
 	// Whether to exec the command in a TTY.
+	// 是否在一个TTY中执行命令
 	Tty bool `protobuf:"varint,3,opt,name=tty,proto3" json:"tty,omitempty"`
 	// Whether to stream stdin.
 	// One of `stdin`, `stdout`, and `stderr` MUST be true.
+	// stdin, stdout和stderr其中一个必须为true
 	Stdin bool `protobuf:"varint,4,opt,name=stdin,proto3" json:"stdin,omitempty"`
 	// Whether to stream stdout.
 	// One of `stdin`, `stdout`, and `stderr` MUST be true.
@@ -2487,6 +2522,8 @@ type ExecRequest struct {
 	// If `tty` is true, `stderr` MUST be false. Multiplexing is not supported
 	// in this case. The output of stdout and stderr will be combined to a
 	// single stream.
+	// 如果tty为true，则stderr必须为false，这里并不支持Multiplexing
+	// stdout和stderr会被合并为一个stream
 	Stderr bool `protobuf:"varint,6,opt,name=stderr,proto3" json:"stderr,omitempty"`
 }
 

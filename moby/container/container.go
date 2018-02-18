@@ -82,6 +82,7 @@ type Container struct {
 	Managed         bool
 	Path            string
 	Args            []string
+	// 类比于pouch中ContainerMeta.Config
 	Config          *containertypes.Config
 	ImageID         image.ID `json:"Image"`
 	NetworkSettings *network.Settings
@@ -90,6 +91,7 @@ type Container struct {
 	Driver          string
 	OS              string
 	// MountLabel contains the options for the 'mount' command
+	// MountLabel中包含了'mount'命令中的选项
 	MountLabel             string
 	ProcessLabel           string
 	RestartCount           int
@@ -108,6 +110,7 @@ type Container struct {
 	attachContext  *attachContext
 
 	// Fields here are specific to Unix platforms
+	// unix平台特定的选项
 	AppArmorProfile string
 	HostnamePath    string
 	HostsPath       string
@@ -117,6 +120,7 @@ type Container struct {
 	NoNewPrivileges bool
 
 	// Fields here are specific to Windows
+	// windows特定的配置
 	NetworkSharedContainerID string   `json:"-"`
 	SharedEndpointList       []string `json:"-"`
 }
@@ -306,6 +310,7 @@ func (container *Container) SetupWorkingDirectory(rootIDs idtools.IDPair) error 
 // `/` inside the container. This method is essentially used to access a
 // particular path inside the container as though you were a process in that
 // container.
+// BaseFS是容器中的"/"目录在宿主机中的路径，该方法用于访问容器中的特定目录
 //
 // NOTE: The returned path is *only* safely scoped inside the container's BaseFS
 //       if no component of the returned path changes (such as a component
@@ -416,6 +421,7 @@ func (container *Container) StartLogger() (logger.Logger, error) {
 func (container *Container) GetProcessLabel() string {
 	// even if we have a process label return "" if we are running
 	// in privileged mode
+	// 如果处于privileged mode，则直接返回""，即使process label不为""
 	if container.HostConfig.Privileged {
 		return ""
 	}

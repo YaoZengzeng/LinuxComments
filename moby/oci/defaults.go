@@ -62,6 +62,7 @@ func DefaultLinuxSpec() specs.Spec {
 				Bounding:    defaultCapabilities(),
 				Permitted:   defaultCapabilities(),
 				Inheritable: defaultCapabilities(),
+				// 默认存在14个capability
 				Effective:   defaultCapabilities(),
 			},
 		},

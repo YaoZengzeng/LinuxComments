@@ -9,6 +9,7 @@ import (
 )
 
 // SpecOpts sets spec specific information to a newly generated OCI spec
+// SpecOpts在新建的OCI spec中设置特定的information
 type SpecOpts func(context.Context, *Client, *containers.Container, *specs.Spec) error
 
 // WithProcessArgs replaces the args on the generated spec

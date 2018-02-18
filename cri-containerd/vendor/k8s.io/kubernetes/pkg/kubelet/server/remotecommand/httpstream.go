@@ -39,6 +39,7 @@ import (
 
 // Options contains details about which streams are required for
 // remote command execution.
+// Options包含了remote command execution需要包含哪些命令
 type Options struct {
 	Stdin  bool
 	Stdout bool
@@ -72,6 +73,8 @@ func NewOptions(req *http.Request) (*Options, error) {
 
 // context contains the connection and streams used when
 // forwarding an attach or execute session into a container.
+// context中包含了forward，attach或者exec到一个容器中的session使用的
+// connection和streams
 type context struct {
 	conn         io.Closer
 	stdinStream  io.ReadCloser
@@ -88,12 +91,15 @@ type context struct {
 // replyFrame is enqueued before the connection's goaway frame is sent (e.g. if a stream was
 // received and right after, the connection gets closed).
 type streamAndReply struct {
+	// Stream为双向沟通的接口
 	httpstream.Stream
 	replySent <-chan struct{}
 }
 
 // waitStreamReply waits until either replySent or stop is closed. If replySent is closed, it sends
 // an empty struct to the notify channel.
+// waitStreamReply等待replySent或stop被关闭
+// 如果是replySent被关闭，它会给nofity发送一个empty channel，告知它，有一个stream关闭了
 func waitStreamReply(replySent <-chan struct{}, notify chan<- struct{}, stop <-chan struct{}) {
 	select {
 	case <-replySent:
@@ -105,9 +111,13 @@ func waitStreamReply(replySent <-chan struct{}, notify chan<- struct{}, stop <-c
 func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supportedStreamProtocols []string, idleTimeout, streamCreationTimeout time.Duration) (*context, bool) {
 	var ctx *context
 	var ok bool
+	// 判断req是不是web socket request
+	// 该函数可自己实现，无需引入wsstream这个包
 	if wsstream.IsWebSocketRequest(req) {
+		// 创建web socket stream
 		ctx, ok = createWebSocketStreams(req, w, opts, idleTimeout)
 	} else {
+		// 创建http stream
 		ctx, ok = createHttpStreamStreams(req, w, opts, supportedStreamProtocols, idleTimeout, streamCreationTimeout)
 	}
 	if !ok {
@@ -116,6 +126,7 @@ func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supp
 
 	if ctx.resizeStream != nil {
 		ctx.resizeChan = make(chan remotecommand.TerminalSize)
+		// 处理resize event
 		go handleResizeEvents(ctx.resizeStream, ctx.resizeChan)
 	}
 
@@ -123,6 +134,7 @@ func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supp
 }
 
 func createHttpStreamStreams(req *http.Request, w http.ResponseWriter, opts *Options, supportedStreamProtocols []string, idleTimeout, streamCreationTimeout time.Duration) (*context, bool) {
+	// 确定client和server都共同支持的protocol
 	protocol, err := httpstream.Handshake(req, w, supportedStreamProtocols)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -134,14 +146,18 @@ func createHttpStreamStreams(req *http.Request, w http.ResponseWriter, opts *Opt
 
 	upgrader := spdy.NewResponseUpgrader()
 	conn := upgrader.UpgradeResponse(w, req, func(stream httpstream.Stream, replySent <-chan struct{}) error {
+		// 每次创建了一个新的stream，就会给streamCh发送一个streamAndReply
 		streamCh <- streamAndReply{Stream: stream, replySent: replySent}
 		return nil
 	})
 	// from this point on, we can no longer call methods on response
+	// 从此以后，我们就不能再调用response里的方法了
 	if conn == nil {
 		// The upgrader is responsible for notifying the client of any errors that
 		// occurred during upgrading. All we can do is return here at this point
 		// if we weren't successful in upgrading.
+		// 在upgrading期间，如果发生了任何错误，会由upgrader进行通知
+		// 在这个节点，如果我们没有成功的话，只能返回错误
 		return nil, false
 	}
 
@@ -163,6 +179,7 @@ func createHttpStreamStreams(req *http.Request, w http.ResponseWriter, opts *Opt
 	}
 
 	// count the streams client asked for, starting with 1
+	// expectedStreams是client请求的stream的数量
 	expectedStreams := 1
 	if opts.Stdin {
 		expectedStreams++
@@ -173,7 +190,9 @@ func createHttpStreamStreams(req *http.Request, w http.ResponseWriter, opts *Opt
 	if opts.Stderr {
 		expectedStreams++
 	}
+	// 从V3开始支持terminal resizing
 	if opts.TTY && handler.supportsTerminalResizing() {
+		// 支持TTY并且支持terminal的resizing
 		expectedStreams++
 	}
 
@@ -195,6 +214,8 @@ func createHttpStreamStreams(req *http.Request, w http.ResponseWriter, opts *Opt
 type protocolHandler interface {
 	// waitForStreams waits for the expected streams or a timeout, returning a
 	// remoteCommandContext if all the streams were received, or an error if not.
+	// waitForStreams等待expected streams或一个timeout
+	// 返回remoteCommandContext如果所有stream都已被接收到，或者返回error
 	waitForStreams(streams <-chan streamAndReply, expectedStreams int, expired <-chan time.Time) (*context, error)
 	// supportsTerminalResizing returns true if the protocol handler supports terminal resizing
 	supportsTerminalResizing() bool
@@ -215,6 +236,7 @@ WaitForStreams:
 	for {
 		select {
 		case stream := <-streams:
+			// 获取stream的类型
 			streamType := stream.Headers().Get(api.StreamType)
 			switch streamType {
 			case api.StreamTypeError:
@@ -238,6 +260,7 @@ WaitForStreams:
 		case <-replyChan:
 			receivedStreams++
 			if receivedStreams == expectedStreams {
+				// 如果等待的stream都中断了，则退出循环
 				break WaitForStreams
 			}
 		case <-expired:

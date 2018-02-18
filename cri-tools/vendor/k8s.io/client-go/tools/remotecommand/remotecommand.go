@@ -89,6 +89,7 @@ func NewSPDYExecutor(config *restclient.Config, method string, url *url.URL) (Ex
 // NewSPDYExecutorForProtocols connects to the provided server and upgrades the connection to
 // multiplexed bidirectional streams using only the provided protocols. Exposed for testing, most
 // callers should use NewSPDYExecutor.
+// NewSPDYExecutorForProtocols连接指定的server，并且使用给定的协议将multiplexed bidirectional stream更新连接
 func NewSPDYExecutorForProtocols(config *restclient.Config, method string, url *url.URL, protocols ...string) (Executor, error) {
 	wrapper, upgradeRoundTripper, err := spdy.RoundTripperFor(config)
 	if err != nil {

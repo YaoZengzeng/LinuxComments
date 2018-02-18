@@ -35,6 +35,7 @@ import (
 
 const (
 	apparmorProfileNamePrefix = "localhost/"
+	// cri-validate-apparmor-test-deny-write
 	testProfiles              = `
 #include <tunables/global>
 profile cri-validate-apparmor-test-deny-write flags=(attach_disconnected) {
@@ -81,8 +82,11 @@ var _ = framework.KubeDescribe("AppArmor", func() {
 			})
 
 			It("should fail with with an unloaded profile", func() {
+				// apparmorProfileNamePrefix为"localhost/"
 				profile := apparmorProfileNamePrefix + "non-existant-profile"
+				// 容器不应该能够启动
 				containerID := createContainerWithAppArmor(rc, ic, sandboxID, sandboxConfig, profile, false)
+				// permissive 
 				checkContainerApparmor(rc, containerID, false)
 			})
 
@@ -121,6 +125,7 @@ func createContainerWithAppArmor(rc internalapi.RuntimeService, ic internalapi.I
 	if shouldStart {
 		Expect(err).NotTo(HaveOccurred())
 	} else {
+		// 容器不该启动的话，返回的err不为nil
 		Expect(err).To(HaveOccurred())
 	}
 
@@ -134,12 +139,15 @@ func createContainerWithAppArmor(rc internalapi.RuntimeService, ic internalapi.I
 
 func checkContainerApparmor(rc internalapi.RuntimeService, containerID string, shoudRun bool) {
 	By("get container status")
+	// rc对应的为remote这个package
 	status, err := rc.ContainerStatus(containerID)
 	Expect(err).NotTo(HaveOccurred())
 
 	if shoudRun {
+		// 如果应该运行成功，则exitcode返回0
 		Expect(status.GetExitCode()).To(Equal(int32(0)))
 	} else {
+		// 否则exitcode返回非0
 		Expect(status.GetExitCode()).NotTo(Equal(int32(0)))
 	}
 }
@@ -153,16 +161,19 @@ func loadTestProfiles() error {
 	defer f.Close()
 
 	// write test profiles to a temp file.
+	// 将test profiles写入temp file
 	if _, err = f.WriteString(testProfiles); err != nil {
 		return fmt.Errorf("failed to write profiles to file: %v", err)
 	}
 
 	// load apparmor profiles into kernel.
+	// 加载apparmor profile至内核
 	cmd := exec.Command("sudo", "apparmor_parser", "-r", "-W", f.Name())
 	stderr := &bytes.Buffer{}
 	cmd.Stderr = stderr
 	out, err := cmd.Output()
 	// apparmor_parser does not always return an error code, so consider any stderr output an error.
+	// apparmor_parser并不总是返回error code，因此考虑将stderr output作为error
 	if err != nil || stderr.Len() > 0 {
 		if stderr.Len() > 0 {
 			glog.Warning(stderr.String())

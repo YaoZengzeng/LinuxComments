@@ -20,12 +20,14 @@ type APIFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, v
 
 // HijackConnection interrupts the http response writer to get the
 // underlying connection and operate with it.
+// HijackConnection通过http response writer获取底层的connection并且对它进行操作
 func HijackConnection(w http.ResponseWriter) (io.ReadCloser, io.Writer, error) {
 	conn, _, err := w.(http.Hijacker).Hijack()
 	if err != nil {
 		return nil, nil, err
 	}
 	// Flush the options to make sure the client sets the raw mode
+	// 清除options，确保client处于raw mode
 	conn.Write([]byte{})
 	return conn, conn, nil
 }

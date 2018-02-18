@@ -166,6 +166,7 @@ var _ = framework.KubeDescribe("Container", func() {
 			Expect(len(output)).NotTo(BeZero(), "len(output) should not be zero.")
 		})
 
+		// 运行时需要支持当host path不存在的时候也能启动容器
 		It("runtime should support starting container with volume when host path doesn't exist", func() {
 			// TODO: revisit this after https://github.com/kubernetes/kubernetes/issues/52318.
 			Skip("Skip the test since the behavior is not decided yet in CRI")
@@ -242,6 +243,7 @@ var _ = framework.KubeDescribe("Container", func() {
 
 		It("mount with 'rprivate' should not support propagation", func() {
 			By("create host path and flag file")
+			// createHostPathForMountPropagation创建宿主机目录用于mount propagation测试
 			mntSource, propagationSrcDir, propagationMntPoint, clearHostPath := createHostPathForMountPropagation(podID, runtimeapi.MountPropagation_PROPAGATION_PRIVATE)
 			defer clearHostPath() // clean up the TempDir
 
@@ -252,6 +254,7 @@ var _ = framework.KubeDescribe("Container", func() {
 			testStartContainer(rc, containerID)
 
 			By("create a propatation mount point in host")
+			// 在host的共享目录下进行mount，观察容器内是否也存在
 			createPropagationMountPoint(propagationSrcDir, propagationMntPoint)
 
 			By("check whether propagationMntPoint contains file or dir in container")
@@ -489,6 +492,7 @@ func createVolumeContainer(rc internalapi.RuntimeService, ic internalapi.ImageMa
 		Image:    &runtimeapi.ImageSpec{Image: framework.DefaultContainerImage},
 		Command:  []string{"sh", "-c", "top"},
 		// mount host path to the same directory in container, and will check if hostPath isn't empty
+		// 将host path挂载到容器中的相同路径，并且会检查hostPath是否为empty
 		Mounts: []*runtimeapi.Mount{
 			{
 				HostPath:      hostPath,
@@ -607,31 +611,38 @@ func createHostPathForMountPropagation(podID string, propagationOpt runtimeapi.M
 	hostPath, err := ioutil.TempDir("", "/test"+podID)
 	framework.ExpectNoError(err, "failed to create TempDir %q: %v", hostPath, err)
 
+	// mntSource为hostPath/mnt
 	mntSource := filepath.Join(hostPath, "mnt")
+	// propagationMntPoint为hostPath/mnt/propagationMnt
 	propagationMntPoint := filepath.Join(mntSource, "propagationMnt")
 	err = os.MkdirAll(propagationMntPoint, 0700)
 	framework.ExpectNoError(err, "failed to create volume dir %q: %v", propagationMntPoint, err)
 
+	// propagationSrcDir为hostPath/propagationSrcDir
 	propagationSrcDir := filepath.Join(hostPath, "propagationSrcDir")
 	err = os.MkdirAll(propagationSrcDir, 0700)
 	framework.ExpectNoError(err, "failed to create volume dir %q: %v", propagationSrcDir, err)
 
+	// flagFile为hostPath/propagationSrcDir/flagFile
 	_, err = os.Create(filepath.Join(propagationSrcDir, "flagFile"))
 	framework.ExpectNoError(err, "failed to create volume file \"flagFile\": %v", err)
 
 	switch propagationOpt {
 	case runtimeapi.MountPropagation_PROPAGATION_PRIVATE:
+		// 将mntSource设置为private
 		err := unix.Mount(mntSource, mntSource, "bind", unix.MS_BIND|unix.MS_REC, "")
 		framework.ExpectNoError(err, "failed to mount \"mntSource\": %v", err)
 		err = unix.Mount("", mntSource, "", unix.MS_PRIVATE|unix.MS_REC, "")
 		framework.ExpectNoError(err, "failed to set \"mntSource\" to \"rprivate\": %v", err)
 	case runtimeapi.MountPropagation_PROPAGATION_HOST_TO_CONTAINER,
 		runtimeapi.MountPropagation_PROPAGATION_BIDIRECTIONAL:
+		// 将mntSource设置为share模式
 		err := unix.Mount(mntSource, mntSource, "bind", unix.MS_BIND|unix.MS_REC, "")
 		framework.ExpectNoError(err, "failed to mount \"mntSource\": %v", err)
 		err = unix.Mount("", mntSource, "", unix.MS_SHARED|unix.MS_REC, "")
 		framework.ExpectNoError(err, "failed to set \"mntSource\" to \"rprivate\": %v", err)
 	default:
+		// 默认将mntSource设置为private模式
 		err := unix.Mount(mntSource, mntSource, "bind", unix.MS_BIND|unix.MS_REC, "")
 		framework.ExpectNoError(err, "failed to mount \"mntSource\": %v", err)
 		err = unix.Mount("", mntSource, "", unix.MS_PRIVATE|unix.MS_REC, "")
@@ -681,6 +692,8 @@ func createMountPropagationContainer(rc internalapi.RuntimeService, ic internala
 
 // createPropagationMountPoint mount "propagationSrcDir" at "propagationMntPoint",
 // this will be used to check whether mount can be propagated from host to container or not.
+// createPropagationMountPoint会将propagationSrcDir挂载到propagationMntPoint
+// 这可以用来检查mount是否能从host传播到container
 func createPropagationMountPoint(propagationSrcDir, propagationMntPoint string) {
 	err := unix.Mount(propagationSrcDir, propagationMntPoint, "bind", unix.MS_BIND|unix.MS_REC, "")
 	framework.ExpectNoError(err, "failed to mount \"propagationMntPoint\": %v", err)

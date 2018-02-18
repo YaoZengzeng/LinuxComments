@@ -29,6 +29,7 @@ import (
 
 // connection maintains state about a spdystream.Connection and its associated
 // streams.
+// connection未婚了spdystream.Connection以及和它相关的streams的状态
 type connection struct {
 	conn             *spdystream.Connection
 	streams          []httpstream.Stream
@@ -50,6 +51,8 @@ func NewClientConnection(conn net.Conn) (httpstream.Connection, error) {
 // NewServerConnection creates a new SPDY server connection. newStreamHandler
 // will be invoked when the server receives a newly created stream from the
 // client.
+// NewServerConnection创建了一个新的SPDY server connection
+// 当server从client处获取一个新建的stream，newStreamHandler就会被调用
 func NewServerConnection(conn net.Conn, newStreamHandler httpstream.NewStreamHandler) (httpstream.Connection, error) {
 	spdyConn, err := spdystream.NewConnection(conn, true)
 	if err != nil {
@@ -123,6 +126,9 @@ func (c *connection) CloseChan() <-chan bool {
 // It calls connection's newStreamHandler, giving it the opportunity to accept or reject
 // the stream. If newStreamHandler returns an error, the stream is rejected. If not, the
 // stream is accepted and registered with the connection.
+// newSpdyStream是spdystream.Connection.Serve内部使用的新的stream handler
+// 它调用newStreamHandler，让它能够接受或者拒绝stream,如果newStreamHandler返回error，stream就被拒绝
+// 佛足额接受stream并注册
 func (c *connection) newSpdyStream(stream *spdystream.Stream) {
 	replySent := make(chan struct{})
 	err := c.newStreamHandler(stream, replySent)

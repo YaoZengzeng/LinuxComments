@@ -820,6 +820,7 @@ func generateApparmorSpecOpts(apparmorProf string, privileged, apparmorEnabled b
 	if !apparmorEnabled {
 		// Should fail loudly if user try to specify apparmor profile
 		// but we don't support it.
+		// 如果用于要指定apparmor profile但是我们并不支持, 直接报错
 		if apparmorProf != "" && apparmorProf != unconfinedProfile {
 			return nil, fmt.Errorf("apparmor is not supported")
 		}
@@ -828,13 +829,16 @@ func generateApparmorSpecOpts(apparmorProf string, privileged, apparmorEnabled b
 	switch apparmorProf {
 	case runtimeDefault:
 		// TODO (mikebrow): delete created apparmor default profile
+		// 创建默认的profile name
 		return apparmor.WithDefaultProfile(appArmorDefaultProfileName), nil
 	case unconfinedProfile:
 		return nil, nil
 	case "":
 		// Based on kubernetes#51746, default apparmor profile should be applied
 		// for non-privileged container when apparmor is not specified.
+		// 如果没有指定apparmor，default apparmor profile需要应用到non-privileged container
 		if privileged {
+			// 如果是privileged container直接返回nil
 			return nil, nil
 		}
 		return apparmor.WithDefaultProfile(appArmorDefaultProfileName), nil
@@ -843,6 +847,7 @@ func generateApparmorSpecOpts(apparmorProf string, privileged, apparmorEnabled b
 		if !strings.HasPrefix(apparmorProf, profileNamePrefix) {
 			return nil, fmt.Errorf("invalid apparmor profile %q", apparmorProf)
 		}
+		// 默认添加指定的profile
 		return apparmor.WithProfile(strings.TrimPrefix(apparmorProf, profileNamePrefix)), nil
 	}
 }

@@ -9,6 +9,7 @@ import (
 func (daemon *Daemon) saveApparmorConfig(container *container.Container) error {
 	container.AppArmorProfile = "" //we don't care about the previous value.
 
+	// 如果daemon不支持apparmor，则什么都不做
 	if !daemon.apparmorEnabled {
 		return nil // if apparmor is disabled there is nothing to do here.
 	}
@@ -23,6 +24,7 @@ func (daemon *Daemon) saveApparmorConfig(container *container.Container) error {
 		}
 
 	} else {
+		// 如果HostConfig.Privileged为true，则将AppArmorProfile设置为"unconfined"
 		container.AppArmorProfile = "unconfined"
 	}
 	return nil

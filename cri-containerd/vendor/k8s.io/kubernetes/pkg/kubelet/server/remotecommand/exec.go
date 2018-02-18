@@ -32,6 +32,7 @@ import (
 )
 
 // Executor knows how to execute a command in a container in a pod.
+// Executor知道如何在一个pod，一个容器中执行命令，在in/out/err以及stdin/stdout/stderr之间拷贝数据
 type Executor interface {
 	// ExecInContainer executes a command in a container in the pod, copying data
 	// between in/out/err and the container's stdin/stdout/stderr.
@@ -41,7 +42,10 @@ type Executor interface {
 // ServeExec handles requests to execute a command in a container. After
 // creating/receiving the required streams, it delegates the actual execution
 // to the executor.
+// ServeExec处理在容器中执行一条命令的请求，在创建/接收所需的streams之后，它会将真正的执行交给
+// executor
 func ServeExec(w http.ResponseWriter, req *http.Request, executor Executor, podName string, uid types.UID, container string, cmd []string, streamOpts *Options, idleTimeout, streamCreationTimeout time.Duration, supportedProtocols []string) {
+	// 创建stream，将w和req转换为stdinStream，stdoutStream以及stderrStream
 	ctx, ok := createStreams(req, w, streamOpts, supportedProtocols, idleTimeout, streamCreationTimeout)
 	if !ok {
 		// error is handled by createStreams

@@ -20,6 +20,7 @@ func GetDefaultProfile(rs *specs.Spec) (*specs.LinuxSeccomp, error) {
 }
 
 // LoadProfile takes a json string and decodes the seccomp profile.
+// LoadProfile获取一个json string并且解析seccomp profile
 func LoadProfile(body string, rs *specs.Spec) (*specs.LinuxSeccomp, error) {
 	var config types.Seccomp
 	if err := json.Unmarshal([]byte(body), &config); err != nil {

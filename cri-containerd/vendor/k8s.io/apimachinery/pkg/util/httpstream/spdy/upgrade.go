@@ -41,6 +41,9 @@ type responseUpgrader struct {
 // of Read and Close calls, which will consider data in the bufio.Reader. This
 // ensures that data already inside the used bufio.Reader instance is also
 // read.
+// connWrapper用于封装hijacked connection和它的bufio.Reader
+// 所有的调用都将由底层的net.Conn进行处理，除了Read和Close，它们会考虑在bufio.Reader中的数据
+// 我们要确保已经在bufio.Reader中的数据也能被读取
 type connWrapper struct {
 	net.Conn
 	closed    int32
@@ -63,6 +66,8 @@ func (w *connWrapper) Close() error {
 // NewResponseUpgrader returns a new httpstream.ResponseUpgrader that is
 // capable of upgrading HTTP responses using SPDY/3.1 via the
 // spdystream package.
+// NewResponseUpgrader返回一个新的httpstream.ResponseUpgrader
+// 它能够利用spdystream package的SPDY/3.1升级HTTP response
 func NewResponseUpgrader() httpstream.ResponseUpgrader {
 	return responseUpgrader{}
 }
@@ -74,6 +79,7 @@ func (u responseUpgrader) UpgradeResponse(w http.ResponseWriter, req *http.Reque
 	connectionHeader := strings.ToLower(req.Header.Get(httpstream.HeaderConnection))
 	upgradeHeader := strings.ToLower(req.Header.Get(httpstream.HeaderUpgrade))
 	if !strings.Contains(connectionHeader, strings.ToLower(httpstream.HeaderUpgrade)) || !strings.Contains(upgradeHeader, strings.ToLower(HeaderSpdy31)) {
+		// 请求中要包含upgrade headers
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "unable to upgrade: missing upgrade headers in request: %#v", req.Header)
 		return nil
@@ -87,6 +93,7 @@ func (u responseUpgrader) UpgradeResponse(w http.ResponseWriter, req *http.Reque
 	}
 
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	// HeaderSpdy31为常数"SPDY/3.1"
 	w.Header().Add(httpstream.HeaderUpgrade, HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
 

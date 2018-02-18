@@ -53,6 +53,7 @@ type Process struct {
 	// Specify an oom_score_adj for the container.
 	OOMScoreAdj *int `json:"oomScoreAdj,omitempty" platform:"linux"`
 	// SelinuxLabel specifies the selinux context that the container process is run as.
+	// SelinuxLabel指定了container process运行的selinux context
 	SelinuxLabel string `json:"selinuxLabel,omitempty" platform:"linux"`
 }
 
@@ -80,12 +81,15 @@ type Box struct {
 }
 
 // User specifies specific user (and group) information for the container process.
+// User指定了容器进程的user(以及group)信息
 type User struct {
 	// UID is the user id.
+	// UID和GID都是uint32类型的
 	UID uint32 `json:"uid" platform:"linux,solaris"`
 	// GID is the group id.
 	GID uint32 `json:"gid" platform:"linux,solaris"`
 	// AdditionalGids are additional group ids set for the container's process.
+	// AdditionalGids是容器进程的additional group ids
 	AdditionalGids []uint32 `json:"additionalGids,omitempty" platform:"linux,solaris"`
 	// Username is the user name.
 	Username string `json:"username,omitempty" platform:"windows"`

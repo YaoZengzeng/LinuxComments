@@ -197,6 +197,7 @@ func (daemon *Daemon) getInspectData(container *container.Container) (*types.Con
 
 // ContainerExecInspect returns low-level information about the exec
 // command. An error is returned if the exec cannot be found.
+// ContainerExecInspect返回exec命令的底层信息，如果不能找到相关的exec command，则返回错误
 func (daemon *Daemon) ContainerExecInspect(id string) (*backend.ExecInspect, error) {
 	e := daemon.execCommands.Get(id)
 	if e == nil {

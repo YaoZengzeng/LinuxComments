@@ -183,6 +183,7 @@ func (o *ExecOpts) args() (out []string, err error) {
 
 // Exec executres and additional process inside the container based on a full
 // OCI Process specification
+// Exec根据OCI process specification在容器内添加进程
 func (r *Runc) Exec(context context.Context, id string, spec specs.Process, opts *ExecOpts) error {
 	f, err := ioutil.TempFile("", "runc-process")
 	if err != nil {

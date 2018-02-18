@@ -26,6 +26,7 @@ import (
 // ImageStatus returns the status of the image, returns nil if the image isn't present.
 // TODO(random-liu): We should change CRI to distinguish image id and image spec. (See
 // kubernetes/kubernetes#46255)
+// ImageStatus返回image的状态，如果image不存在，则返回nil
 func (c *criContainerdService) ImageStatus(ctx context.Context, r *runtime.ImageStatusRequest) (*runtime.ImageStatusResponse, error) {
 	image, err := c.localResolve(ctx, r.GetImage().GetImage())
 	if err != nil {

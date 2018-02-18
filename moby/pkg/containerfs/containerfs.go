@@ -10,9 +10,11 @@ import (
 )
 
 // ContainerFS is that represents a root file system
+// ContainerFS代表了一个根文件系统
 type ContainerFS interface {
 	// Path returns the path to the root. Note that this may not exist
 	// on the local system, so the continuity operations must be used
+	// Path()返回root的路径，需要注意的是，它可能不存在于本地系统，因此需要使用continuity
 	Path() string
 
 	// ResolveScopedPath evaluates the given path scoped to the root.
@@ -20,6 +22,8 @@ type ContainerFS interface {
 	// If rawPath is true, then the function will not preform any modifications
 	// before path resolution. Otherwise, the function will clean the given path
 	// by making it an absolute path.
+	// 如果rawPath为true，则该函数在解析路径之前不会做任何的修改
+	// 否则该函数会通过将它设置为绝对路径来清除给定路径
 	ResolveScopedPath(path string, rawPath bool) (string, error)
 
 	Driver

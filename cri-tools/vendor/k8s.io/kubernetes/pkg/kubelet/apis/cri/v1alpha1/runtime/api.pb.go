@@ -177,11 +177,14 @@ type MountPropagation int32
 
 const (
 	// No mount propagation ("private" in Linux terminology).
+	// 没有mount propagation，在Linux中即为"private"
 	MountPropagation_PROPAGATION_PRIVATE MountPropagation = 0
 	// Mounts get propagated from the host to the container ("rslave" in Linux).
+	// Mounts从host传播到container，即为Linux中的rslave模式
 	MountPropagation_PROPAGATION_HOST_TO_CONTAINER MountPropagation = 1
 	// Mounts get propagated from the host to the container and from the
 	// container to the host ("rshared" in Linux).
+	// Mounts可以从host传播到container，也可以从container传播到host，即为Linux中的share模式
 	MountPropagation_PROPAGATION_BIDIRECTIONAL MountPropagation = 2
 )
 
@@ -1403,13 +1406,17 @@ type LinuxContainerSecurityContext struct {
 	// Only used if the container uses namespace for isolation.
 	NamespaceOptions *NamespaceOption `protobuf:"bytes,3,opt,name=namespace_options,json=namespaceOptions" json:"namespace_options,omitempty"`
 	// SELinux context to be optionally applied.
+	// SELinux可以选择性地应用
 	SelinuxOptions *SELinuxOption `protobuf:"bytes,4,opt,name=selinux_options,json=selinuxOptions" json:"selinux_options,omitempty"`
 	// UID to run the container process as. Only one of run_as_user and
 	// run_as_username can be specified at a time.
+	// 运行容器的uid
 	RunAsUser *Int64Value `protobuf:"bytes,5,opt,name=run_as_user,json=runAsUser" json:"run_as_user,omitempty"`
 	// User name to run the container process as. If specified, the user MUST
 	// exist in the container image (i.e. in the /etc/passwd inside the image),
 	// and be resolved there by the runtime; otherwise, the runtime MUST error.
+	// 运行容器进程的user name，如果指定的话，必须要在container image（image里的/etc/passwd）中存在
+	// 否则runtime应该报错
 	RunAsUsername string `protobuf:"bytes,6,opt,name=run_as_username,json=runAsUsername,proto3" json:"run_as_username,omitempty"`
 	// If set, the root filesystem of the container is read-only.
 	ReadonlyRootfs bool `protobuf:"varint,7,opt,name=readonly_rootfs,json=readonlyRootfs,proto3" json:"readonly_rootfs,omitempty"`
@@ -1432,6 +1439,7 @@ type LinuxContainerSecurityContext struct {
 	SeccompProfilePath string `protobuf:"bytes,10,opt,name=seccomp_profile_path,json=seccompProfilePath,proto3" json:"seccomp_profile_path,omitempty"`
 	// no_new_privs defines if the flag for no_new_privs should be set on the
 	// container.
+	// no_new_privs定义了是否应该设置容器的no_new_privs这个flag
 	NoNewPrivs bool `protobuf:"varint,11,opt,name=no_new_privs,json=noNewPrivs,proto3" json:"no_new_privs,omitempty"`
 }
 

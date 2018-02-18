@@ -55,6 +55,7 @@ var _ = framework.KubeDescribe("SELinux", func() {
 				rc.RemovePodSandbox(sandboxID)
 			})
 
+			// 只设置selinux level set
 			It("should work with just selinux level set", func() {
 				options := &runtimeapi.SELinuxOption{
 					Level: "s0",
@@ -63,6 +64,7 @@ var _ = framework.KubeDescribe("SELinux", func() {
 				checkContainerSelinux(rc, containerID, true)
 			})
 
+			// 所有SELinuxOption的选项都设置
 			It("should work with selinux set", func() {
 				options := &runtimeapi.SELinuxOption{
 					User:  "system_u",
@@ -74,6 +76,7 @@ var _ = framework.KubeDescribe("SELinux", func() {
 				checkContainerSelinux(rc, containerID, true)
 			})
 
+			// 当SELinuxOption中有错误时，返回错误
 			It("should error on create with wrong options", func() {
 				options := &runtimeapi.SELinuxOption{
 					User: "system_u",

@@ -26,8 +26,10 @@ const termProcessTimeout = 10
 
 func (d *Daemon) registerExecCommand(container *container.Container, config *exec.Config) {
 	// Storing execs in container in order to kill them gracefully whenever the container is stopped or removed.
+	// 将execs注册到容器中，从而能在容器暂停或退出的时候优雅地杀死它们
 	container.ExecCommands.Add(config.ID, config)
 	// Storing execs in daemon for easy access via Engine API.
+	// 将execs注册到daemon从而能更好地通过Engine的API进行访问
 	d.execCommands.Add(config.ID, config)
 }
 
@@ -101,6 +103,7 @@ func (d *Daemon) getActiveContainer(name string) (*container.Container, error) {
 }
 
 // ContainerExecCreate sets up an exec in a running container.
+// ContainerExecCreate在一个正在运行的容器中插入exec
 func (d *Daemon) ContainerExecCreate(name string, config *types.ExecConfig) (string, error) {
 	cntr, err := d.getActiveContainer(name)
 	if err != nil {
@@ -137,9 +140,11 @@ func (d *Daemon) ContainerExecCreate(name string, config *types.ExecConfig) (str
 	}
 	execConfig.Env = container.ReplaceOrAppendEnvValues(cntr.CreateDaemonEnvironment(config.Tty, linkedEnv), config.Env)
 	if len(execConfig.User) == 0 {
+		// 如果execConfig.User为0,则指定将它指定为对应容器的User
 		execConfig.User = cntr.Config.User
 	}
 
+	// 将exec command注册到container以及daemon中
 	d.registerExecCommand(cntr, execConfig)
 
 	d.LogContainerEvent(cntr, "exec_create: "+execConfig.Entrypoint+" "+strings.Join(execConfig.Args, " "))
@@ -150,6 +155,8 @@ func (d *Daemon) ContainerExecCreate(name string, config *types.ExecConfig) (str
 // ContainerExecStart starts a previously set up exec instance. The
 // std streams are set up.
 // If ctx is cancelled, the process is terminated.
+// ContainerExecStart启动一个之前就创建好的exec实例，std stream已经设置完成了
+// 如果ctx取消了，那么整个进程也结束了
 func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (err error) {
 	var (
 		cStdin           io.ReadCloser
@@ -172,6 +179,7 @@ func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.R
 		ec.Unlock()
 		return stateConflictError{fmt.Errorf("Error: Exec command %s is already running", ec.ID)}
 	}
+	// 将exec设置为running状态
 	ec.Running = true
 	ec.Unlock()
 
@@ -202,6 +210,7 @@ func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.R
 		}()
 		cStdin = r
 	}
+	// 将stdout和stderr赋值给cStdout和cStderr
 	if ec.OpenStdout {
 		cStdout = stdout
 	}
@@ -246,6 +255,7 @@ func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.R
 	// Synchronize with libcontainerd event loop
 	ec.Lock()
 	c.ExecCommands.Lock()
+	// 启动exec进程
 	systemPid, err := d.containerd.Exec(ctx, c.ID, ec.ID, p, cStdin != nil, ec.InitializeStdio)
 	if err != nil {
 		c.ExecCommands.Unlock()
@@ -282,6 +292,7 @@ func (d *Daemon) ContainerExecStart(ctx context.Context, name string, stdin io.R
 
 // execCommandGC runs a ticker to clean up the daemon references
 // of exec configs that are no longer part of the container.
+// execCommandGC定期运行一次，用于清除daemon引用的但已经不再作为容器一部分的exec config
 func (d *Daemon) execCommandGC() {
 	for range time.Tick(5 * time.Minute) {
 		var (
@@ -306,6 +317,7 @@ func (d *Daemon) execCommandGC() {
 
 // containerExecIds returns a list of all the current exec ids that are in use
 // and running inside a container.
+// containerExecIds返回一系列当前正在被容器使用的exec ids
 func (d *Daemon) containerExecIds() map[string]struct{} {
 	ids := map[string]struct{}{}
 	for _, c := range d.containers.List() {

@@ -82,10 +82,13 @@ type CreateTaskRequest struct {
 	ContainerID string `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	// RootFS provides the pre-chroot mounts to perform in the shim before
 	// executing the container task.
+	// RootFS提供了在执行container task之前在shim中执行的pre-chroot mounts
 	//
 	// These are for mounts that cannot be performed in the user namespace.
 	// Typically, these mounts should be resolved from snapshots specified on
 	// the container object.
+	// 有些mounts不能在user namespace中执行，通常这些mounts必须在container object中
+	// 指定的snapshots中解析
 	Rootfs     []*containerd_types.Mount     `protobuf:"bytes,3,rep,name=rootfs" json:"rootfs,omitempty"`
 	Stdin      string                        `protobuf:"bytes,4,opt,name=stdin,proto3" json:"stdin,omitempty"`
 	Stdout     string                        `protobuf:"bytes,5,opt,name=stdout,proto3" json:"stdout,omitempty"`

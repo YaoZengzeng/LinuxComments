@@ -15,12 +15,16 @@ import (
 // State holds the current container state, and has methods to get and
 // set the state. Container has an embed, which allows all of the
 // functions defined against State to run against Container.
+// State中包含了当前容器的状态，并且有方法获取和设置状态
 type State struct {
 	sync.Mutex
 	// Note that `Running` and `Paused` are not mutually exclusive:
 	// When pausing a container (on Linux), the cgroups freezer is used to suspend
 	// all processes in the container. Freezing the process requires the process to
 	// be running. As a result, paused containers are both `Running` _and_ `Paused`.
+	// `Running`和`Paused`并不是完全互斥的，当pausing一个容器的时候，cgroups freezer用于
+	// 暂停容器中的所有进程。Freezing进程需要进程处于运行状态
+	// 最终，paused container都处于`Running`以及`Paused`状态
 	Running           bool
 	Paused            bool
 	Restarting        bool
@@ -269,6 +273,7 @@ func (s *State) ExitCode() int {
 
 // SetExitCode sets current exitcode for the state. Take lock before if state
 // may be shared.
+// SetExitCode设置当前状态的exitcode，如果state处于共享状态，则先要获取锁
 func (s *State) SetExitCode(ec int) {
 	s.ExitCodeValue = ec
 }

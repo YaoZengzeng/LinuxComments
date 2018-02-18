@@ -26,6 +26,7 @@ func IsEnabled() bool {
 
 // ApplyProfile will apply the profile with the specified name to the process after
 // the next exec.
+// ApplyProfile会在process经过下一个exec之后，应用指定name的profile
 func ApplyProfile(name string) error {
 	if name == "" {
 		return nil

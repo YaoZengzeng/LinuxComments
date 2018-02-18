@@ -334,6 +334,7 @@ func (r *RemoteRuntimeService) ExecSync(containerID string, cmd []string, timeou
 	}
 
 	err = nil
+	// 如果ExitCode不为0，则返回CodeExitError
 	if resp.ExitCode != 0 {
 		err = utilexec.CodeExitError{
 			Err:  fmt.Errorf("command '%s' exited with %d: %s", strings.Join(cmd, " "), resp.ExitCode, resp.Stderr),

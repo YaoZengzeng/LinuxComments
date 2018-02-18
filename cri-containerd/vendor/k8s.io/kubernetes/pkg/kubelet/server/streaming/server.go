@@ -72,6 +72,8 @@ type Config struct {
 	Addr string
 	// The optional base URL for constructing streaming URLs. If empty, the baseURL will be
 	// constructed from the serve address.
+	// 可选的用于构造streaming URLs的base URL
+	// 如果为空，则baseURL将会由serve address构造
 	BaseURL *url.URL
 
 	// How long to leave idle connections open for.
@@ -98,6 +100,7 @@ type Config struct {
 var DefaultConfig = Config{
 	StreamIdleTimeout:               4 * time.Hour,
 	StreamCreationTimeout:           remotecommandconsts.DefaultStreamCreationTimeout,
+	// 默认支持StreamProtocolV4，StreamProtocolV3，StreamProtocolV2，StreamProtocolV1
 	SupportedRemoteCommandProtocols: remotecommandconsts.SupportedStreamingProtocols,
 	SupportedPortForwardProtocols:   portforward.SupportedProtocols,
 }
@@ -110,6 +113,7 @@ func NewServer(config Config, runtime Runtime) (Server, error) {
 		cache:   newRequestCache(),
 	}
 
+	// 设置BaseURL
 	if s.config.BaseURL == nil {
 		s.config.BaseURL = &url.URL{
 			Scheme: "http",
@@ -175,6 +179,7 @@ func validateExecRequest(req *runtimeapi.ExecRequest) error {
 }
 
 func (s *server) GetExec(req *runtimeapi.ExecRequest) (*runtimeapi.ExecResponse, error) {
+	// 检验exec请求是否合法
 	if err := validateExecRequest(req); err != nil {
 		return nil, err
 	}
@@ -256,8 +261,10 @@ func (s *server) buildURL(method, token string) string {
 	}).String()
 }
 
+// 处理exec
 func (s *server) serveExec(req *restful.Request, resp *restful.Response) {
 	token := req.PathParameter("token")
+	// 根究token获取request
 	cachedRequest, ok := s.cache.Consume(token)
 	if !ok {
 		http.NotFound(resp.ResponseWriter, req.Request)
@@ -269,6 +276,7 @@ func (s *server) serveExec(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
+	// 构建streamOpts
 	streamOpts := &remotecommandserver.Options{
 		Stdin:  exec.Stdin,
 		Stdout: exec.Stdout,
@@ -276,6 +284,7 @@ func (s *server) serveExec(req *restful.Request, resp *restful.Response) {
 		TTY:    exec.Tty,
 	}
 
+	// 对exec进行处理
 	remotecommandserver.ServeExec(
 		resp.ResponseWriter,
 		req.Request,
@@ -290,6 +299,7 @@ func (s *server) serveExec(req *restful.Request, resp *restful.Response) {
 		s.config.SupportedRemoteCommandProtocols)
 }
 
+// 处理attach
 func (s *server) serveAttach(req *restful.Request, resp *restful.Response) {
 	token := req.PathParameter("token")
 	cachedRequest, ok := s.cache.Consume(token)
@@ -322,6 +332,7 @@ func (s *server) serveAttach(req *restful.Request, resp *restful.Response) {
 		s.config.SupportedRemoteCommandProtocols)
 }
 
+// 处理portforward
 func (s *server) servePortForward(req *restful.Request, resp *restful.Response) {
 	token := req.PathParameter("token")
 	cachedRequest, ok := s.cache.Consume(token)
@@ -355,6 +366,7 @@ func (s *server) servePortForward(req *restful.Request, resp *restful.Response) 
 
 // criAdapter wraps the Runtime functions to conform to the remotecommand interfaces.
 // The adapter binds the container ID to the container name argument, and the pod sandbox ID to the pod name.
+// criAdapter包裹Runtime functions，使其符合remotecommand的接口
 type criAdapter struct {
 	Runtime
 }

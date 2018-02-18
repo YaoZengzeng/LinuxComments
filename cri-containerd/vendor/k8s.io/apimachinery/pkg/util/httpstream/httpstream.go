@@ -60,10 +60,13 @@ type UpgradeRoundTripper interface {
 
 // ResponseUpgrader knows how to upgrade HTTP requests and responses to
 // add streaming support to them.
+// ResponseUpgrader知道如何升级HTTP requests和responses，从而让它们支持streaming
 type ResponseUpgrader interface {
 	// UpgradeResponse upgrades an HTTP response to one that supports multiplexed
 	// streams. newStreamHandler will be called asynchronously whenever the
 	// other end of the upgraded connection creates a new stream.
+	// UpgradeResponse升级HTTP response，让它支持multiplexed streams
+	// 当upgraded connection的另一端创建一个新的stream时，会调用newStreamHandler
 	UpgradeResponse(w http.ResponseWriter, req *http.Request, newStreamHandler NewStreamHandler) Connection
 }
 
@@ -82,14 +85,18 @@ type Connection interface {
 
 // Stream represents a bidirectional communications channel that is part of an
 // upgraded connection.
+// Stream代表了一个双向的communication channel，是upgraded connection的一部分
 type Stream interface {
+	// Stream中已经包含了Reader,Writer以及Closer方法
 	io.ReadWriteCloser
 	// Reset closes both directions of the stream, indicating that neither client
 	// or server can use it any more.
 	Reset() error
 	// Headers returns the headers used to create the stream.
+	// Headers返回用于创建stream的headers
 	Headers() http.Header
 	// Identifier returns the stream's ID.
+	// Identifier返回stream的ID
 	Identifier() uint32
 }
 
@@ -120,6 +127,9 @@ func negotiateProtocol(clientProtocols, serverProtocols []string) string {
 // indicating the chosen subprotocol. If no match is found, HTTP forbidden is
 // returned, along with a response header containing the list of protocols the
 // server can accept.
+// Handshake进行subprotocol negotiation，如果client请求了subprotocol，Handshake会选择
+// 和serverProtocols里一致的protocol，如果不匹配，HTTP返回forbidden，并且伴随一个response header
+// 包含了server可以接收的一系列protocol
 func Handshake(req *http.Request, w http.ResponseWriter, serverProtocols []string) (string, error) {
 	clientProtocols := req.Header[http.CanonicalHeaderKey(HeaderProtocolVersion)]
 	if len(clientProtocols) == 0 {
@@ -136,8 +146,10 @@ func Handshake(req *http.Request, w http.ResponseWriter, serverProtocols []strin
 
 	negotiatedProtocol := negotiateProtocol(clientProtocols, serverProtocols)
 	if len(negotiatedProtocol) == 0 {
+		// 如果没有匹配的protocol，则返回forbidden
 		w.WriteHeader(http.StatusForbidden)
 		for i := range serverProtocols {
+			// 并写入各种server支持的protocol
 			w.Header().Add(HeaderAcceptedProtocolVersions, serverProtocols[i])
 		}
 		fmt.Fprintf(w, "unable to upgrade: unable to negotiate protocol: client supports %v, server accepts %v", clientProtocols, serverProtocols)

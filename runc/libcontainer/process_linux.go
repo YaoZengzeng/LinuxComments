@@ -136,6 +136,8 @@ func (p *setnsProcess) start() (err error) {
 // because setns support requires the C process to fork off a child and perform the setns
 // before the go runtime boots, we wait on the process to die and receive the child's pid
 // over the provided pipe.
+// execSetns运行c代码去执行setns calls
+// 因为setns support需要C代码先fork off一个child，接着在go runtime启动之前执行setns
 func (p *setnsProcess) execSetns() error {
 	status, err := p.cmd.Process.Wait()
 	if err != nil {

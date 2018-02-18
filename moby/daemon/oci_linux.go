@@ -193,6 +193,7 @@ func readUserFile(c *container.Container, p string) (io.ReadCloser, error) {
 	return os.Open(fp)
 }
 
+// 返回gid, uid以及additionalGids
 func getUser(c *container.Container, username string) (uint32, uint32, []uint32, error) {
 	passwdPath, err := user.GetPasswdPath()
 	if err != nil {
@@ -202,10 +203,12 @@ func getUser(c *container.Container, username string) (uint32, uint32, []uint32,
 	if err != nil {
 		return 0, 0, nil, err
 	}
+	// 读取容器文件系统中的"/etc/passwd"文件
 	passwdFile, err := readUserFile(c, passwdPath)
 	if err == nil {
 		defer passwdFile.Close()
 	}
+	// 读取容器文件系统中的"/etc/group"文件
 	groupFile, err := readUserFile(c, groupPath)
 	if err == nil {
 		defer groupFile.Close()
@@ -253,6 +256,7 @@ func setCapabilities(s *specs.Spec, c *container.Container) error {
 	var caplist []string
 	var err error
 	if c.HostConfig.Privileged {
+		// 如果是privileged模式，则直接获取所有的capabilities
 		caplist = caps.GetAllCapabilities()
 	} else {
 		caplist, err = caps.TweakCapabilities(s.Process.Capabilities.Effective, c.HostConfig.CapAdd, c.HostConfig.CapDrop)
@@ -875,6 +879,7 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.Spec, error) {
 		}
 	}
 
+	// 设置apparmor
 	if apparmor.IsEnabled() {
 		var appArmorProfile string
 		if c.AppArmorProfile != "" {
@@ -892,6 +897,10 @@ func (daemon *Daemon) createSpec(c *container.Container) (*specs.Spec, error) {
 			// telling the system to keep our profile loaded, in order to make
 			// sure that we keep the default profile enabled we dynamically
 			// reload it if necessary.
+			// unattended upgrades以及其他一些服务都可能在不经意间unload AppArmor profiles
+			// 因为我们不能将profile存储到/etc/apparmor.d，也不能添加额外的方法告诉系统保持
+			// 我们的profile处于加载状态
+			// 因此，为了确保默认的profile可用，我们必须动态地重载它
 			if err := ensureDefaultAppArmorProfile(); err != nil {
 				return nil, err
 			}

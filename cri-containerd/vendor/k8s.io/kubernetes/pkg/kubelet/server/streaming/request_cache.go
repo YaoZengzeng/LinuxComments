@@ -61,6 +61,7 @@ type cacheEntry struct {
 	expireTime time.Time
 }
 
+// 创建requestCache，将请求缓存其中
 func newRequestCache() *requestCache {
 	return &requestCache{
 		clock:  clock.RealClock{},

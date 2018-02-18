@@ -23,12 +23,14 @@ func setSeccomp(daemon *Daemon, rs *specs.Spec, c *container.Container) error {
 
 	if !daemon.seccompEnabled {
 		if c.SeccompProfile != "" && c.SeccompProfile != "unconfined" {
+			// 如果内核不支持seccomp，则不能指定custom seccomp profile
 			return fmt.Errorf("Seccomp is not enabled in your kernel, cannot run a custom seccomp profile.")
 		}
 		logrus.Warn("Seccomp is not enabled in your kernel, running container without default profile.")
 		c.SeccompProfile = "unconfined"
 	}
 	if c.SeccompProfile == "unconfined" {
+		// 如果seccomp profile为"unconfined"则直接返回nil
 		return nil
 	}
 	if c.SeccompProfile != "" {

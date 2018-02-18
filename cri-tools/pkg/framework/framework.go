@@ -37,6 +37,7 @@ type InternalAPIClient struct {
 
 // NewDefaultCRIFramework makes a new framework and sets up a BeforeEach/AfterEach for
 // you (you can write additional before/after each functions).
+// NewDefaultCRIFramework创建一个新的framework并且设置BeforeEach/AfterEach
 func NewDefaultCRIFramework() *Framework {
 	return NewCRIFramework(nil)
 }
@@ -54,6 +55,7 @@ func NewCRIFramework(client *InternalAPIClient) *Framework {
 }
 
 // BeforeEach gets a client
+// BeforeEach获取client
 func (f *Framework) BeforeEach() {
 	if f.CRIClient == nil {
 		c, err := LoadCRIClient()
@@ -63,6 +65,7 @@ func (f *Framework) BeforeEach() {
 }
 
 // AfterEach clean resources
+// AfterEach直接将CRIClient设置为nil
 func (f *Framework) AfterEach() {
 	f.CRIClient = nil
 }

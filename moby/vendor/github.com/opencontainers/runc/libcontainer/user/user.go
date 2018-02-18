@@ -221,6 +221,7 @@ func GetExecUserPath(userSpec string, defaults *ExecUser, passwdPath, groupPath 
 //
 // GetExecUser will return an error if a user or group literal could not be
 // found in any entry in passwd and group respectively.
+// GetExecUser会返回一个error，如果user或group在passwd或group找不到对应的条目
 //
 // Examples of valid user specifications are:
 //     * ""
@@ -235,6 +236,8 @@ func GetExecUserPath(userSpec string, defaults *ExecUser, passwdPath, groupPath 
 // not be evaluated as usernames (only the metadata will be filled). So attempting
 // to parse a user with user.Name = "1337" will produce the user with a UID of
 // 1337.
+// 值得注意的是，如果你指定了一个数字的user或者group id，它们不会被分析为usernames
+// 因此如果尝试去解析一个user.Name为"1337"，将会产生一个uid 1337
 func GetExecUser(userSpec string, defaults *ExecUser, passwd, group io.Reader) (*ExecUser, error) {
 	if defaults == nil {
 		defaults = new(ExecUser)
@@ -263,6 +266,7 @@ func GetExecUser(userSpec string, defaults *ExecUser, passwd, group io.Reader) (
 	gidArg, gidErr := strconv.Atoi(groupArg)
 
 	// Find the matching user.
+	// 查找是否存在匹配的user
 	users, err := ParsePasswdFilter(passwd, func(u User) bool {
 		if userArg == "" {
 			// Default to current state of the user.
@@ -278,6 +282,7 @@ func GetExecUser(userSpec string, defaults *ExecUser, passwd, group io.Reader) (
 	})
 
 	// If we can't find the user, we have to bail.
+	// 找不到user就报错
 	if err != nil && passwd != nil {
 		if userArg == "" {
 			userArg = strconv.Itoa(user.Uid)
@@ -288,6 +293,7 @@ func GetExecUser(userSpec string, defaults *ExecUser, passwd, group io.Reader) (
 	var matchedUserName string
 	if len(users) > 0 {
 		// First match wins, even if there's more than one matching entry.
+		// 获取第一个匹配的条目
 		matchedUserName = users[0].Name
 		user.Uid = users[0].Uid
 		user.Gid = users[0].Gid
@@ -375,6 +381,9 @@ func GetExecUser(userSpec string, defaults *ExecUser, passwd, group io.Reader) (
 // be found, an error will be returned. If a group id cannot be found,
 // or the given group data is nil, the id will be returned as-is
 // provided it is in the legal range.
+// GetAdditionalGroups会在/etc/group查找给定的group
+// 如果有一个group name没找到，则会返回一个error
+// 如果一个group id不能被找到，或者给定的group data为nil，id会被认为在合法的范围内
 func GetAdditionalGroups(additionalGroups []string, group io.Reader) ([]int, error) {
 	var groups = []Group{}
 	if group != nil {

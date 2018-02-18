@@ -466,6 +466,7 @@ func (g *Generator) ClearProcessAdditionalGids() {
 // AddProcessAdditionalGid adds an additional gid into g.spec.Process.AdditionalGids.
 func (g *Generator) AddProcessAdditionalGid(gid uint32) {
 	g.initSpecProcess()
+	// 检测gid在User.AdditionalGids中是否存在，不存在就加入
 	for _, group := range g.spec.Process.User.AdditionalGids {
 		if group == gid {
 			return

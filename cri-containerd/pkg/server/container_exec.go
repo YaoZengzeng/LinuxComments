@@ -31,8 +31,10 @@ func (c *criContainerdService) Exec(ctx context.Context, r *runtime.ExecRequest)
 		return nil, fmt.Errorf("failed to find container %q in store: %v", r.GetContainerId(), err)
 	}
 	state := cntr.Status.Get().State()
+	// 首先检查容器是否处于运行状态
 	if state != runtime.ContainerState_CONTAINER_RUNNING {
 		return nil, fmt.Errorf("container is in %s state", criContainerStateToString(state))
 	}
+	// 返回一个URL
 	return c.streamServer.GetExec(r)
 }

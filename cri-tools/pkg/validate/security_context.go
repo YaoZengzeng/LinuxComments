@@ -251,6 +251,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 				Command:  []string{"sh", "-c", "top"},
 				Linux: &runtimeapi.LinuxContainerConfig{
 					SecurityContext: &runtimeapi.LinuxContainerSecurityContext{
+						// 指定supplementalGroups
 						SupplementalGroups: supplementalGroups,
 					},
 				},
@@ -411,6 +412,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 	Context("SeccompProfilePath", func() {
 		const (
 			// profile which denies sethostname syscall
+			// 拒绝sethostname syscall的profile
 			seccompBlockHostNameProfile = `{
      "defaultAction": "SCMP_ACT_ALLOW",
      "syscalls": [
@@ -421,6 +423,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
      ]
 }`
 			// profile which denies chmod syscall
+			// 拒绝chmod syscall的profile
 			seccompBlockChmodProfile = `{
      "defaultAction": "SCMP_ACT_ALLOW",
      "syscalls": [
@@ -497,6 +500,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 		})
 
 		// SYS_ADMIN capability allows sethostname, and seccomp is unconfined. sethostname should work.
+		// SYS_ADMIN capability允许进行sethostname，并且seccomp是unconfined, sethostname应该能够正常工作
 		It("runtime should not block setting host name with unconfined seccomp and SYS_ADMIN", func() {
 			privileged := false
 			expectContainerCreateToPass := true
@@ -514,6 +518,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 		})
 
 		// SYS_ADMIN capability allows sethostname, but seccomp profile should be able to block it.
+		// SYS_ADMIN capability允许sethostname,但是seccomp profile应该能够阻止它
 		It("runtime should support an seccomp profile that blocks setting hostname with SYS_ADMIN", func() {
 			privileged := false
 			expectContainerCreateToPass := true
@@ -530,6 +535,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 			checkSetHostname(rc, containerID, false)
 		})
 
+		// 运行时不应该支持没有使用localhost/ 作为前缀的本地seccomp profile
 		It("runtime should not support a custom seccomp profile without using localhost/ as a prefix", func() {
 			privileged := false
 			expectContainerCreateToPass := false
@@ -541,6 +547,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 				blockHostNameProfilePath, nil, privileged, expectContainerCreateToPass)
 		})
 
+		// 运行时应该在privileged的时候忽视block设置hostname的seccomp profile
 		It("runtime should ignore a seccomp profile that blocks setting hostname when privileged", func() {
 			privileged := true
 			expectContainerCreateToPass := true
@@ -557,7 +564,9 @@ var _ = framework.KubeDescribe("Security Context", func() {
 			checkSetHostname(rc, containerID, true)
 		})
 
+		// 支持docker/default
 		Context("docker/default", func() {
+			// 支持容器中设置seccomp为docker/default
 			It("should support seccomp docker/default on the container", func() {
 				var containerID string
 				seccompProfile := "docker/default"
@@ -568,7 +577,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 				By("verify seccomp profile")
 				verifySeccomp(rc, containerID, []string{"grep", "ecc", "/proc/self/status"}, false, "2") // seccomp filtered
 			})
-
+			// 设置seccomp为docker/default且SYS_ADMIN为true时，支持设置hostname
 			It("runtime should support setting hostname with docker/default seccomp profile and SYS_ADMIN", func() {
 				privileged := false
 				expectContainerCreateToPass := true
@@ -583,7 +592,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 				}, time.Minute, time.Second*4).Should(Equal(runtimeapi.ContainerState_CONTAINER_RUNNING))
 				checkSetHostname(rc, containerID, true)
 			})
-
+			// 运行时应该阻止sethostname，如果指定seccomp为docker/default并且没有额外的capability
 			It("runtime should block sethostname with docker/default seccomp profile and no extra caps", func() {
 				privileged := false
 				expectContainerCreateToPass := true

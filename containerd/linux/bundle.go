@@ -26,6 +26,7 @@ func loadBundle(id, path, workdir string) *bundle {
 }
 
 // newBundle creates a new bundle on disk at the provided path for the given id
+// newBundle为给定的id在磁盘创建一个新的bundle
 func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
 	if err := os.MkdirAll(path, 0711); err != nil {
 		return nil, err

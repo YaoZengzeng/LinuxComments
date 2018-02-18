@@ -24,6 +24,9 @@ var ErrIncompatibleLabel = fmt.Errorf("Bad SELinux option z and Z can not be use
 // the container.  A list of options can be passed into this function to alter
 // the labels.  The labels returned will include a random MCS String, that is
 // guaranteed to be unique.
+// InitLabels返回容器内使用的process label和file labels
+// 可以传入一系列的options用于改变labels
+// 返回的label会带有一个随机并且保证唯一的random MCS String
 func InitLabels(options []string) (string, string, error) {
 	if !selinux.GetEnabled() {
 		return "", "", nil
@@ -34,6 +37,7 @@ func InitLabels(options []string) (string, string, error) {
 		mcon := selinux.NewContext(mountLabel)
 		for _, opt := range options {
 			if opt == "disable" {
+				// 存在"disable"就返回空
 				return "", "", nil
 			}
 			if i := strings.Index(opt, ":"); i == -1 {
@@ -45,6 +49,7 @@ func InitLabels(options []string) (string, string, error) {
 
 			}
 			pcon[con[0]] = con[1]
+			// 如果选项为"level"或者"user"，则也设置mcon
 			if con[0] == "level" || con[0] == "user" {
 				mcon[con[0]] = con[1]
 			}

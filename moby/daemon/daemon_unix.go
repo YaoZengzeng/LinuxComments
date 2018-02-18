@@ -183,12 +183,14 @@ func (daemon *Daemon) parseSecurityOpt(container *container.Container, hostConfi
 	return parseSecurityOpt(container, hostConfig)
 }
 
+// parseSecurityOpt仅仅只是将选项解析至结构体中
 func parseSecurityOpt(container *container.Container, config *containertypes.HostConfig) error {
 	var (
 		labelOpts []string
 		err       error
 	)
 
+	// 解析HostConfig中的SecurityOpt
 	for _, opt := range config.SecurityOpt {
 		if opt == "no-new-privileges" {
 			container.NoNewPrivileges = true
@@ -204,6 +206,7 @@ func parseSecurityOpt(container *container.Container, config *containertypes.Hos
 			con = strings.SplitN(opt, "=", 2)
 		} else if strings.Contains(opt, ":") {
 			con = strings.SplitN(opt, ":", 2)
+			// 以":"作为分隔符的方式即将被丢弃，使用"="
 			logrus.Warn("Security options with `:` as a separator are deprecated and will be completely unsupported in 17.04, use `=` instead.")
 		}
 		if len(con) != 2 {

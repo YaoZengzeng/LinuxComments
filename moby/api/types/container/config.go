@@ -40,9 +40,12 @@ type HealthConfig struct {
 // Non-portable information *should* appear in HostConfig.
 // All fields added to this struct must be marked `omitempty` to keep getting
 // predictable hashes from the old `v1Compatibility` configuration.
+// Config包含的是容器的配置数据，其中只能包含关于容器的可移植信息
+// 这里的可移植意味着和我们正在运行的宿主机无关，不可移植的信息应该出现在HostConfig中
 type Config struct {
 	Hostname        string              // Hostname
 	Domainname      string              // Domainname
+	// User会在容器中运行指定进程，同时也支持user:group
 	User            string              // User that will run the command(s) inside the container, also support user:group
 	AttachStdin     bool                // Attach the standard input, makes possible user interaction
 	AttachStdout    bool                // Attach the standard output
