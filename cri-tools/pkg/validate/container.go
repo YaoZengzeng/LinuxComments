@@ -194,6 +194,7 @@ var _ = framework.KubeDescribe("Container", func() {
 		var podConfig *runtimeapi.PodSandboxConfig
 
 		BeforeEach(func() {
+			// 创建包含pod的log目录
 			podID, podConfig, hostPath = createPodSandboxWithLogDirectory(rc)
 		})
 
@@ -208,6 +209,7 @@ var _ = framework.KubeDescribe("Container", func() {
 
 		It("runtime should support starting container with log [Conformance]", func() {
 			By("create container with log")
+			// 创建带有log的container
 			logPath, containerID := createLogContainer(rc, ic, "container-with-log-test-", podID, podConfig)
 
 			By("start container with log")
@@ -218,6 +220,7 @@ var _ = framework.KubeDescribe("Container", func() {
 			}, time.Minute, time.Second*4).Should(Equal(runtimeapi.ContainerState_CONTAINER_EXITED))
 
 			By("check the log context")
+			// 检查log的内容
 			expectedLogMessage := &logMessage{
 				log:    []byte(defaultLog + "\n"),
 				stream: stdoutType,
@@ -507,6 +510,7 @@ func createVolumeContainer(rc internalapi.RuntimeService, ic internalapi.ImageMa
 // createLogContainer creates a container with log and the prefix of containerName.
 func createLogContainer(rc internalapi.RuntimeService, ic internalapi.ImageManagerService, prefix string, podID string, podConfig *runtimeapi.PodSandboxConfig) (string, string) {
 	By("create a container with log and name")
+	// prefix为"container-with-log-test-"
 	containerName := prefix + framework.NewUUID()
 	path := fmt.Sprintf("%s.log", containerName)
 	containerConfig := &runtimeapi.ContainerConfig{
@@ -578,6 +582,7 @@ func parseLogLine(podConfig *runtimeapi.PodSandboxConfig, logPath string) []logM
 		line := scanner.Text()
 
 		// to determine whether the log is Docker format or CRI format.
+		// 确定log是Docker格式的还是CRI格式的
 		if strings.HasPrefix(line, "{") {
 			parseDockerJSONLog([]byte(line), &msg)
 		} else {

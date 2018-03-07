@@ -44,6 +44,8 @@ const (
 	// The SPDY subprotocol "v4.channel.k8s.io" is used for remote command
 	// attachment/execution. It is the 4th version of the subprotocol and
 	// adds support for exit codes.
+	// StreamProtocolV4Name "v4.channel.k8s.io"是用于远程执行命令attachment/execution
+	// 的SPDY子协议
 	StreamProtocolV4Name = "v4.channel.k8s.io"
 
 	NonZeroExitCodeReason = metav1.StatusReason("NonZeroExitCode")

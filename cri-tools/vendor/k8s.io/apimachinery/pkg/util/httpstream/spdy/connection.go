@@ -29,6 +29,7 @@ import (
 
 // connection maintains state about a spdystream.Connection and its associated
 // streams.
+// connection维护了spdystream.Connection以及和它相关的streams的状态
 type connection struct {
 	conn             *spdystream.Connection
 	streams          []httpstream.Stream
@@ -37,6 +38,7 @@ type connection struct {
 }
 
 // NewClientConnection creates a new SPDY client connection.
+// NewClientConnection创建一个新的SPDY client connection
 func NewClientConnection(conn net.Conn) (httpstream.Connection, error) {
 	spdyConn, err := spdystream.NewConnection(conn, false)
 	if err != nil {
@@ -63,6 +65,8 @@ func NewServerConnection(conn net.Conn, newStreamHandler httpstream.NewStreamHan
 // newConnection returns a new connection wrapping conn. newStreamHandler
 // will be invoked when the server receives a newly created stream from the
 // client.
+// newConnection返回一个新的封装conn的connection
+// 当server从client接到一个新创建的stream之后会调用newStreamHandler
 func newConnection(conn *spdystream.Connection, newStreamHandler httpstream.NewStreamHandler) httpstream.Connection {
 	c := &connection{conn: conn, newStreamHandler: newStreamHandler}
 	go conn.Serve(c.newSpdyStream)
@@ -92,6 +96,7 @@ func (c *connection) Close() error {
 
 // CreateStream creates a new stream with the specified headers and registers
 // it with the connection.
+// CreateStream根据一个给定的headers创建一个新的stream并且将其注册到connection中
 func (c *connection) CreateStream(headers http.Header) (httpstream.Stream, error) {
 	stream, err := c.conn.CreateStream(headers, nil, false)
 	if err != nil {

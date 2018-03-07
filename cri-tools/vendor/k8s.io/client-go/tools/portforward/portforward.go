@@ -38,6 +38,7 @@ const PortForwardProtocolV1Name = "portforward.k8s.io"
 
 // PortForwarder knows how to listen for local connections and forward them to
 // a remote pod via an upgraded HTTP request.
+// PortForwarder知道如何监听本地连接并将它转发到远程的pod，通过upgraded HTTP request
 type PortForwarder struct {
 	ports    []ForwardedPort
 	stopChan <-chan struct{}
@@ -115,6 +116,7 @@ func New(dialer httpstream.Dialer, ports []string, stopChan <-chan struct{}, rea
 	if len(ports) == 0 {
 		return nil, errors.New("You must specify at least 1 port")
 	}
+	// 解析ports
 	parsedPorts, err := parsePorts(ports)
 	if err != nil {
 		return nil, err
@@ -131,10 +133,13 @@ func New(dialer httpstream.Dialer, ports []string, stopChan <-chan struct{}, rea
 
 // ForwardPorts formats and executes a port forwarding request. The connection will remain
 // open until stopChan is closed.
+// ForwardPorts创建并且执行一个port forwarding request
+// 连接会一直打开，直到stopChan被关闭
 func (pf *PortForwarder) ForwardPorts() error {
 	defer pf.Close()
 
 	var err error
+	// 获取stream connection
 	pf.streamConn, _, err = pf.dialer.Dial(PortForwardProtocolV1Name)
 	if err != nil {
 		return fmt.Errorf("error upgrading connection: %s", err)
@@ -147,6 +152,8 @@ func (pf *PortForwarder) ForwardPorts() error {
 // forward dials the remote host specific in req, upgrades the request, starts
 // listeners for each port specified in ports, and forwards local connections
 // to the remote host via streams.
+// forward会dial在请求中指定的远程主机，升级请求，启动listener监听在ports中指定的各个端口
+// 并且通过streams将本地的连接转发到远程主机
 func (pf *PortForwarder) forward() error {
 	var err error
 
@@ -183,6 +190,7 @@ func (pf *PortForwarder) forward() error {
 
 // listenOnPort delegates tcp4 and tcp6 listener creation and waits for connections on both of these addresses.
 // If both listener creation fail, an error is raised.
+// listenOnPort会等待到达这些地址的连接
 func (pf *PortForwarder) listenOnPort(port *ForwardedPort) error {
 	errTcp4 := pf.listenOnPortAndAddress(port, "tcp4", "127.0.0.1")
 	errTcp6 := pf.listenOnPortAndAddress(port, "tcp6", "[::1]")
@@ -194,6 +202,7 @@ func (pf *PortForwarder) listenOnPort(port *ForwardedPort) error {
 
 // listenOnPortAndAddress delegates listener creation and waits for new connections
 // in the background f
+// listenOnPortAndAddress创建listener并且在后台等待新的连接
 func (pf *PortForwarder) listenOnPortAndAddress(port *ForwardedPort, protocol string, address string) error {
 	listener, err := pf.getListener(protocol, address, port)
 	if err != nil {
@@ -206,6 +215,7 @@ func (pf *PortForwarder) listenOnPortAndAddress(port *ForwardedPort, protocol st
 
 // getListener creates a listener on the interface targeted by the given hostname on the given port with
 // the given protocol. protocol is in net.Listen style which basically admits values like tcp, tcp4, tcp6
+// getListener创建一个listener，对于给定hostname的给定端口，在给定协议上
 func (pf *PortForwarder) getListener(protocol string, hostname string, port *ForwardedPort) (net.Listener, error) {
 	listener, err := net.Listen(protocol, net.JoinHostPort(hostname, strconv.Itoa(int(port.Local))))
 	if err != nil {
@@ -228,6 +238,7 @@ func (pf *PortForwarder) getListener(protocol string, hostname string, port *For
 
 // waitForConnection waits for new connections to listener and handles them in
 // the background.
+// waitForConnection等待到达listener的新的连接并且在后台对它们进行处理
 func (pf *PortForwarder) waitForConnection(listener net.Listener, port ForwardedPort) {
 	for {
 		conn, err := listener.Accept()
@@ -252,6 +263,7 @@ func (pf *PortForwarder) nextRequestID() int {
 
 // handleConnection copies data between the local connection and the stream to
 // the remote server.
+// handleConnection在本地连接和到远程主机的stream直接拷贝数据
 func (pf *PortForwarder) handleConnection(conn net.Conn, port ForwardedPort) {
 	defer conn.Close()
 
@@ -259,11 +271,14 @@ func (pf *PortForwarder) handleConnection(conn net.Conn, port ForwardedPort) {
 		fmt.Fprintf(pf.out, "Handling connection for %d\n", port.Local)
 	}
 
+	// 创建request ID
 	requestID := pf.nextRequestID()
 
 	// create error stream
+	// 创建error stream
 	headers := http.Header{}
 	headers.Set(v1.StreamType, v1.StreamTypeError)
+	// 设置port forward stream的头部
 	headers.Set(v1.PortHeader, fmt.Sprintf("%d", port.Remote))
 	headers.Set(v1.PortForwardRequestIDHeader, strconv.Itoa(requestID))
 	errorStream, err := pf.streamConn.CreateStream(headers)
@@ -287,6 +302,7 @@ func (pf *PortForwarder) handleConnection(conn net.Conn, port ForwardedPort) {
 	}()
 
 	// create data stream
+	// 创建data stream
 	headers.Set(v1.StreamType, v1.StreamTypeData)
 	dataStream, err := pf.streamConn.CreateStream(headers)
 	if err != nil {
@@ -299,6 +315,7 @@ func (pf *PortForwarder) handleConnection(conn net.Conn, port ForwardedPort) {
 
 	go func() {
 		// Copy from the remote side to the local port.
+		// 从远程主机复制数据到本地端口
 		if _, err := io.Copy(conn, dataStream); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			runtime.HandleError(fmt.Errorf("error copying from remote stream to local connection: %v", err))
 		}
@@ -312,6 +329,7 @@ func (pf *PortForwarder) handleConnection(conn net.Conn, port ForwardedPort) {
 		defer dataStream.Close()
 
 		// Copy from the local port to the remote side.
+		// 从本地端口复制到远程主机
 		if _, err := io.Copy(dataStream, conn); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			runtime.HandleError(fmt.Errorf("error copying from local connection to remote stream: %v", err))
 			// break out of the select below without waiting for the other copy to finish

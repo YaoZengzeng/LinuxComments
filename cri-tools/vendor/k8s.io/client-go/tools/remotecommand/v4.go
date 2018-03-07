@@ -31,6 +31,8 @@ import (
 // streamProtocolV4 implements version 4 of the streaming protocol for attach
 // and exec. This version adds support for exit codes on the error stream through
 // the use of metav1.Status instead of plain text messages.
+// streamProtocolV4实现了attach和exec，并且通过使用metav1.Status而不是plain text message
+// 支持了error stream的exit code功能
 type streamProtocolV4 struct {
 	*streamProtocolV3
 }

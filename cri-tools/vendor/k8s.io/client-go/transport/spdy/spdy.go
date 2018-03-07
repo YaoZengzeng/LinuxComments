@@ -27,13 +27,17 @@ import (
 )
 
 // Upgrader validates a response from the server after a SPDY upgrade.
+// Upgrader检测在一个SPDY upgrade之后从服务端发送来的response
 type Upgrader interface {
 	// NewConnection validates the response and creates a new Connection.
+	// NewConnection检验response并且创建一个新的连接
 	NewConnection(resp *http.Response) (httpstream.Connection, error)
 }
 
 // RoundTripperFor returns a round tripper and upgrader to use with SPDY.
+// RoundTripperFor返回一个round tripper并且upgrader使用SPDY
 func RoundTripperFor(config *restclient.Config) (http.RoundTripper, Upgrader, error) {
+	// config为空
 	tlsConfig, err := restclient.TLSConfigFor(config)
 	if err != nil {
 		return nil, nil, err
@@ -57,6 +61,7 @@ type dialer struct {
 var _ httpstream.Dialer = &dialer{}
 
 // NewDialer will create a dialer that connects to the provided URL and upgrades the connection to SPDY.
+// NewDialer会创建一个dialer，它能够连接到给定的URL并且将连接升级为SPDY协议
 func NewDialer(upgrader Upgrader, client *http.Client, method string, url *url.URL) httpstream.Dialer {
 	return &dialer{
 		client:   client,
@@ -77,7 +82,10 @@ func (d *dialer) Dial(protocols ...string) (httpstream.Connection, string, error
 // Negotiate opens a connection to a remote server and attempts to negotiate
 // a SPDY connection. Upon success, it returns the connection and the protocol selected by
 // the server. The client transport must use the upgradeRoundTripper - see RoundTripperFor.
+// Negotiate开启一个到远程server的连接并且尝试协商建立一个SPDY连接
+// 在成功以后，返回连接以及server选择的协议，client的传输必须使用upgradeRoundTripper
 func Negotiate(upgrader Upgrader, client *http.Client, req *http.Request, protocols ...string) (httpstream.Connection, string, error) {
+	// 将client支持的各种协议加入头部
 	for i := range protocols {
 		req.Header.Add(httpstream.HeaderProtocolVersion, protocols[i])
 	}
@@ -86,6 +94,7 @@ func Negotiate(upgrader Upgrader, client *http.Client, req *http.Request, protoc
 		return nil, "", fmt.Errorf("error sending request: %v", err)
 	}
 	defer resp.Body.Close()
+	// 用返回的resp，升级协议
 	conn, err := upgrader.NewConnection(resp)
 	if err != nil {
 		return nil, "", err

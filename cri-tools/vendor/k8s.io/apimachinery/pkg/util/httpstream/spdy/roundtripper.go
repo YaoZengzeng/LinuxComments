@@ -42,6 +42,8 @@ import (
 // SpdyRoundTripper knows how to upgrade an HTTP request to one that supports
 // multiplexed streams. After RoundTrip() is invoked, Conn will be set
 // and usable. SpdyRoundTripper implements the UpgradeRoundTripper interface.
+// SpdyRoundTripper知道如何更新一个HTTP request，让它支持多路复用的streams
+// 在RoundTrip()被调用之后，Conn就可用了，SpdyRoundTripper实现了UpgradeRoundTripper这个interface
 type SpdyRoundTripper struct {
 	//tlsConfig holds the TLS configuration settings to use when connecting
 	//to the remote server.
@@ -287,9 +289,12 @@ func (s *SpdyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // NewConnection validates the upgrade response, creating and returning a new
 // httpstream.Connection if there were no errors.
+// NewConnection检验ugrade response，创建并且返回一个新的httpstream.Connection，如果没有问题的话
 func (s *SpdyRoundTripper) NewConnection(resp *http.Response) (httpstream.Connection, error) {
+	// 检测返回的http response头部的connection和upgrade字段
 	connectionHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderConnection))
 	upgradeHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderUpgrade))
+	// 如果升级失败
 	if (resp.StatusCode != http.StatusSwitchingProtocols) || !strings.Contains(connectionHeader, strings.ToLower(httpstream.HeaderUpgrade)) || !strings.Contains(upgradeHeader, strings.ToLower(HeaderSpdy31)) {
 		defer resp.Body.Close()
 		responseError := ""

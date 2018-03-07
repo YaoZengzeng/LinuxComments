@@ -346,6 +346,7 @@ func (r *RemoteRuntimeService) ExecSync(containerID string, cmd []string, timeou
 }
 
 // Exec prepares a streaming endpoint to execute a command in the container, and returns the address.
+// Exec准备了在容器中执行一条命令的streaming endpoint，并且返回它的地址
 func (r *RemoteRuntimeService) Exec(req *runtimeapi.ExecRequest) (*runtimeapi.ExecResponse, error) {
 	ctx, cancel := getContextWithTimeout(r.timeout)
 	defer cancel()

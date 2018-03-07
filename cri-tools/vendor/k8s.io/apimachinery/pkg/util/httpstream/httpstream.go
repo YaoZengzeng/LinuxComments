@@ -55,6 +55,7 @@ type Dialer interface {
 type UpgradeRoundTripper interface {
 	http.RoundTripper
 	// NewConnection validates the response and creates a new Connection.
+	// NewConnection检查response并且返回一个新的Connection
 	NewConnection(resp *http.Response) (Connection, error)
 }
 
@@ -82,6 +83,7 @@ type Connection interface {
 
 // Stream represents a bidirectional communications channel that is part of an
 // upgraded connection.
+// stream代表了一个双向通信的管道，它是upgraded connection的一部分
 type Stream interface {
 	io.ReadWriteCloser
 	// Reset closes both directions of the stream, indicating that neither client

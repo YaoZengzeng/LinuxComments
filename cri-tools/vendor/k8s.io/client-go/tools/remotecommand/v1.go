@@ -48,6 +48,7 @@ func newStreamProtocolV1(options StreamOptions) streamProtocolHandler {
 	}
 }
 
+// streamCreator是一个interface，要求能实现CreateStream这个方法
 func (p *streamProtocolV1) stream(conn streamCreator) error {
 	doneChan := make(chan struct{}, 2)
 	errorChan := make(chan error)
@@ -55,10 +56,12 @@ func (p *streamProtocolV1) stream(conn streamCreator) error {
 	cp := func(s string, dst io.Writer, src io.Reader) {
 		glog.V(6).Infof("Copying %s", s)
 		defer glog.V(6).Infof("Done copying %s", s)
+		// 当读出的错误为io.EOF时，则结束
 		if _, err := io.Copy(dst, src); err != nil && err != io.EOF {
 			glog.Errorf("Error copying %s: %v", s, err)
 		}
 		if s == v1.StreamTypeStdout || s == v1.StreamTypeStderr {
+			// 如果为stdout，或者stderr就发送给doneChan
 			doneChan <- struct{}{}
 		}
 	}
@@ -66,6 +69,7 @@ func (p *streamProtocolV1) stream(conn streamCreator) error {
 	// set up all the streams first
 	var err error
 	headers := http.Header{}
+	// 首先创建一个error stream
 	headers.Set(v1.StreamType, v1.StreamTypeError)
 	p.errorStream, err = conn.CreateStream(headers)
 	if err != nil {
@@ -80,6 +84,7 @@ func (p *streamProtocolV1) stream(conn streamCreator) error {
 	// getting processed because the server hasn't started its copying, and it won't do that until it
 	// gets all the streams. By creating all the streams first, we ensure that the server is ready to
 	// process data before the client starts sending any. See https://issues.k8s.io/16373 for more info.
+	// 我们必须创建好所有的stream，不然server端不会进行拷贝工作
 	if p.Stdin != nil {
 		headers.Set(v1.StreamType, v1.StreamTypeStdin)
 		p.remoteStdin, err = conn.CreateStream(headers)
@@ -108,8 +113,10 @@ func (p *streamProtocolV1) stream(conn streamCreator) error {
 	}
 
 	// now that all the streams have been created, proceed with reading & copying
+	// 现在所有stream都准备就绪了，可以进行reading & copying了
 
 	// always read from errorStream
+	// 如果从errorStream读到错误信息就报错
 	go func() {
 		message, err := ioutil.ReadAll(p.errorStream)
 		if err != nil && err != io.EOF {
@@ -148,6 +155,7 @@ Loop:
 		select {
 		case <-doneChan:
 			completedStreams++
+			// 等待stream完成
 			if completedStreams == waitCount {
 				break Loop
 			}

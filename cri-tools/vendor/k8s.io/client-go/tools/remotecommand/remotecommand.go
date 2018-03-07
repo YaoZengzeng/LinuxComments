@@ -64,6 +64,7 @@ type streamProtocolHandler interface {
 }
 
 // streamExecutor handles transporting standard shell streams over an httpstream connection.
+// streamExecutor处理通过一个httpstream连接处理传输标准的shell streams
 type streamExecutor struct {
 	upgrader  spdy.Upgrader
 	transport http.RoundTripper
@@ -79,6 +80,7 @@ type streamExecutor struct {
 func NewSPDYExecutor(config *restclient.Config, method string, url *url.URL) (Executor, error) {
 	return NewSPDYExecutorForProtocols(
 		config, method, url,
+		// 优先级从高到低排列
 		remotecommand.StreamProtocolV4Name,
 		remotecommand.StreamProtocolV3Name,
 		remotecommand.StreamProtocolV2Name,
@@ -89,16 +91,20 @@ func NewSPDYExecutor(config *restclient.Config, method string, url *url.URL) (Ex
 // NewSPDYExecutorForProtocols connects to the provided server and upgrades the connection to
 // multiplexed bidirectional streams using only the provided protocols. Exposed for testing, most
 // callers should use NewSPDYExecutor.
-// NewSPDYExecutorForProtocols连接指定的server，并且使用给定的协议将multiplexed bidirectional stream更新连接
+// NewSPDYExecutorForProtocols连接指定的server，并且利用给定的protocols将连接更新为多路复用的双向流
 func NewSPDYExecutorForProtocols(config *restclient.Config, method string, url *url.URL, protocols ...string) (Executor, error) {
+	// config一般为空
+	// wrapper的类型为http.RoundTripper
 	wrapper, upgradeRoundTripper, err := spdy.RoundTripperFor(config)
 	if err != nil {
 		return nil, err
 	}
+	// 在已有的wrapper基础之上添加log
 	wrapper = transport.DebugWrappers(wrapper)
 	return &streamExecutor{
 		upgrader:  upgradeRoundTripper,
 		transport: wrapper,
+		// method，url，protocol都直接赋值
 		method:    method,
 		url:       url,
 		protocols: protocols,
@@ -109,6 +115,7 @@ func NewSPDYExecutorForProtocols(config *restclient.Config, method string, url *
 // the connection or the server disconnects.
 // Stream 打开一个通往server的protocol streamer，保持stream直到client或者server关闭连接
 func (e *streamExecutor) Stream(options StreamOptions) error {
+	// 创建一个到stream server的连接
 	req, err := http.NewRequest(e.method, e.url.String(), nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %v", err)

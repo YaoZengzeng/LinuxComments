@@ -96,6 +96,7 @@ var _ = framework.KubeDescribe("Streaming", func() {
 		It("runtime should support portforward [Conformance]", func() {
 			By("create a PodSandbox with host port and container port port mapping")
 			var podConfig *runtimeapi.PodSandboxConfig
+			// 在port mapping中并没有指定HostPort
 			portMappings := []*runtimeapi.PortMapping{
 				{
 					ContainerPort: nginxContainerPort,
@@ -109,6 +110,7 @@ var _ = framework.KubeDescribe("Streaming", func() {
 			By("start the nginx container")
 			startContainer(rc, containerID)
 
+			// 创建portforwarder
 			req := createDefaultPortForward(rc, podID)
 
 			By("check the output of portforward")
@@ -121,7 +123,9 @@ func createDefaultExec(c internalapi.RuntimeService, containerID string) string 
 	By("exec default command in container: " + containerID)
 	req := &runtimeapi.ExecRequest{
 		ContainerId: containerID,
+		// ExecRequest将命令写在cmd中
 		Cmd:         []string{"echo", "hello"},
+		// Stdin默认为false
 		Stdout:      true,
 		Stderr:      true,
 	}
@@ -159,6 +163,7 @@ func parseURL(c internalapi.RuntimeService, serverURL string) *url.URL {
 	framework.ExpectNoError(err, "failed to parse url:  %q", serverURL)
 
 	version := getVersion(c)
+	// 根据runtime的信息来获取默认的url
 	if version.RuntimeName == "docker" {
 		if url.Host == "" {
 			url.Host = defaultStreamServerAddress
@@ -192,16 +197,20 @@ func createDefaultAttach(c internalapi.RuntimeService, containerID string) strin
 func checkAttach(c internalapi.RuntimeService, attachServerURL string) {
 	localOut := &bytes.Buffer{}
 	localErr := &bytes.Buffer{}
+	// 创建pipe作为输入数据
 	reader, writer := io.Pipe()
 	var out string
 
 	go func() {
 		defer GinkgoRecover()
+		// 先要将"echo hello"成功写入
 		writer.Write([]byte("echo hello\n"))
 		Eventually(func() string {
+			// 将localOut输出
 			out = localOut.String()
 			return out
 		}, time.Minute, time.Second).ShouldNot(BeEmpty())
+		// 将writer close就会让reader读到io.EOF
 		writer.Close()
 	}()
 
@@ -212,6 +221,7 @@ func checkAttach(c internalapi.RuntimeService, attachServerURL string) {
 	framework.ExpectNoError(err, "failed to create executor for %q", attachServerURL)
 
 	err = e.Stream(remoteclient.StreamOptions{
+		// 将输入从pipe中读出
 		Stdin:  reader,
 		Stdout: localOut,
 		Stderr: localErr,
@@ -251,6 +261,7 @@ func checkPortForward(c internalapi.RuntimeService, portForwardSeverURL string) 
 	go func() {
 		defer GinkgoRecover()
 		By("start port forward")
+		// 启动port forwarder进行端口转发
 		err = pf.ForwardPorts()
 		framework.ExpectNoError(err, "failed to start port forward for %q", portForwardSeverURL)
 	}()

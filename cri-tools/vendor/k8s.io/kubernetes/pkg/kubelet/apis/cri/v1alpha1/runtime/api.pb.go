@@ -2423,8 +2423,10 @@ type ExecRequest struct {
 	// ID of the container in which to execute the command.
 	ContainerId string `protobuf:"bytes,1,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	// Command to execute.
+	// 执行的命令
 	Cmd []string `protobuf:"bytes,2,rep,name=cmd" json:"cmd,omitempty"`
 	// Whether to exec the command in a TTY.
+	// 是否在TTY中执行command
 	Tty bool `protobuf:"varint,3,opt,name=tty,proto3" json:"tty,omitempty"`
 	// Whether to stream stdin.
 	// One of `stdin`, `stdout`, and `stderr` MUST be true.
@@ -2437,6 +2439,9 @@ type ExecRequest struct {
 	// If `tty` is true, `stderr` MUST be false. Multiplexing is not supported
 	// in this case. The output of stdout and stderr will be combined to a
 	// single stream.
+	// stdin, stdout, stderr中必须有一个为true
+	// 如果tty为true，则stderr必须为false, multiplexing在这个case中是不支持的
+	// stdout和stderr的输出会被合成为一个stream
 	Stderr bool `protobuf:"varint,6,opt,name=stderr,proto3" json:"stderr,omitempty"`
 }
 

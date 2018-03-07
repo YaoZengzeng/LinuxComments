@@ -66,16 +66,19 @@ var _ = framework.KubeDescribe("Security Context", func() {
 
 		It("runtime should support HostPID", func() {
 			By("create podSandbox for security context HostPID")
+			// 设置namespace option
 			namespaceOption := &runtimeapi.NamespaceOption{
 				HostPid:     true,
 				HostIpc:     false,
 				HostNetwork: false,
 			}
+			// 创建带有namespace option的sandbox
 			podID, podConfig = createNamespacePodSandbox(rc, namespaceOption, podSandboxName, "")
 
 			By("create nginx container")
 			prefix := "nginx-container-"
 			containerName := prefix + framework.NewUUID()
+			// 创建带有namespace option的container
 			containerID, nginxContainerName, _ := createNamespaceContainer(rc, ic, podID, podConfig, containerName, nginxContainerImage, namespaceOption, nil, "")
 
 			By("start container")
@@ -85,12 +88,14 @@ var _ = framework.KubeDescribe("Security Context", func() {
 			}, time.Minute, time.Second*4).Should(Equal(runtimeapi.ContainerState_CONTAINER_RUNNING))
 
 			By("get nginx container pid")
+			// 获取nginx container的pid
 			command := []string{"cat", "/var/run/nginx.pid"}
 			output := execSyncContainer(rc, containerID, command)
 			nginxPid := strings.TrimSpace(string(output))
 			framework.Logf("Nginx's pid is %q", nginxPid)
 
 			By("create busybox container with hostPID")
+			// 启动busybox container
 			command = []string{"sh", "-c", "sleep 1000"}
 			prefix = "container-with-HostPID-test-"
 			containerName = prefix + framework.NewUUID()
@@ -109,6 +114,7 @@ var _ = framework.KubeDescribe("Security Context", func() {
 			framework.Logf("Got nginx's pid %q from pod %q", pids, nginxContainerName)
 
 			if pids == "" {
+				// nginx的pid应该能被hostpid的container看到
 				framework.Failf("nginx's pid should be seen by hostpid containers")
 			}
 
@@ -729,6 +735,7 @@ func createNamespacePodSandbox(rc internalapi.RuntimeService, podSandboxNamespac
 		Metadata: framework.BuildPodSandboxMetadata(podSandboxName, uid, namespace, framework.DefaultAttempt),
 		Linux: &runtimeapi.LinuxPodSandboxConfig{
 			SecurityContext: &runtimeapi.LinuxSandboxSecurityContext{
+				// 设置sandbox的namespace option
 				NamespaceOptions: podSandboxNamespace,
 			},
 		},
@@ -747,6 +754,7 @@ func createNamespaceContainer(rc internalapi.RuntimeService, ic internalapi.Imag
 		Command:  command,
 		Linux: &runtimeapi.LinuxContainerConfig{
 			SecurityContext: &runtimeapi.LinuxContainerSecurityContext{
+				// 创建容器的namespace option
 				NamespaceOptions: containerNamespace,
 			},
 		},

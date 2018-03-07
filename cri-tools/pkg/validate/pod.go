@@ -214,6 +214,7 @@ func createLogTempDir(podSandboxName string) (string, string) {
 }
 
 // createPodSandboxWithLogDirectory creates a PodSandbox with log directory.
+// createPodSadnboxWithLogDirectory创建带有log directory的PodSandbox
 func createPodSandboxWithLogDirectory(c internalapi.RuntimeService) (string, *runtimeapi.PodSandboxConfig, string) {
 	By("create a PodSandbox with log directory")
 	podSandboxName := "PodSandbox-with-log-directory-" + framework.NewUUID()
@@ -224,6 +225,7 @@ func createPodSandboxWithLogDirectory(c internalapi.RuntimeService) (string, *ru
 
 	podConfig := &runtimeapi.PodSandboxConfig{
 		Metadata:     framework.BuildPodSandboxMetadata(podSandboxName, uid, namespace, framework.DefaultAttempt),
+		// 在宿主机创建log目录
 		LogDirectory: podLogPath,
 	}
 	return framework.RunPodSandbox(c, podConfig), podConfig, hostPath

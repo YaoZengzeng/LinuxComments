@@ -25,6 +25,8 @@ import (
 
 // TLSConfigFor returns a tls.Config that will provide the transport level security defined
 // by the provided Config. Will return nil if no transport level security is requested.
+// TLSConfigFor返回一个tls.Config，根据给定的Config提供transport level security
+// 如果没有请求transport level security则返回nil
 func TLSConfigFor(config *Config) (*tls.Config, error) {
 	cfg, err := config.TransportConfig()
 	if err != nil {

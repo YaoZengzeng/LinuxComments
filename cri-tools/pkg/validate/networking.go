@@ -132,6 +132,7 @@ func createPodSandWithDNSConfig(c internalapi.RuntimeService) (string, *runtimea
 	namespace := framework.DefaultNamespacePrefix + framework.NewUUID()
 	config := &runtimeapi.PodSandboxConfig{
 		Metadata: framework.BuildPodSandboxMetadata(podSandboxName, uid, namespace, framework.DefaultAttempt),
+		// 对DNS进行配置
 		DnsConfig: &runtimeapi.DNSConfig{
 			Servers:  []string{defaultDNSServer},
 			Searches: []string{defaultDNSSearch},
@@ -160,6 +161,7 @@ func createPodSandboxWithPortMapping(c internalapi.RuntimeService, portMappings 
 }
 
 // checkDNSConfig checks the content of /etc/resolv.conf.
+// checkDNSConfig检查/etc/resolv.conf的内容
 func checkDNSConfig(c internalapi.RuntimeService, containerID string, expectedContent []string) {
 	By("get the content of /etc/resolv.conf via execSync")
 	cmd := []string{"cat", resolvConfigPath}
@@ -208,6 +210,7 @@ func checkNginxMainPage(c internalapi.RuntimeService, podID string, localHost bo
 		return err
 	}, time.Minute, time.Second).Should(BeNil())
 
+	// 根据返回码判断port mapping是否成功
 	Expect(resp.StatusCode).To(Equal(200), "The status code of response should be 200.")
 	framework.Logf("check port mapping succeed")
 }
